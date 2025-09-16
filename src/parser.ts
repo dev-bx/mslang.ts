@@ -305,7 +305,7 @@ export class CodeParser {
                         throw new Error("Parse expression failed");
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFloat, parseFloat(this.lexer.tokenValue));
 
-                    if (!Number.isInteger(SubNode.nValue))
+                    if (isNaN(SubNode.nValue as number))
                         throw new Error("Failed parse float value "+this.lexer.tokenValue);
 
                     NodeList.push(SubNode);

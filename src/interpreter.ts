@@ -306,7 +306,7 @@ export class Interpreter {
     }
 
     assignHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('assign is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -332,7 +332,7 @@ export class Interpreter {
     }
 
     expressionAssignHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('assign is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -573,7 +573,7 @@ export class Interpreter {
     }
 
     subExpressionHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('Sub expression is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -594,7 +594,7 @@ export class Interpreter {
     }
 
     funcCallHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('funcCall is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -609,7 +609,7 @@ export class Interpreter {
     }
 
     funcParamHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('funcParam is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -664,7 +664,7 @@ export class Interpreter {
     }
 
     selfFuncCallHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('selfFuncCall is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -709,7 +709,7 @@ export class Interpreter {
             funcName += '::' + token.nValue.nValue2;
         }
 
-        let self = context.popStackVar();
+        const self = context.popStackVar();
 
         context.pushStackVar(context.selfCallFunction(self, funcName, parameters));
     }
@@ -776,7 +776,7 @@ export class Interpreter {
     }
 
     ifHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('if (...) is empty', token.cursorPos);
 
         let variable = context.createVariable(VariableType.vtBoolean, false);
@@ -794,7 +794,7 @@ export class Interpreter {
     }
 
     ifValueHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('ifValue is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -809,7 +809,7 @@ export class Interpreter {
     }
 
     ifValueBOOLHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('ifValueBOOL is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -985,7 +985,7 @@ export class Interpreter {
     }
 
     subCodeHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('subCode is empty', token.cursorPos);
 
         context.pushExecutionStack();
@@ -1007,13 +1007,16 @@ export class Interpreter {
     }
 
     forHandler(context: ContextInterpreter, token: ParseNode) {
-        if (token.childItems?.length !== 4)
+        if (!token.childItems)
+            throw new InterpreterException('child items not initialized', token.cursorPos);
+
+        if (token.childItems.length !== 4)
             throw new InterpreterException('for handler must be 4 child items', token.cursorPos);
 
         if (!(token.childItems[0] instanceof ParseNode))
             throw new InterpreterException('for handler must be contains ParseNode', token.cursorPos)
 
-        if (!token.childItems[0].childItems?.length)
+        if (!token.childItems[0].childItems)
             throw new InterpreterException('for handler ParseNode is empty', token.cursorPos)
 
         context.pushExecutionStack();
@@ -1033,7 +1036,7 @@ export class Interpreter {
     }
 
     forCompareHandler(context: ContextInterpreter, token: ParseNode) {
-        if (!token.childItems?.length)
+        if (!token.childItems)
             throw new InterpreterException('forCompare is empty', token.cursorPos)
 
         let variable = context.createVariable(VariableType.vtBoolean, false);
@@ -1074,7 +1077,7 @@ export class Interpreter {
         if (!token.childItems)
             throw new InterpreterException('return childItems not initialized', token.cursorPos);
 
-        if (token.childItems?.length === 0) {
+        if (!token.childItems?.length) {
             let variable = context.createVariable(VariableType.vtVoid, false);
 
             while (context._executionStack.length)

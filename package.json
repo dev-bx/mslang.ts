@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "tsx tests/tests.ts",
+    "test:compile": "tsc && tsc -p tsconfig.test.json && node dist/tests/tests.js",
+    "test:watch": "node --loader ts-node/esm --watch tests/tests.ts"
   },
   "keywords": [],
   "author": "",

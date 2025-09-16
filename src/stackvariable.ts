@@ -102,7 +102,7 @@ export class StackVariable {
         if (typeof this.properties[name].get !== 'function')
             return undefined;
 
-        return this.properties[name].get();
+        return this.properties[name].get.apply(this);
     }
 
     setProperty(name: string, value: unknown) {
@@ -161,7 +161,7 @@ export class StackVariable {
         }
 
         const entry = new FunctionEntry(name, funcReturnType, (...args: InvokeArguments[]) => {
-            this.invokeMethod(entry, methodName, args);
+            return this.invokeMethod(entry, methodName, args);
         });
 
         funcArguments.forEach(funcArgument => {

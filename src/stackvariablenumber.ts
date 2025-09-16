@@ -86,10 +86,7 @@ export class StackVariableNumber extends StackVariable {
     properties = {
         isNaN: {
             get(this: StackVariableNumber) {
-                if (typeof this._value === 'number')
-                    return new StackVariableBoolean(false, isNaN(this._value));
-
-                return new StackVariableBoolean(false, false);
+                return new StackVariableBoolean(false, isNaN(this._value as number));
             }
         },
 
