@@ -441,7 +441,7 @@ test('025', (t) => {
     assert.strictEqual(4294967296, returnVal?.value);
 });
 
-test('025', (t) => {
+test('025-2', (t) => {
     let returnVal;
 
     returnVal = executeReturnCode(`
