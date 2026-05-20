@@ -5,7 +5,7 @@
  *
  * Запуск (TS-сторона генерирует, PHP-сторона проверяет):
  *   npx tsx tests/fuzz.ts --count 200 --seed 42 > /tmp/fuzz.jsonl
- *   php ../devbx.core/tests/fuzz.php /tmp/fuzz.jsonl
+ *   php ../php/tests/fuzz.php /tmp/fuzz.jsonl
  *
  * При расхождении PHP-runner печатает строки, где результат отличается,
  * и выходит с ненулевым кодом. По умолчанию --count 100.

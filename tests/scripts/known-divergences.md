@@ -24,7 +24,7 @@ loose equality, используется в `StackVariable.compare` и `StackVar
 npx tsx tests/fuzz.ts --count 1000 --seed 1 > /tmp/fuzz.jsonl
 
 # PHP-сторона прогоняет тот же набор и сверяет с TS
-php ../devbx.core/tests/fuzz.php /tmp/fuzz.jsonl
+php ../php/tests/fuzz.php /tmp/fuzz.jsonl
 ```
 
 Меняй `--seed` — найдёшь новые входы. После починки бага добавь сценарий в

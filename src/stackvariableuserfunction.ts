@@ -13,7 +13,7 @@ import {MSLangException} from "./exceptions.js";
  * хост-callback — она несёт само тело и параметры; интерпретатор сам
  * толкает их в стек выполнения.
  *
- * Зеркало PHP-эталона `StackVariableUserFunction` из `devbx.core`.
+ * Зеркало PHP-эталона `StackVariableUserFunction` из mslang.php.
  */
 export class StackVariableUserFunction extends StackVariable {
     private readonly _name: string;
