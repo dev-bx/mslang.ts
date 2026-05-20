@@ -263,8 +263,8 @@ export class StackVariable {
             throw new MSLangException(methodName+' method not exists on object');
         }
 
-        let index = 0,
-            callArguments: unknown[] = [];
+        let index = 0;
+        const callArguments: unknown[] = [];
 
         invokeArguments.forEach(argument => {
             if (!(argument instanceof StackVariable))

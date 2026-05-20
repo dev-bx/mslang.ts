@@ -234,7 +234,7 @@ test('019', (t) => {
 test('020', (t) => {
 
     try {
-        const returnVal = executeReturnCode('a = ""; b = a.Trim; return b();');
+        executeReturnCode('a = ""; b = a.Trim; return b();');
     } catch (e) {
         assert.strictEqual('Trim called on null or undefined', (e as Error).message);
     }
@@ -449,9 +449,9 @@ test('025', (t) => {
 });
 
 test('025_2', (t) => {
-    let returnVal;
 
-    returnVal = executeReturnCode(`
+
+    const returnVal = executeReturnCode(`
     timeStr = DateTime.Now.ToString();
     ar = [DateTime.Now.ToString(),1,2,3];
     retVal = '';
@@ -483,9 +483,9 @@ test('025_2', (t) => {
 });
 
 test('026', (t) => {
-    let returnVal;
 
-    returnVal = executeReturnCode(`
+
+    const returnVal = executeReturnCode(`
     a = [1,2,3];
     
         a[1] = DateTime.Now.ToString();
@@ -507,9 +507,9 @@ test('026', (t) => {
 
 test('027', (t) => {
 
-    let returnVal;
 
-    returnVal = executeReturnCode(`
+
+    const returnVal = executeReturnCode(`
     a = [1,2,3];
     b = a;
     
@@ -615,7 +615,7 @@ test('028', (t) => {
 });
 
 test('029', (t) => {
-    let returnVal, ar;
+    let returnVal;
 
     returnVal = executeReturnCode(`
         a = [1,2,3,4];
@@ -729,25 +729,9 @@ test('029_3', (t) => {
 });
 
 test('030', (t) => {
-    let returnVal, ar;
-
-    /*
-    returnVal = executeReturnCode(`
-        return [!0, !1, !'', !'a'];
-    `);
-
-    returnVal = executeReturnCode(`
-        //return [![]];
-    `);
-     */
-
-    returnVal = executeReturnCode(`
+    executeReturnCode(`
         return [!0, !1];
     `);
-
-
-    //ar = returnVal.convertToNativeArray();
-
 });
 
 // --- Перенесено из PHP-зеркала (tests/Test.php) ---

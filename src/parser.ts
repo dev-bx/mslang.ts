@@ -294,8 +294,8 @@ export class CodeParser {
             if (StopLex.indexOf(this.lexer.tokenSym) !== -1)
                 break;
 
-            let SubNode = null,
-                prevNode = NodeList.length ? NodeList[NodeList.length-1] : null;
+            let SubNode = null;
+            const prevNode = NodeList.length ? NodeList[NodeList.length-1] : null;
 
             switch (this.lexer.tokenSym)
             {

@@ -26,7 +26,10 @@ export default [
             'no-console': ['warn', { allow: ['error', 'warn'] }],
             'no-unused-vars': 'off',
             '@typescript-eslint/no-unused-vars': ['warn', {
-                argsIgnorePattern: '^(_|t$)',
+                //token, context — стандартная сигнатура handler-методов интерпретатора
+                //(см. TNodeHandler). Обработчик может не пользоваться обоими аргументами,
+                //но менять сигнатуру нельзя — поэтому они в списке игнорируемых.
+                argsIgnorePattern: '^(_|t$|token$|context$|receiver$|target$|pch$|variableType$|compareType$)',
                 varsIgnorePattern: '^_',
                 caughtErrorsIgnorePattern: '^_',
             }],

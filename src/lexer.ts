@@ -1,4 +1,4 @@
-import {LexerException, MSLangException} from "./exceptions.js";
+import {LexerException} from "./exceptions.js";
 
 
 interface CharMapTable {
@@ -403,8 +403,8 @@ export class CodeLexer extends Lexer {
         }
 
         if (this.lastChar === '"' || this.lastChar === '\'') {
-            let strSym = this.lastChar,
-                strSpecSym:CharMapTable = {};
+            const strSym = this.lastChar;
+            let strSpecSym:CharMapTable = {};
 
             if (this.lastChar === '"') {
                 strSpecSym = {

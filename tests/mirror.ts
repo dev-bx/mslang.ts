@@ -21,7 +21,6 @@ const PHP_ROOT = process.env.MSLANG_PHP_ROOT
 // сборку. Локально папка обычно есть.
 const PHP_AVAILABLE = fs.existsSync(PHP_ROOT);
 if (!PHP_AVAILABLE) {
-    // eslint-disable-next-line no-console
     console.warn(`[mirror] PHP-зеркало не найдено в ${PHP_ROOT}, тесты пропущены.`);
     console.warn('[mirror] Чтобы прогнать, склонируй devbx.core рядом или задай MSLANG_PHP_ROOT.');
 }
