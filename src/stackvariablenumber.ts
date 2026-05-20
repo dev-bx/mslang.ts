@@ -3,6 +3,7 @@ import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
+import {MSLangException} from "./exceptions";
 
 export class StackVariableNumber extends StackVariable {
     constructor(isConst: boolean, value: unknown) {
@@ -16,7 +17,7 @@ export class StackVariableNumber extends StackVariable {
     }
     set value(value) {
         if (typeof value !== 'number')
-            throw new Error('variable type '+typeof value+' expected number')
+            throw new MSLangException('variable type ' + typeof value + ' expected number');
 
         this._value = value;
     }

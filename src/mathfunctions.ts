@@ -2,6 +2,7 @@ import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
+import {MSLangException} from "./exceptions";
 
 export class MathFunctions extends StackVariable {
 
@@ -343,7 +344,7 @@ export class MathFunctions extends StackVariable {
             let varNumber = value.castAs(VariableType.vtNumber);
 
             if (!varNumber)
-                throw new Error('Failed cast '+value.typeName+' as number');
+                throw new MSLangException('Failed cast ' + value.typeName + ' as number');
 
             values.push(varNumber.value);
         });
@@ -362,7 +363,7 @@ export class MathFunctions extends StackVariable {
             let varNumber = value.castAs(VariableType.vtNumber);
 
             if (!varNumber)
-                throw new Error('Failed cast '+value.typeName+' as number');
+                throw new MSLangException('Failed cast ' + value.typeName + ' as number');
 
             values.push(varNumber.value);
         });

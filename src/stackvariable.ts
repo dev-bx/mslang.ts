@@ -76,7 +76,7 @@ export class StackVariable {
     }
 
     set value(value) {
-        throw new Error('value is read only');
+        throw new MSLangException('value is read only');
     }
 
     get isConst() {
@@ -130,7 +130,7 @@ export class StackVariable {
                 return this.value != variable.value;
         }
 
-        throw new Error('Invalid compare type');
+        throw new MSLangException('Invalid compare type');
     }
 
     castAs<T extends VariableType>(variableType: T): SpecificStackVariable<T>|null {
@@ -244,7 +244,7 @@ export class StackVariable {
         /** @var entry FunctionEntry */
 
         if (invokeArguments.length < 1) {
-            throw new Error('Arguments is empty');
+            throw new MSLangException('Arguments is empty');
         }
 
         let funcArguments = entry.getParameters();
@@ -255,11 +255,11 @@ export class StackVariable {
 
         if (typeof self !== 'object' || self === null)
         {
-            throw new Error(entry.getName()+' called on null or undefined');
+            throw new MSLangException(entry.getName()+' called on null or undefined');
         }
 
         if (typeof (this as any)[methodName] !== 'function') {
-            throw new Error(methodName+' method not exists on object');
+            throw new MSLangException(methodName+' method not exists on object');
         }
 
         let index = 0,
@@ -268,7 +268,7 @@ export class StackVariable {
         invokeArguments.forEach(argument => {
             if (!(argument instanceof StackVariable))
             {
-                throw new Error('Argument must be instance of '+StackVariable.constructor.name);
+                throw new MSLangException('Argument must be instance of '+StackVariable.constructor.name);
             }
 
             if (funcArguments[index])
@@ -305,7 +305,23 @@ export class StackVariable {
         if (v)
             return v.value;
 
-        throw new Error('Failed ' + this.typeName + ' cast as string');
+        throw new MSLangException('Failed ' + this.typeName + ' cast as string');
+    }
+
+    // Приведение значения к примитиву (для конкатенации, арифметики и т.п.).
+    // Подклассы переопределяют. База — зеркало PHP StackVariable::toPrimitive.
+    toPrimitive(): StackVariable {
+        switch (this.type) {
+            case VariableType.vtVoid:
+                return ContextInterpreter.createVariable(VariableType.vtString, 'void');
+            case VariableType.vtObject:
+                return ContextInterpreter.createVariable(VariableType.vtString, '[object]');
+            case VariableType.vtString:
+            case VariableType.vtNumber:
+                return this;
+        }
+
+        throw new MSLangException('Failed get primitive for ' + this.typeName);
     }
 
 }

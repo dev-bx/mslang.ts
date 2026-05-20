@@ -44,17 +44,13 @@ export class StackVariableDateTime extends StackVariable {
         },
         'Year': {
             get(this: StackVariableDateTime) {
-                let d = new Date(this._value as number);
-
-                if (d)
-                    return new StackVariableNumber(true, d.getFullYear());
-
-                return undefined;
+                const d = new Date(this.value * 1000);
+                return new StackVariableNumber(true, d.getFullYear());
             }
         },
         'Month': {
             get(this: StackVariableDateTime) {
-                let d = new Date(this.value);
+                const d = new Date(this.value * 1000);
 
                 if (d)
                     return new StackVariableNumber(true, d.getMonth()+1);
@@ -64,7 +60,7 @@ export class StackVariableDateTime extends StackVariable {
         },
         'Day': {
             get(this: StackVariableDateTime) {
-                let d = new Date(this.value);
+                const d = new Date(this.value * 1000);
                 if (d)
                     return new StackVariableNumber(true, d.getDate());
 
@@ -73,7 +69,7 @@ export class StackVariableDateTime extends StackVariable {
         },
         'Hour': {
             get(this: StackVariableDateTime) {
-                let d = new Date(this.value);
+                const d = new Date(this.value * 1000);
                 if (d)
                     return new StackVariableNumber(true, d.getHours());
 
@@ -82,7 +78,7 @@ export class StackVariableDateTime extends StackVariable {
         },
         'Minute': {
             get(this: StackVariableDateTime) {
-                let d = new Date(this.value);
+                const d = new Date(this.value * 1000);
                 if (d)
                     return new StackVariableNumber(true, d.getMinutes());
 
@@ -91,7 +87,7 @@ export class StackVariableDateTime extends StackVariable {
         },
         'DayOfWeek': {
             get(this: StackVariableDateTime) {
-                let d = new Date(this.value);
+                const d = new Date(this.value * 1000);
                 if (d)
                     return new StackVariableNumber(true, d.getDay());
 
@@ -100,7 +96,7 @@ export class StackVariableDateTime extends StackVariable {
         },
         'Time': {
             get(this: StackVariableDateTime) {
-                let d = new Date(this.value);
+                const d = new Date(this.value * 1000);
                 if (d) {
                     return new StackVariableDateTime((d.getHours() * 60 * 60) + (d.getMinutes() * 60) + d.getSeconds());
                 }
@@ -250,7 +246,7 @@ export class StackVariableDateTime extends StackVariable {
             case CompareType.ctEqual | CompareType.ctGreat:
                 return this.value >= compareValue;
             default:
-                throw new Error('Unknown compare type ' + compareType);
+                throw new MSLangException('Unknown compare type ' + compareType);
         }
     }
 
@@ -258,14 +254,15 @@ export class StackVariableDateTime extends StackVariable {
     {
         switch (variableType)
         {
-            case VariableType.vtString:
-
-                var date = new Date(this.value * 1000);
-                var iso = date.toISOString().match(/(\d{4}\-\d{2}\-\d{2})T(\d{2}:\d{2}:\d{2})/)
+            case VariableType.vtString: {
+                const date = new Date(this.value * 1000);
+                const iso = date.toISOString().match(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/);
 
                 if (iso)
                     return new StackVariableString(false, iso[1] + ' ' + iso[2]);
 
+                return null;
+            }
             case VariableType.vtBoolean:
                 return new StackVariableBoolean(false, !!this.value);
             case VariableType.vtNumber:
@@ -273,6 +270,12 @@ export class StackVariableDateTime extends StackVariable {
         }
 
         return null;
+    }
+
+    toPrimitive(): StackVariable {
+        const d = new Date(this.value * 1000);
+        const iso = d.toISOString().match(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/);
+        return new StackVariableString(false, iso ? iso[1] + ' ' + iso[2] : '');
     }
 
 }

@@ -26,4 +26,8 @@ export class StackVariableNull extends StackVariable {
         return null;
     }
 
+    toPrimitive(): StackVariable {
+        return new StackVariableNumber(false, 0);
+    }
+
 }

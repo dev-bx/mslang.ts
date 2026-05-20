@@ -6,6 +6,7 @@ import {StackVariableString} from "./stackvariablestring.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableObject} from "./stackvariableobject.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
+import {MSLangException} from "./exceptions";
 
 export class StackVariableArray extends StackVariable {
 
@@ -52,7 +53,7 @@ export class StackVariableArray extends StackVariable {
                         v = new StackVariableUndefined(false);
                         break;
                     default:
-                        throw Error('Incompatible array value ' + typeof v);
+                        throw new MSLangException('Incompatible array value ' + typeof v);
                 }
             }
         }
@@ -89,10 +90,37 @@ export class StackVariableArray extends StackVariable {
     }
 
     getProperty(name: string) {
+        // .length у массива — это размер коллекции (зеркало PHP getProperty_length).
+        if (name === 'length') {
+            return new StackVariableNumber(false, this.value.size);
+        }
         return this.value.get(name.toString());
     }
 
     setProperty(name: string, value: StackVariable) {
+        if (name === 'length') {
+            const asNumber = value.castAs(VariableType.vtNumber);
+            if (!asNumber)
+                throw new MSLangException('Failed set length, invalid value');
+
+            const newLen = asNumber.value as number;
+            const currentLen = this.value.size;
+
+            if (newLen < currentLen) {
+                // Усечение: оставляем первые newLen элементов в исходном порядке.
+                const keys = Array.from(this.value.keys()).slice(0, newLen);
+                const newMap = new Map<string, StackVariable>();
+                keys.forEach(k => newMap.set(k, this.value.get(k) as StackVariable));
+                this._value = newMap;
+            } else if (newLen > currentLen) {
+                // Расширение: добиваем undefined, продолжая числовую нумерацию.
+                for (let i = currentLen; i < newLen; i++) {
+                    this.value.set(this._nextNumKey.toString(), new StackVariableUndefined(false));
+                    this._nextNumKey++;
+                }
+            }
+            return;
+        }
         this.value.set(name.toString(), value);
     }
 
@@ -158,14 +186,18 @@ export class StackVariableArray extends StackVariable {
         Array.from(this.value.values()).every((value, index) => {
             if (value.type === VariableType.vtString) {
                 if (value.value === searchValue) {
-                    result = Array.from(this.value.keys())[index];
+                    // Возвращаемый тип — vtInteger, ключи в Map всегда строки;
+                    // приводим к числу, как делает PHP-зеркало (`: int`).
+                    result = Number(Array.from(this.value.keys())[index]);
                     return false;
                 }
             } else {
                 let castString = value.castAs(VariableType.vtString);
 
                 if (castString && castString.value === searchValue) {
-                    result = Array.from(this.value.keys())[index];
+                    // Возвращаемый тип — vtInteger, ключи в Map всегда строки;
+                    // приводим к числу, как делает PHP-зеркало (`: int`).
+                    result = Number(Array.from(this.value.keys())[index]);
                     return false;
                 }
             }
@@ -183,7 +215,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_push(...args: unknown[]) {
         Object.values(args).forEach(value => {
             if (!(value instanceof StackVariable)) {
-                throw new Error('value must be instance of StackVariable');
+                throw new MSLangException('value must be instance of StackVariable');
             }
 
             let key;
@@ -212,7 +244,7 @@ export class StackVariableArray extends StackVariable {
             let value = this.value.get(lastKey);
 
             if (!this.value.delete(lastKey))
-                throw new Error('Failed delete key in StackVariableArray');
+                throw new MSLangException('Failed delete key in StackVariableArray');
 
             return value;
         }
@@ -316,7 +348,7 @@ export class StackVariableArray extends StackVariable {
         let key = Array.from(oldValue.keys()).shift() as string;
         let value = oldValue.get(key);
         if (!oldValue.delete(key))
-            throw new Error('Failed delete key in StackVariableArray');
+            throw new MSLangException('Failed delete key in StackVariableArray');
 
         this._nextNumKey = 0;
         this._value = new Map();
@@ -364,7 +396,9 @@ export class StackVariableArray extends StackVariable {
             case VariableType.vtArray:
                 return this;
             case VariableType.vtString:
-                return new StackVariableString(false, this.funcInvoke_join(','));
+                // Зеркало PHP: явное castAs к строке даёт литерал 'array',
+                // а не склейку значений — для склейки есть toPrimitive() и .join().
+                return new StackVariableString(false, 'array');
             case VariableType.vtBoolean:
                 return new StackVariableBoolean(false, this.value.size !== 0);
             case VariableType.vtNumber:
@@ -372,6 +406,43 @@ export class StackVariableArray extends StackVariable {
         }
 
         return null;
+    }
+
+    // Рекурсивно сводит массив к плоскому списку примитивных значений
+    // (строк/чисел). Использует toPrimitive у каждого элемента.
+    protected recursivePrimitiveArray(): unknown[] {
+        const result: unknown[] = [];
+
+        this.value.forEach(v => {
+            if (v instanceof StackVariableArray) {
+                result.push(v.recursivePrimitiveArray());
+            } else if (v instanceof StackVariable) {
+                const prim = v.toPrimitive();
+                if (prim.type !== VariableType.vtString && prim.type !== VariableType.vtNumber)
+                    throw new MSLangException('Failed convert value to primitive');
+                result.push(prim.value);
+            } else {
+                result.push(v);
+            }
+        });
+
+        return result;
+    }
+
+    toPrimitive(): StackVariable {
+        const flatten = (items: unknown[]): unknown[] => {
+            const out: unknown[] = [];
+            items.forEach(it => {
+                if (Array.isArray(it))
+                    out.push(...flatten(it));
+                else
+                    out.push(it);
+            });
+            return out;
+        };
+
+        const flat = flatten(this.recursivePrimitiveArray());
+        return new StackVariableString(false, flat.join(','));
     }
 
     convertToNativeArray() {
