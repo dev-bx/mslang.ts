@@ -42,26 +42,26 @@ function executeReturnCode(text: string) {
 // --- КРИТИЧНЫЕ ---
 
 // Баг 1: нет обработчика ntWhile — любой while падает при выполнении.
-test('BUG-01-while', () => {
+test('Bug01_While', () => {
     const returnVal = executeReturnCode('x = 0; while (x < 3) { x++; } return x;');
     assert.strictEqual(3, returnVal?.value);
 });
 
 // Баг 2: нет обработчика ntMod — оператор % парсится, но не исполняется.
-test('BUG-02-modulo', () => {
+test('Bug02_Modulo', () => {
     const returnVal = executeReturnCode('return 10 % 3;');
     assert.strictEqual(1, returnVal?.value);
 });
 
 // Баг 3: нет обработчика ntBitAnd — оператор & парсится, но не исполняется.
-test('BUG-03-bitwise-and', () => {
+test('Bug03_BitwiseAnd', () => {
     const returnVal = executeReturnCode('return 6 & 2;');
     assert.strictEqual(2, returnVal?.value);
 });
 
 // Баг 4: приведение булева к числу перевёрнуто (stackvariableboolean.ts:32).
 // true должно давать 1, false — 0.
-test('BUG-04-boolean-to-number', () => {
+test('Bug04_BooleanToNumber', () => {
     const bTrue = new StackVariableBoolean(true, true);
     assert.strictEqual(1, bTrue.castAs(VariableType.vtNumber)?.value);
 
@@ -77,7 +77,7 @@ test('BUG-04-boolean-to-number', () => {
 // StackVariableRef, и обычный instanceof StackVariableArray не сработает.
 // Проверяем по имени класса (прокси прозрачно отдаёт constructor) и по
 // прокидываемому свойству .value.
-test('BUG-05-array-keyvalue-in-loop', () => {
+test('Bug05_ArrayKeyValueInLoop', () => {
     const returnVal = executeReturnCode(`
         a = 0;
         for (i = 0; i < 2; i++)
@@ -94,7 +94,7 @@ test('BUG-05-array-keyvalue-in-loop', () => {
 });
 
 // Баг 6: в VariableType значения 3 и 5 при пропущенном 4 — дыра в наборе значений.
-test('BUG-06-variabletype-no-gap', () => {
+test('Bug06_VariableTypeNoGap', () => {
     const nums = Object.values(VariableType).filter(v => typeof v === 'number') as number[];
     const uniq = [...new Set(nums)].sort((a, b) => a - b);
 
@@ -106,7 +106,7 @@ test('BUG-06-variabletype-no-gap', () => {
 // --- СРЕДНИЕ ---
 
 // Баг 7: комментарий // в конце файла без перевода строки ломает разбор.
-test('BUG-07-comment-at-eof', () => {
+test('Bug07_CommentAtEof', () => {
     const returnVal = executeReturnCode('return 1;// комментарий в конце');
     assert.strictEqual(1, returnVal?.value);
 });
@@ -114,7 +114,7 @@ test('BUG-07-comment-at-eof', () => {
 // Баг 8: число с точкой после узла логики/как значение ключа массива
 // не разбирается (parser.ts:304), хотя то же самое с целым числом проходит.
 // Здесь [0 => 1] разбирается, а [0 => 1.5] падает с «Parse expression failed».
-test('BUG-08-float-as-array-value', () => {
+test('Bug08_FloatAsArrayValue', () => {
     const returnVal = executeReturnCode('return [0 => 1.5];');
     assert.strictEqual(true, returnVal instanceof StackVariableArray);
     if (returnVal instanceof StackVariableArray) {
@@ -124,7 +124,7 @@ test('BUG-08-float-as-array-value', () => {
 
 // Баг 9: getRequiredCount обрывается на первом необязательном параметре
 // и не считает обязательные параметры после него (functionentry.ts:56).
-test('BUG-09-getRequiredCount', () => {
+test('Bug09_GetRequiredCount', () => {
     const fe = new FunctionEntry('t', VariableType.vtVoid, () => {});
     fe.addParameter(new FunctionParameter('a', VariableType.vtNumber, true));
     fe.addParameter(new FunctionParameter('b', VariableType.vtNumber, false));
@@ -135,7 +135,7 @@ test('BUG-09-getRequiredCount', () => {
 
 // Баг 10: у StackVariableUndefined нет castAs — приведение undefined к строке
 // должно давать "undefined", а не падать/возвращать null.
-test('BUG-10-undefined-castAs', () => {
+test('Bug10_UndefinedCastAs', () => {
     const u = new StackVariableUndefined(true);
     const asString = u.castAs(VariableType.vtString);
     assert.strictEqual('undefined', asString?.value);
@@ -143,7 +143,7 @@ test('BUG-10-undefined-castAs', () => {
 
 // Баг 11: свойства даты считают секунды как миллисекунды (stackvariabledatetime.ts).
 // DateTime.Now.Year должен давать текущий год, а не 1970.
-test('BUG-11-datetime-year', () => {
+test('Bug11_DateTimeYear', () => {
     const expectedYear = new Date().getFullYear();
     const returnVal = executeReturnCode('return DateTime.Now.Year;');
     assert.strictEqual(expectedYear, returnVal?.value);
@@ -158,14 +158,14 @@ test('BUG-11-datetime-year', () => {
 
 // Рядом с багом 8: дробь как ПРАВЫЙ операнд сравнения разбирается нормально
 // (ломается только дробь после && и как значение ключа массива — см. BUG-08).
-test('OK-01-float-after-compare', () => {
+test('Ok01_FloatAfterCompare', () => {
     const returnVal = executeReturnCode('return 1 < 2.5;');
     assert.strictEqual(true, returnVal?.value);
 });
 
 // Рядом с багом про управление потоком: break во вложенных циклах
 // прерывает только внутренний цикл, внешний продолжается — работает верно.
-test('OK-02-nested-break', () => {
+test('Ok02_NestedBreak', () => {
     const returnVal = executeReturnCode(`
         outer = 0;
         for (i = 0; i < 3; i++)
