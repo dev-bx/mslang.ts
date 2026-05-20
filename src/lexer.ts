@@ -48,6 +48,11 @@ export const LexerType = {
     'ltContinue': 39,
     'ltDefault': 40,
     'ltFunction': 41,
+    'ltTry': 42,
+    'ltCatch': 43,
+    'ltFinally': 44,
+    'ltThrow': 45,
+    'ltNew': 46,
 }
 
 export class FullTokenInfo {
@@ -567,6 +572,31 @@ export class CodeLexer extends Lexer {
 
         if (this._tokenValue === "function") {
             this._tokenSym = LexerType.ltFunction;
+            return;
+        }
+
+        if (this._tokenValue === "try") {
+            this._tokenSym = LexerType.ltTry;
+            return;
+        }
+
+        if (this._tokenValue === "catch") {
+            this._tokenSym = LexerType.ltCatch;
+            return;
+        }
+
+        if (this._tokenValue === "finally") {
+            this._tokenSym = LexerType.ltFinally;
+            return;
+        }
+
+        if (this._tokenValue === "throw") {
+            this._tokenSym = LexerType.ltThrow;
+            return;
+        }
+
+        if (this._tokenValue === "new") {
+            this._tokenSym = LexerType.ltNew;
             return;
         }
 

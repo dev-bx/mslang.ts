@@ -65,6 +65,16 @@ export const NodeType =
         'ntFunctionDef': 51,
         /** Параметр в определении функции: nValue = имя, childItems = [default-выражение] или пусто. */
         'ntFuncDefParam': 52,
+        /** try { ... } catch (e) { ... } finally { ... }. childItems = [ntSubCode(body), ntCatch, ntFinally?] */
+        'ntTry': 53,
+        /** Блок catch (e) { ... }. nValue = имя параметра (пусто если catch без параметра). childItems = тело. */
+        'ntCatch': 54,
+        /** Блок finally { ... }. childItems = тело. */
+        'ntFinally': 55,
+        /** Оператор throw <expr>;. childItems = выражение. */
+        'ntThrow': 56,
+        /** Оператор new ClassName(args). nValue = имя класса, childItems = аргументы. */
+        'ntNew': 57,
     }
 
 export class ParseNode
@@ -354,6 +364,22 @@ export class CodeParser {
                         throw new ParserException("Parse string expression failed", this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntString, this.lexer.tokenValue);
+                    NodeList.push(SubNode);
+                    break;
+                case LexerType.ltNew:
+                    //new ClassName(args) — оператор создания экземпляра. На данный
+                    //этап поддерживаем только builtin-конструкторы (например Error),
+                    //user-defined classes — отдельная задача.
+                    this.lexer.getToken();
+                    if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                        throw new ParserException("'new' expects class name", this.lexer.tokenCursor);
+                    }
+                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntNew, this.lexer.tokenValue);
+                    this.lexer.getToken();
+                    if (this.lexer.tokenSym !== LexerType.ltLPar) {
+                        throw new ParserException("'new " + SubNode.nValue + "' expects '('", this.lexer.tokenCursor);
+                    }
+                    this.parseFunctionParams(SubNode);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltIDStr:
@@ -891,6 +917,21 @@ export class CodeParser {
                 continue;
             }
 
+            if (this.lexer.tokenSym === LexerType.ltThrow)
+            {
+                const Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntThrow);
+                NodeList.push(Node);
+
+                if (inline)
+                {
+                    this.parseExpression(Node, true, endLineType.cloneAdd(LexerType.ltSemicolon));
+                } else {
+                    this.parseExpression(Node, true, LexerTypeArray.one(LexerType.ltSemicolon));
+                }
+
+                continue;
+            }
+
 
             if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement].indexOf(this.lexer.tokenSym)>=0)
             {
@@ -919,6 +960,12 @@ export class CodeParser {
                     case LexerType.ltFunction:
                         this.parseFunctionDef(NodeList);
                         //parseFunctionDef оставил лексер на '}' тела
+                        break;
+                    case LexerType.ltTry:
+                        this.parseTry(NodeList);
+                        //parseTry оставил лексер уже на первом токене следующего statement
+                        //(заранее прочитал, чтобы понять — есть finally или нет).
+                        getNextToken = false;
                         break;
                     case LexerType.ltFor:
                         Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntFor);
@@ -1262,6 +1309,104 @@ export class CodeParser {
         }
 
         NodeList.push(funcNode);
+    }
+
+    /**
+     * Парсит `try { ... } catch (e) { ... } finally { ... }`.
+     *
+     * На входе: tokenSym = ltTry.
+     * На выходе: лексер стоит уже на первом токене следующего statement —
+     * внешний parseCode ставит `getNextToken = false`.
+     *
+     * Структура узла (фиксированные слоты — вариант A):
+     *   ntTry
+     *     childItems[0] = ntSubCode (тело try)
+     *     childItems[1] = ntCatch (тело catch + nValue = имя параметра или null)
+     *     childItems[2] = ntFinally (тело finally) — отсутствует, если finally нет
+     *
+     * Зеркало PHP-эталона `CodeParser::parseTry`.
+     */
+    protected parseTry(NodeList: Array<ParseNode | ParseNode[]>): void {
+        const tryNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntTry);
+        tryNode.childItems = [];
+
+        //Тело try.
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltStartCode) {
+            throw new ParserException("'try' expects '{'", this.lexer.tokenCursor);
+        }
+
+        const bodyNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
+        bodyNode.childItems = [];
+        const bodyList: Array<ParseNode | ParseNode[]> = [];
+        this.parseCode(bodyList, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+        for (const item of bodyList) {
+            bodyNode.childItems.push(item);
+        }
+        tryNode.childItems.push(bodyNode);
+
+        //catch обязателен.
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltCatch) {
+            throw new ParserException("'try' expects 'catch' block", this.lexer.tokenCursor);
+        }
+
+        const catchNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCatch);
+        catchNode.childItems = [];
+
+        //Параметр опционален: catch { ... } или catch (e) { ... }.
+        this.lexer.getToken();
+        if (this.lexer.tokenSym === LexerType.ltLPar) {
+            this.lexer.getToken();
+            if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                throw new ParserException("'catch' expects parameter name or empty parens", this.lexer.tokenCursor);
+            }
+            catchNode.nValue = this.lexer.tokenValue;
+
+            this.lexer.getToken();
+            if (this.lexer.tokenSym !== LexerType.ltRPar) {
+                throw new ParserException("'catch' expects ')' after parameter", this.lexer.tokenCursor);
+            }
+            this.lexer.getToken();
+        }
+
+        if (this.lexer.tokenSym !== LexerType.ltStartCode) {
+            throw new ParserException("'catch' expects '{'", this.lexer.tokenCursor);
+        }
+
+        const catchBody: Array<ParseNode | ParseNode[]> = [];
+        this.parseCode(catchBody, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+        for (const item of catchBody) {
+            catchNode.childItems.push(item);
+        }
+        tryNode.childItems.push(catchNode);
+
+        //finally опционален. Читаем следующий токен и смотрим.
+        //В любом случае выходим оставив лексер на первом токене следующего statement —
+        //внешний parseCode стоит на getNextToken=false и сразу его обработает.
+        this.lexer.getToken();
+        if (this.lexer.tokenSym === LexerType.ltFinally) {
+            const finallyNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFinally);
+            finallyNode.childItems = [];
+
+            this.lexer.getToken();
+            if (this.lexer.tokenSym !== LexerType.ltStartCode) {
+                throw new ParserException("'finally' expects '{'", this.lexer.tokenCursor);
+            }
+
+            const finallyBody: Array<ParseNode | ParseNode[]> = [];
+            this.parseCode(finallyBody, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+            for (const item of finallyBody) {
+                finallyNode.childItems.push(item);
+            }
+            tryNode.childItems.push(finallyNode);
+
+            //После `}` finally считываем токен следующего statement.
+            this.lexer.getToken();
+        }
+        //Если finally не было — токен следующего statement мы уже прочитали выше.
+
+        NodeList.push(tryNode);
     }
 
 }

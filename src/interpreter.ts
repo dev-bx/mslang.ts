@@ -12,9 +12,11 @@ import {StackVariableFunction} from "./stackvariablefunction";
 import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
+import {ErrorConstructor} from "./errorconstructor";
 import {StackVariableDateTime} from "./stackvariabledatetime";
 import {InterpreterException, MSLangException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
+import {StackVariableObject} from "./stackvariableobject";
 
 const InterpreterNodeType = {
     'ntAssignFinish': 1000,
@@ -44,6 +46,14 @@ const InterpreterNodeType = {
     'ntSwitchEvaluated': 1024,
     /** Завершение вызова пользовательской функции: снимает её scope, оставляет результат. */
     'ntUserFuncFinish': 1025,
+    /** Завершение try без исключений: снимает catch-scope и продолжает выполнение. */
+    'ntTryFinish': 1026,
+    /** Завершение throw: после вычисления выражения отматывает стек до ближайшего catch. */
+    'ntThrowFinish': 1027,
+    /** Завершение new ClassName(args): собирает аргументы и вызывает builtin-constructor. */
+    'ntNewFinish': 1028,
+    /** Технический узел, который очищает _executionStack-фрейм finally после его выполнения. */
+    'ntFinallyFinish': 1029,
 }
 
 export class InterpreterNode extends ParseNode {
@@ -285,6 +295,28 @@ export class Interpreter {
         });
         this.registerNodeHandler(InterpreterNodeType.ntUserFuncFinish, (...args: Parameters<TNodeHandler>) => {
             this.userFuncFinishHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntTry, (...args: Parameters<TNodeHandler>) => {
+            this.tryHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntTryFinish, (...args: Parameters<TNodeHandler>) => {
+            this.tryFinishHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntFinallyFinish, (...args: Parameters<TNodeHandler>) => {
+            this.finallyFinishHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntThrow, (...args: Parameters<TNodeHandler>) => {
+            this.throwHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntThrowFinish, (...args: Parameters<TNodeHandler>) => {
+            this.throwFinishHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntNew, (...args: Parameters<TNodeHandler>) => {
+            this.newHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntNewFinish, (...args: Parameters<TNodeHandler>) => {
+            this.newFinishHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntArray, (...args: Parameters<TNodeHandler>) => {
@@ -2061,6 +2093,264 @@ export class Interpreter {
             callToken.cursorPos,
         );
     }
+
+    /**
+     * Обработчик `try { ... } catch (e) { ... } finally { ... }`.
+     *
+     * Открывает scope с типом `ctCatch` (граница для отмотки по throw),
+     * сохраняет в `_codeData` ссылки на catch- и finally-узлы, и ставит
+     * тело try на выполнение. После body — `ntTryFinish`.
+     *
+     * Зеркало PHP-эталона `Interpreter::tryHandler`.
+     */
+    tryHandler(context: ContextInterpreter, token: ParseNode) {
+        const children = token.childItems;
+        if (!children || children.length < 2) {
+            throw new InterpreterException('Try: missing catch block', token.cursorPos);
+        }
+
+        const bodyNode = children[0];
+        const catchNode = children[1];
+        const finallyNode = children[2] ?? null;
+
+        if (!(bodyNode instanceof ParseNode) || bodyNode.nType !== NodeType.ntSubCode) {
+            throw new InterpreterException('Try: body must be ntSubCode', token.cursorPos);
+        }
+        if (!(catchNode instanceof ParseNode) || catchNode.nType !== NodeType.ntCatch) {
+            throw new InterpreterException('Try: missing catch block', token.cursorPos);
+        }
+
+        context.pushExecutionStack();
+        context._type = ContextType.ctCatch;
+        context._codeItems = [];
+        context._codeData['catchNode'] = catchNode;
+        context._codeData['finallyNode'] = finallyNode;
+
+        for (const stmt of bodyNode.nodeChildren()) {
+            context._codeItems.push(stmt);
+        }
+
+        const finishNode = new InterpreterNode(token.cursorPos);
+        finishNode.nType = InterpreterNodeType.ntTryFinish;
+        context._codeItems.push(finishNode);
+    }
+
+    /**
+     * Завершение try (без исключения) или завершение catch — снимает текущий scope
+     * и, если есть finally, открывает scope для finally.
+     */
+    tryFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const finallyNode = context._codeData['finallyNode'] ?? null;
+
+        context.popExecutionStack();
+
+        if (finallyNode instanceof ParseNode) {
+            context.pushExecutionStack();
+            context._type = ContextType.ctNormal;
+            context._codeItems = [];
+            for (const stmt of finallyNode.nodeChildren()) {
+                context._codeItems.push(stmt);
+            }
+            const finallyFinish = new InterpreterNode(token.cursorPos);
+            finallyFinish.nType = InterpreterNodeType.ntFinallyFinish;
+            context._codeItems.push(finallyFinish);
+        }
+    }
+
+    finallyFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        context.popExecutionStack();
+    }
+
+    /**
+     * Оператор `throw <expr>;` — вычисляет выражение, после чего отматывает
+     * стек выполнения до ближайшего блока try (ctCatch).
+     */
+    throwHandler(context: ContextInterpreter, token: ParseNode) {
+        if (!token.childItems || token.childItems.length === 0) {
+            throw new InterpreterException('Throw: missing expression', token.cursorPos);
+        }
+
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntThrowFinish;
+        context._codeItems.push(finish);
+    }
+
+    throwFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        let value = context.popStackVar();
+        if (value instanceof StackVariableRef) {
+            value = value.refValue as StackVariable;
+        }
+        context.popExecutionStack();
+        this.unwindThrow(context, value, token);
+    }
+
+    /**
+     * Отматывает execution stack до ближайшего блока try.
+     * Если такой границы нет — превращается в PHP/JS-исключение интерпретатора
+     * (uncaught throw валит выполнение скрипта).
+     */
+    unwindThrow(context: ContextInterpreter, value: StackVariable, errToken: ParseNode | null = null): void {
+        while (context._executionStack.length > 0) {
+            if (context._type === ContextType.ctCatch) {
+                const catchNode = context._codeData['catchNode'] ?? null;
+                const finallyNode = context._codeData['finallyNode'] ?? null;
+
+                context.popExecutionStack();
+
+                context.pushExecutionStack();
+                context._type = ContextType.ctNormal;
+                context._codeItems = [];
+                context._codeData['finallyNode'] = finallyNode;
+
+                if (catchNode instanceof ParseNode) {
+                    if (catchNode.nValue !== null && catchNode.nValue !== undefined && catchNode.nValue !== '') {
+                        context.setVariable(String(catchNode.nValue), value);
+                    }
+                    for (const stmt of catchNode.nodeChildren()) {
+                        context._codeItems.push(stmt);
+                    }
+                }
+
+                const finishNode = new InterpreterNode(errToken?.cursorPos ?? null as unknown as TokenCursor);
+                finishNode.nType = InterpreterNodeType.ntTryFinish;
+                context._codeItems.push(finishNode);
+                return;
+            }
+
+            if (context._type === ContextType.ctFunctionCall) {
+                context.popFunctionScope();
+            } else {
+                context.popExecutionStack();
+            }
+        }
+
+        //Не нашли catch — uncaught throw, валит скрипт.
+        const msg = this.extractErrorMessage(value);
+        throw new InterpreterException('Uncaught: ' + msg, errToken?.cursorPos ?? undefined);
+    }
+
+    /**
+     * Извлекает читаемое сообщение из брошенного значения — для текста uncaught-throw.
+     */
+    protected extractErrorMessage(value: StackVariable): string {
+        if (value.type === VariableType.vtObject) {
+            const message = (value as StackVariableObject).getProperty('message');
+            if (message instanceof StackVariable) {
+                return String(message.value);
+            }
+            return '[object]';
+        }
+
+        const str = value.castAs(VariableType.vtString);
+        if (str) {
+            return String(str.value);
+        }
+
+        return String(value.typeName);
+    }
+
+    /**
+     * Оборачивает обычное JS/TS-исключение интерпретатора в объект `Error`,
+     * чтобы его можно было поймать через `catch` в скрипте.
+     */
+    wrapAsError(context: ContextInterpreter, e: unknown): StackVariableObject {
+        const obj = new StackVariableObject(false, {});
+        const msg = (e instanceof Error) ? e.message : String(e);
+        obj.registerProperty('message', new StackVariableString(false, msg));
+        obj.registerProperty('name', new StackVariableString(false, 'Error'));
+
+        if (e instanceof InterpreterException) {
+            const cursor = e.getCursorPosition();
+            if (cursor) {
+                obj.registerProperty('line', new StackVariableNumber(false, cursor.startCursorLine ?? 0));
+                obj.registerProperty('column', new StackVariableNumber(false, cursor.startCursorCol ?? 0));
+            }
+        }
+
+        return obj;
+    }
+
+    /**
+     * Проверяет, есть ли в execution stack активный блок try (ctCatch).
+     * Используется главным циклом, чтобы решить — оборачивать ли системную ошибку
+     * в Error и продолжать с catch, или пробрасывать наверх.
+     */
+    hasCatchInStack(context: ContextInterpreter): boolean {
+        if (context._type === ContextType.ctCatch) {
+            return true;
+        }
+        for (const frame of context._executionStack) {
+            if (frame.type === ContextType.ctCatch) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Обработчик `new ClassName(args)`. Ставит на выполнение аргументы,
+     * после них `ntNewFinish` вызывает builtin-конструктор и кладёт объект на стек.
+     */
+    newHandler(context: ContextInterpreter, token: ParseNode) {
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntNewFinish;
+        finish.nValue = token; //исходный узел — хранит имя класса в nValue
+        finish.nValue2 = context._stackVars.length; //позиция стека до аргументов
+        context._codeItems.push(finish);
+    }
+
+    newFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        if (typeof token.nValue2 !== 'number') {
+            throw new InterpreterException('newFinish: invalid stack length', token.cursorPos);
+        }
+
+        let paramCount = context._stackVars.length - token.nValue2;
+        const parameters: StackVariable[] = [];
+        while (paramCount > 0) {
+            parameters.unshift(context.popStackVar());
+            paramCount--;
+        }
+
+        context.popExecutionStack();
+
+        if (!(token.nValue instanceof ParseNode)) {
+            throw new InterpreterException('newFinish: invalid token', token.cursorPos);
+        }
+        const className = String(token.nValue.nValue);
+        const constructor = context.getVariable(className);
+        if (!constructor) {
+            throw new InterpreterException('Unknown class "' + className + '"', token.cursorPos);
+        }
+
+        //Этап 1: поддерживаем только builtin-конструкторы.
+        if (!(constructor instanceof ErrorConstructor)) {
+            throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos);
+        }
+
+        //Для Error: первый аргумент — сообщение (приводим к строке).
+        let message = '';
+        if (parameters.length > 0) {
+            let first = parameters[0];
+            if (first instanceof StackVariableRef) {
+                first = first.refValue as StackVariable;
+            }
+            const strVar = first.castAs(VariableType.vtString);
+            if (strVar) {
+                message = String(strVar.value);
+            }
+        }
+
+        const obj = constructor.build(message);
+        context.pushStackVar(obj);
+    }
 }
 
 export const ContextType = {
@@ -2069,6 +2359,8 @@ export const ContextType = {
     'ctReturn': 2,
     /** Граница вызова пользовательской функции — на ней останавливается отмотка `return`. */
     'ctFunctionCall': 3,
+    /** Граница блока try — на ней останавливается отмотка throw для передачи в catch. */
+    'ctCatch': 4,
 }
 
 interface ExecutionStackItem {
@@ -2156,6 +2448,7 @@ export class ContextInterpreter {
         this.setVariable('debug', new StackVariableFunction(new FunctionEntry('debug', undefined, (...args: unknown[]) => {
             console.log(...args);
         })))
+        this.setVariable('Error', new ErrorConstructor());
     }
 
     pushExecutionStack() {
@@ -2430,7 +2723,18 @@ export class ContextInterpreter {
         }
 
         while (!this.eof) {
-            this.execOne();
+            try {
+                this.execOne();
+            } catch (e) {
+                //Системная ошибка интерпретатора. Если в стеке есть try — оборачиваем
+                //её в Error-объект и продолжаем с catch-блока. Иначе пробрасываем дальше.
+                if (!this._interpreter.hasCatchInStack(this)) {
+                    throw e;
+                }
+
+                const errorObj = this._interpreter.wrapAsError(this, e);
+                this._interpreter.unwindThrow(this, errorObj, this.currentToken ?? null);
+            }
             if (this._type === ContextType.ctReturn)
                 break;
         }

@@ -1841,3 +1841,166 @@ test('071_NestedFunctionCanReturnReference', (t) => {
     `);
     assert.strictEqual(10, returnVal?.value);
 });
+
+test('072_TryCatchBasicThrow', (t) => {
+    //throw строки — ловим в catch.
+    const returnVal = executeReturnCode(`
+        r = "before";
+        try {
+            throw "oops";
+            r = "after-throw";
+        } catch (e) {
+            r = e;
+        }
+        return r;
+    `);
+    assert.strictEqual('oops', returnVal?.value);
+});
+
+test('072_TryCatchThrowErrorObject', (t) => {
+    //throw new Error(msg) — e.message содержит msg, e.name == "Error".
+    const returnVal = executeReturnCode(`
+        try {
+            throw new Error("custom message");
+        } catch (e) {
+            return [e.message, e.name];
+        }
+        return null;
+    `) as StackVariableArray;
+
+    assert.strictEqual('custom message', returnVal.value.get('0')?.value);
+    assert.strictEqual('Error', returnVal.value.get('1')?.value);
+});
+
+test('072_TryCatchNoThrow', (t) => {
+    //try без throw — catch не срабатывает.
+    const returnVal = executeReturnCode(`
+        r = "before";
+        try {
+            r = "in-try";
+        } catch (e) {
+            r = "in-catch";
+        }
+        return r;
+    `);
+    assert.strictEqual('in-try', returnVal?.value);
+});
+
+test('072_TryCatchFinallyAlwaysRuns', (t) => {
+    //finally выполняется при успехе.
+    const returnVal = executeReturnCode(`
+        r = "";
+        try {
+            r = r + "t";
+        } catch (e) {
+            r = r + "c";
+        } finally {
+            r = r + "f";
+        }
+        return r;
+    `);
+    assert.strictEqual('tf', returnVal?.value);
+});
+
+test('072_TryCatchFinallyAfterCatch', (t) => {
+    //finally выполняется и после catch.
+    const returnVal = executeReturnCode(`
+        r = "";
+        try {
+            r = r + "t";
+            throw "x";
+        } catch (e) {
+            r = r + "c";
+        } finally {
+            r = r + "f";
+        }
+        return r;
+    `);
+    assert.strictEqual('tcf', returnVal?.value);
+});
+
+test('072_TryNestedInnerCatchesFirst', (t) => {
+    //Вложенные try: внутренний catch ловит первый throw.
+    const returnVal = executeReturnCode(`
+        r = "";
+        try {
+            try {
+                throw "inner";
+            } catch (e) {
+                r = e;
+            }
+        } catch (e) {
+            r = "outer";
+        }
+        return r;
+    `);
+    assert.strictEqual('inner', returnVal?.value);
+});
+
+test('072_TryNestedRethrowReachesOuter', (t) => {
+    //Внутренний catch бросает второй throw — внешний ловит его.
+    const returnVal = executeReturnCode(`
+        try {
+            try {
+                throw "first";
+            } catch (e) {
+                throw "second";
+            }
+        } catch (e) {
+            return e;
+        }
+        return null;
+    `);
+    assert.strictEqual('second', returnVal?.value);
+});
+
+test('072_ThrowThroughFunctionBoundary', (t) => {
+    //throw в функции пробивает границу вызова и ловится внешним try.
+    const returnVal = executeReturnCode(`
+        function bad() {
+            throw "from-function";
+        }
+        try {
+            bad();
+        } catch (e) {
+            return e;
+        }
+        return null;
+    `);
+    assert.strictEqual('from-function', returnVal?.value);
+});
+
+test('072_SystemErrorIsCaught', (t) => {
+    //Системная ошибка интерпретатора (variable not defined) тоже ловится через catch.
+    const returnVal = executeReturnCode(`
+        try {
+            return undefinedVar;
+        } catch (e) {
+            return e.message;
+        }
+    `);
+    assert.ok(String(returnVal?.value).indexOf('undefinedVar') !== -1);
+});
+
+test('072_UncaughtThrowFails', (t) => {
+    //throw без try — должно валить выполнение скрипта.
+    assert.throws(() => {
+        executeReturnCode(`
+            throw "boom";
+        `);
+    }, /Uncaught/);
+});
+
+test('072_CatchWithoutParameter', (t) => {
+    //catch без (e) — параметр опционален.
+    const returnVal = executeReturnCode(`
+        r = "before";
+        try {
+            throw "ignored";
+        } catch {
+            r = "caught";
+        }
+        return r;
+    `);
+    assert.strictEqual('caught', returnVal?.value);
+});
