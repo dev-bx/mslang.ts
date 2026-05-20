@@ -953,7 +953,7 @@ export class CodeParser {
     // Тип совпадает с ParseNode.childItems, чтобы по-ссылке передача
     // `Node.childItems` была корректной. Парсер кладёт сюда только ParseNode;
     // полиморфизм нужен из-за специальной структуры ntBracketSetKey.
-    parseCode(NodeList: Array<ParseNode|ParseNode[]>, getFirstToken: boolean, inline: boolean, endLineType: LexerTypeArray)
+    parseCode(NodeList: Array<ParseNode|ParseNode[]>, getFirstToken: boolean, inline: boolean, endLineType: LexerTypeArray, singleStatement: boolean = false)
     {
         let getNextToken = false;
 
@@ -970,8 +970,22 @@ export class CodeParser {
             getNextToken = getFirstToken;
         }
 
+        //`singleStatement` означает «прочитать ровно один statement и вернуть
+        //управление» — это форма `if (cond) stmt;` / `for (...) stmt;` без `{...}`.
+        //После первой удачно разобранной инструкции мы должны выйти, иначе
+        //следующие statement-ы внешнего scope (например, `a = 1;` после
+        //`if (...) return -2;`) ошибочно засосутся в childItems текущего if/for/while.
+        let parsedOne = false;
+
         while (true)
         {
+            //Single-statement-выход: один statement уже разобран, остановим
+            //лексер ровно там, где он стоит (обычно на `;`), внешний parseCode
+            //сам решит, что дальше.
+            if (singleStatement && parsedOne) {
+                return;
+            }
+
             if (getNextToken)
                 this.lexer.getToken();
 
@@ -994,6 +1008,7 @@ export class CodeParser {
                     this.parseExpression(Node, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
                 }
 
+                parsedOne = true;
                 continue;
             }
 
@@ -1009,6 +1024,7 @@ export class CodeParser {
                     this.parseExpression(Node, true, LexerTypeArray.one(LexerType.ltSemicolon));
                 }
 
+                parsedOne = true;
                 continue;
             }
 
@@ -1027,6 +1043,7 @@ export class CodeParser {
 
                 Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntShiftSP, -1);
                 NodeList.push(Node);
+                parsedOne = true;
             }
             else
             {
@@ -1089,7 +1106,7 @@ export class CodeParser {
                         {
                             this.parseCode(Node2.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
                         } else {
-                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon));
+                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
                         }
 
                         Node.childItems.push(Node2);
@@ -1120,7 +1137,7 @@ export class CodeParser {
                         {
                             this.parseCode(Node2.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
                         } else {
-                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon));
+                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
                         }
 
                         break;
@@ -1163,7 +1180,7 @@ export class CodeParser {
                         {
                             this.parseCode(Node.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
                         } else {
-                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon));
+                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
                         }
 
                         this.lexer.getToken();
@@ -1187,7 +1204,7 @@ export class CodeParser {
                         {
                             this.parseCode(Node.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
                         } else {
-                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon));
+                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
                         }
                         break;
                     case LexerType.ltStartCode:
@@ -1204,6 +1221,11 @@ export class CodeParser {
                     default:
                         throw new ParserException("Failed parse code, tokenSym: "+this.lexer.tokenName, this.lexer.tokenCursor);
                 }
+
+                //Композитный statement (if/for/while/switch/function/class/try/block)
+                //разобран целиком — в single-statement-режиме это и есть тот единственный
+                //statement, после которого надо вернуть управление наверх.
+                parsedOne = true;
             }
 
             if (inline && endLineType.indexOf(this.lexer.tokenSym) !== -1)
