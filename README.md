@@ -50,7 +50,11 @@ console.log(result?.value); // 3
 
 - Литералы: числа, строки (одинарные/двойные кавычки), `true`/`false`/`null`/`undefined`/`NaN`/`Infinity`
 - Арифметика, сравнения, логика, побитовое `&`, инкремент/декремент
-- `if/else`, `for`, `while`, `break`, `continue`, `return`
+- `if/else`, `switch/case/default` (с проваливанием), `for`, `while`, `break`, `continue`, `return`
+- `try/catch/finally`, `throw`, `new Error(...)`, иерархии ошибок через `class MyError extends Error`
+- Пользовательские функции с замыканиями и function-выражения (`x = function() { ... }`)
+- Классы: `class Name [extends Parent] { constructor(...) {} method(...) {} }`, `new`, `this`, `super(...)`, `super.method(...)`, `instanceof`
+- Function-конструктор старого JS-стиля: `function Foo(args) { this.x = ...; this.method = function() {...}; }` + `new Foo(...)`
 - Массивы, доступ по индексу, ассоциативные ключи, `length`, распаковка (`...arr`)
 - Объекты-хосты с методами и свойствами (`DateTime`, `Math`, плюс твои)
 - Вызов через пространство имён (`Class::fn()`) и через метод (`obj.fn()`)
