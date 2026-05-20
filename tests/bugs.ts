@@ -181,3 +181,56 @@ test('Ok02_NestedBreak', () => {
     `);
     assert.strictEqual(3, returnVal?.value);
 });
+
+// Класс: внутренний return из конструктора игнорируется — `new` всегда
+// возвращает свежий instance, даже если автор написал `return 0;`. Это
+// зеркало JS-семантики; в этапе 1 мы возвращаем instance безусловно.
+test('Bug12_CtorReturnPrimitiveIgnored', () => {
+    const returnVal = executeReturnCode(`
+        class C {
+            constructor() {
+                this.x = 42;
+                return 0;
+            }
+        }
+        return new C().x;
+    `);
+    assert.strictEqual(42, returnVal?.value);
+});
+
+// Класс: this в обычной функции, не вызванной как метод, — это ошибка
+// выполнения (а не undefined).
+test('Bug13_ThisInPlainFunctionFails', () => {
+    assert.throws(() => {
+        executeReturnCode(`
+            function f() {
+                return this.x;
+            }
+            return f();
+        `);
+    }, /'this' is not available/);
+});
+
+// Класс: метод может рекурсивно вызвать this.method() — каждый кадр
+// видит свой this. Используем this.n / this.acc как состояние, а не
+// локальные переменные. Скобки `{ ... }` после if — обязательны: без них
+// ловится отдельный baseline-баг (статусы после `if (...) stmt;` теряются;
+// воспроизводится и на обычных user functions, лечится в их задаче).
+test('Bug14_ClassMethodRecursionThroughThis', () => {
+    const returnVal = executeReturnCode(`
+        class C {
+            constructor(n) { this.n = n; this.acc = 0; }
+            run() {
+                if (this.n <= 0) {
+                    return this.acc;
+                }
+                this.acc = this.acc + this.n;
+                this.n = this.n - 1;
+                return this.run();
+            }
+        }
+        return new C(4).run();
+    `);
+    // 4 + 3 + 2 + 1 = 10
+    assert.strictEqual(10, returnVal?.value);
+});

@@ -1988,3 +1988,141 @@ test('072_CatchWithoutParameter', (t) => {
     `);
     assert.strictEqual('caught', returnVal?.value);
 });
+
+test('073_ClassWithFieldFromCtor', (t) => {
+    //Простейший класс: конструктор пишет в this.x.
+    const returnVal = executeReturnCode(`
+        class Point {
+            constructor(x) {
+                this.x = x;
+            }
+        }
+        p = new Point(7);
+        return p.x;
+    `);
+    assert.strictEqual(7, returnVal?.value);
+});
+
+test('073_ClassMultipleFields', (t) => {
+    const returnVal = executeReturnCode(`
+        class Pair {
+            constructor(a, b) {
+                this.a = a;
+                this.b = b;
+            }
+        }
+        p = new Pair(3, 4);
+        return p.a + p.b;
+    `);
+    assert.strictEqual(7, returnVal?.value);
+});
+
+test('073_ClassMethodCall', (t) => {
+    //Метод класса, доступ к this.
+    const returnVal = executeReturnCode(`
+        class Counter {
+            constructor(start) {
+                this.value = start;
+            }
+            next() {
+                this.value = this.value + 1;
+                return this.value;
+            }
+        }
+        c = new Counter(10);
+        r = c.next();
+        return r;
+    `);
+    assert.strictEqual(11, returnVal?.value);
+});
+
+test('073_ClassMethodAccumulates', (t) => {
+    //Несколько вызовов метода — состояние не теряется.
+    const returnVal = executeReturnCode(`
+        class Counter {
+            constructor() {
+                this.value = 0;
+            }
+            inc(by) {
+                this.value = this.value + by;
+                return this.value;
+            }
+        }
+        c = new Counter();
+        c.inc(2);
+        c.inc(3);
+        return c.inc(4);
+    `);
+    assert.strictEqual(9, returnVal?.value);
+});
+
+test('073_ClassWithoutConstructor', (t) => {
+    //Конструктор не обязателен — поля задаются снаружи.
+    const returnVal = executeReturnCode(`
+        class Bag {
+            getX() {
+                return this.x;
+            }
+        }
+        b = new Bag();
+        b.x = 42;
+        return b.getX();
+    `);
+    assert.strictEqual(42, returnVal?.value);
+});
+
+test('073_TwoInstancesAreIndependent', (t) => {
+    const returnVal = executeReturnCode(`
+        class Counter {
+            constructor() { this.value = 0; }
+            inc() { this.value = this.value + 1; return this.value; }
+        }
+        a = new Counter();
+        b = new Counter();
+        a.inc(); a.inc(); a.inc();
+        b.inc();
+        return a.value + 100 * b.value;
+    `);
+    assert.strictEqual(103, returnVal?.value);
+});
+
+test('073_MethodCallsAnotherMethod', (t) => {
+    const returnVal = executeReturnCode(`
+        class C {
+            constructor(n) { this.n = n; }
+            doubled() { return this.n * 2; }
+            doubledPlusOne() { return this.doubled() + 1; }
+        }
+        return new C(5).doubledPlusOne();
+    `);
+    assert.strictEqual(11, returnVal?.value);
+});
+
+test('073_ClassHoisted', (t) => {
+    //Объявление класса можно использовать до его текстового места — как и функции.
+    const returnVal = executeReturnCode(`
+        x = new Box(3).get();
+        class Box {
+            constructor(v) { this.v = v; }
+            get() { return this.v; }
+        }
+        return x;
+    `);
+    assert.strictEqual(3, returnVal?.value);
+});
+
+test('073_ThisOutsideClassFails', (t) => {
+    assert.throws(() => {
+        executeReturnCode(`
+            return this.x;
+        `);
+    }, /'this' is not available/);
+});
+
+test('073_NewUnknownClassFails', (t) => {
+    assert.throws(() => {
+        executeReturnCode(`
+            return new Foo();
+        `);
+    }, /Unknown class "Foo"/);
+});

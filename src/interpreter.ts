@@ -10,6 +10,7 @@ import {StackVariableNull} from "./stackvariablenull";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableFunction} from "./stackvariablefunction";
 import {StackVariableUserFunction} from "./stackvariableuserfunction";
+import {StackVariableClass} from "./stackvariableclass";
 import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
 import {ErrorConstructor} from "./errorconstructor";
@@ -54,6 +55,13 @@ const InterpreterNodeType = {
     'ntNewFinish': 1028,
     /** Технический узел, который очищает _executionStack-фрейм finally после его выполнения. */
     'ntFinallyFinish': 1029,
+    /**
+     * Финиш `new Class(args)` поверх пользовательского конструктора. Запускается
+     * после `ntUserFuncFinish` тела конструктора: снимает значение, которое
+     * вернула функция (undefined по умолчанию), и оставляет на стеке instance,
+     * который положил `newFinishHandler` перед вызовом конструктора.
+     */
+    'ntCtorReturnInstance': 1030,
 }
 
 export class InterpreterNode extends ParseNode {
@@ -317,6 +325,16 @@ export class Interpreter {
         });
         this.registerNodeHandler(InterpreterNodeType.ntNewFinish, (...args: Parameters<TNodeHandler>) => {
             this.newFinishHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntClassDecl, (...args: Parameters<TNodeHandler>) => {
+            this.classDeclHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntThis, (...args: Parameters<TNodeHandler>) => {
+            this.thisHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntCtorReturnInstance, (...args: Parameters<TNodeHandler>) => {
+            this.ctorReturnInstanceHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntArray, (...args: Parameters<TNodeHandler>) => {
@@ -861,6 +879,27 @@ export class Interpreter {
 
         const self = context.popStackVar();
 
+        //Развернём Ref, иначе self — это обёртка вокруг переменной, и проверка
+        //instanceof StackVariableObject не сработает (а instance прячется внутри).
+        let selfResolved: StackVariable = self;
+        if (selfResolved instanceof StackVariableRef) {
+            selfResolved = selfResolved.refValue as StackVariable;
+        }
+
+        //Метод пользовательского класса: если у self есть класс и в нём
+        //объявлен метод с этим именем — вызываем его как UserFunction
+        //с this = self. Иначе fallback на хост-функции через FunctionEntry.
+        if (selfResolved instanceof StackVariableObject) {
+            const cls = selfResolved.getClass();
+            if (cls !== null) {
+                const method = cls.getMethod(funcName);
+                if (method !== null) {
+                    this.invokeUserFunction(context, method, parameters, token, selfResolved);
+                    return;
+                }
+            }
+        }
+
         context.pushStackVar(context.selfCallFunction(self, funcName, parameters));
     }
 
@@ -927,10 +966,22 @@ export class Interpreter {
     }
 
     objSetPropValueFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        const variable = context.popStackVar();
+        let variable = context.popStackVar();
         context.popExecutionStack();
 
-        const obj = context.popStackVar();
+        let obj = context.popStackVar();
+
+        //Развёртка Ref на обеих сторонах: если obj пришёл как ссылка на переменную
+        //(p.x = ..., где p — обычная переменная типа object), это `p` через Ref;
+        //если value пришло как Ref на локальную переменную — после popFunctionScope
+        //эта переменная исчезнет, поэтому фиксируем её значение прямо сейчас.
+        if (obj instanceof StackVariableRef) {
+            obj = obj.refValue as StackVariable;
+        }
+        if (variable instanceof StackVariableRef) {
+            variable = variable.refValue as StackVariable;
+        }
+
         obj.setProperty(token.nValue as string, variable);
 
         // Возвращаем значение на стек — как в JS, присваивание это выражение.
@@ -1884,22 +1935,32 @@ export class Interpreter {
     }
 
     /**
-     * Регистрирует в текущей области видимости все определения функций (`ntFunctionDef`),
-     * лежащие в переданном списке узлов. Hoisting работает на уровне «своей области».
+     * Регистрирует в текущей области видимости все определения функций (`ntFunctionDef`)
+     * и классов (`ntClassDecl`), лежащие в переданном списке узлов. Hoisting работает
+     * на уровне «своей области»: вызывается в начале exec, в начале subCode и в начале
+     * тела функции.
      *
      * Зеркало PHP-эталона `Interpreter::hoistFunctions`.
      */
     hoistFunctions(context: ContextInterpreter, nodes: Array<ParseNode | ParseNode[]>) {
         for (const node of nodes) {
             if (!(node instanceof ParseNode)) continue;
-            if (node.nType !== NodeType.ntFunctionDef) continue;
-
-            const name = String(node.nValue);
-            if (name === '') continue;
-
-            const func = this.buildUserFunction(context, node);
-            //Прямая запись, чтобы повторный functionDefHandler не упёрся в isConst.
-            context._variables[name] = func;
+            if (node.nType === NodeType.ntFunctionDef) {
+                const name = String(node.nValue);
+                if (name === '') continue;
+                const func = this.buildUserFunction(context, node);
+                //Прямая запись, чтобы повторный functionDefHandler не упёрся в isConst.
+                context._variables[name] = func;
+                continue;
+            }
+            if (node.nType === NodeType.ntClassDecl) {
+                const name = String(node.nValue);
+                if (name === '') continue;
+                const cls = this.buildUserClass(context, node);
+                //Тоже прямая запись — класс уже const, setVariable отказался бы.
+                context._variables[name] = cls;
+                continue;
+            }
         }
     }
 
@@ -1934,12 +1995,17 @@ export class Interpreter {
     /**
      * Запускает выполнение тела пользовательской функции:
      * биндит параметры, открывает функциональный scope и ставит тело в _codeItems.
+     *
+     * @param thisValue Если не null, после открытия scope выставляется
+     *        `_currentThis = thisValue` — функция вызывается как
+     *        метод/конструктор и видит `this` внутри тела.
      */
     protected invokeUserFunction(
         context: ContextInterpreter,
         func: StackVariableUserFunction,
         parameters: StackVariable[],
         callToken: ParseNode,
+        thisValue: StackVariable | null = null,
     ): void {
         const funcParams = func.params;
         const body = func.body;
@@ -1991,6 +2057,13 @@ export class Interpreter {
 
         //Передаём в pushFunctionScope снимок переменных области, где функция была определена.
         context.pushFunctionScope(func.capturedScope);
+
+        //Если функция вызывается как метод/конструктор — выставляем this уже после
+        //того, как pushFunctionScope сбросил его в null. Так внутри тела `ntThis`
+        //видит именно переданный instance.
+        if (thisValue !== null) {
+            context._currentThis = thisValue;
+        }
 
         //Имя функции видно внутри её тела — позволяет прямую рекурсию.
         context._variables[func.name] = func;
@@ -2328,7 +2401,45 @@ export class Interpreter {
             throw new InterpreterException('Unknown class "' + className + '"', token.cursorPos);
         }
 
-        //Этап 1: поддерживаем только builtin-конструкторы.
+        //Пользовательский класс: создаём instance, привязываем к классу, выполняем
+        //тело конструктора (если есть) с this = instance, иначе сразу кладём
+        //пустой instance на стек.
+        if (constructor instanceof StackVariableClass) {
+            const instance = new StackVariableObject(false, {});
+            instance.setClass(constructor);
+
+            const ctor = constructor.getConstructor();
+            if (ctor === null) {
+                //Конструктор не объявлен — игнорируем аргументы и сразу возвращаем
+                //пустой instance.
+                context.pushStackVar(instance);
+                return;
+            }
+
+            //Кладём instance на стек ДО invokeUserFunction: pushFunctionScope
+            //сохранит текущий _stackVars в кадр, после ntUserFuncFinish стек
+            //восстановится с instance внизу. Сверху ляжет undefined (или то,
+            //что вернул `return` из конструктора), который нам нужно снять —
+            //это и делает ntCtorReturnInstance.
+            context.pushStackVar(instance);
+
+            //Вставляем ntCtorReturnInstance ровно в текущую позицию _pos —
+            //между уже выполненным ntNewFinish и следующим узлом-родителем
+            //(например, ntAssignFinish). Если бы мы просто дописали узел в
+            //конец _codeItems, родительский finish исполнился бы раньше и
+            //снял со стека undefined вместо instance.
+            const afterCtor = new InterpreterNode(token.cursorPos);
+            afterCtor.nType = InterpreterNodeType.ntCtorReturnInstance;
+            if (!context._codeItems)
+                throw new InterpreterException('newFinish: codeItems is empty', token.cursorPos);
+            context._codeItems.splice(context._pos, 0, afterCtor);
+
+            this.invokeUserFunction(context, ctor, parameters, token, instance);
+            return;
+        }
+
+        //Builtin-конструктор Error на этапах 1–2 остаётся специальным; этапом 3
+        //он унифицируется с пользовательским классом через registerConst.
         if (!(constructor instanceof ErrorConstructor)) {
             throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos);
         }
@@ -2348,6 +2459,69 @@ export class Interpreter {
 
         const obj = constructor.build(message);
         context.pushStackVar(obj);
+    }
+
+    /**
+     * Финиш-узел `new ClassName(args)` после возврата из тела конструктора.
+     * Снимает со стека undefined, который положил `ntUserFuncFinish` (тело без
+     * `return` отдаёт undefined), и оставляет на стеке instance, который
+     * лежит ниже.
+     */
+    ctorReturnInstanceHandler(_context: ContextInterpreter, _token: ParseNode) {
+        //Снимаем undefined (или то значение, что вернул `return` в конструкторе
+        //— в JS возврат примитива из конструктора игнорируется, возврат объекта
+        //заменяет instance; нам пока проще всегда возвращать instance).
+        _context.popStackVar();
+        //instance остаётся на стеке — он был положен в newFinishHandler.
+    }
+
+    /**
+     * `this` — кладёт текущий объект на стек. Вне метода/конструктора это ошибка.
+     */
+    thisHandler(context: ContextInterpreter, token: ParseNode) {
+        if (context._currentThis === null) {
+            throw new InterpreterException("'this' is not available outside of class method or constructor", token.cursorPos);
+        }
+        context.pushStackVar(context._currentThis);
+    }
+
+    /**
+     * Обработчик `class Name { ... }`. После hoisting этот узел уже превратил
+     * класс в `StackVariableClass` и положил в _variables, поэтому повторный
+     * вызов handler-а ничего нового не делает.
+     */
+    classDeclHandler(context: ContextInterpreter, token: ParseNode) {
+        const name = String(token.nValue);
+        if (name === '') {
+            throw new InterpreterException('Class definition has empty name', token.cursorPos);
+        }
+        if (!(context._variables[name] instanceof StackVariableClass)) {
+            const cls = this.buildUserClass(context, token);
+            context._variables[name] = cls;
+        }
+    }
+
+    /**
+     * Собирает {@link StackVariableClass} из узла `ntClassDecl`, превращая
+     * каждый childItem (`ntFunctionDef`) в `StackVariableUserFunction`.
+     * Метод с именем `constructor` записывается отдельным слотом.
+     */
+    protected buildUserClass(context: ContextInterpreter, defNode: ParseNode): StackVariableClass {
+        const cls = new StackVariableClass(String(defNode.nValue));
+
+        for (const member of defNode.childItems ?? []) {
+            if (!(member instanceof ParseNode)) continue;
+            if (member.nType !== NodeType.ntFunctionDef) continue;
+            const methodName = String(member.nValue);
+            const method = this.buildUserFunction(context, member);
+            if (methodName === 'constructor') {
+                cls.setConstructor(method);
+            } else {
+                cls.registerMethod(methodName, method);
+            }
+        }
+
+        return cls;
     }
 }
 
@@ -2372,6 +2546,7 @@ interface ExecutionStackItem {
     contextVariable?: StackVariableArray;
     isFunctionScope?: boolean;
     capturedScope?: Record<string, StackVariable> | null;
+    currentThis?: StackVariable | null;
 }
 
 export class ContextInterpreter {
@@ -2398,6 +2573,16 @@ export class ContextInterpreter {
      * pushFunctionScope.
      */
     _currentCapturedScope: Record<string, StackVariable> | null = null;
+
+    /**
+     * Текущий `this` для выполняемого метода/конструктора.
+     * - null означает, что `this` не задан (то есть вызов вне класса) и
+     *   обращение к `ntThis` должно бросить ошибку.
+     * - в обычных pushExecutionStack-кадрах (блоки/циклы) `this` наследуется
+     *   от внешнего scope (см. push/pop); pushFunctionScope сбрасывает его
+     *   в null и снова выставляет только если функция вызвана как метод.
+     */
+    _currentThis: StackVariable | null = null;
 
     // Ограничение количества инструкций выполнения. 0 — без ограничений.
     // Зеркало PHP limitExecInstruction + instructionCounter.
@@ -2461,7 +2646,11 @@ export class ContextInterpreter {
             pos: this._pos,
             stackVars: this._stackVars,
             contextVariable: this._contextVariable,
+            currentThis: this._currentThis,
         });
+
+        //this наследуется в блок/цикл/sub-выражение — это нужно, чтобы
+        //внутри тела метода `if (cond) { this.x = 1; }` всё ещё видел тот же this.
 
         this._variables = Object.assign({}, this._variables);
         this._functions = Object.assign({}, this._functions);
@@ -2520,6 +2709,7 @@ export class ContextInterpreter {
         this._type = data.type;
         this._stackVars = data.stackVars;
         this._contextVariable = data.contextVariable;
+        this._currentThis = data.currentThis ?? null;
     }
 
     /**
@@ -2540,6 +2730,7 @@ export class ContextInterpreter {
             contextVariable: this._contextVariable,
             isFunctionScope: true,
             capturedScope: this._currentCapturedScope,
+            currentThis: this._currentThis,
         });
 
         //Внутри функции — пустое имя-пространство для локальных переменных и параметров.
@@ -2550,6 +2741,9 @@ export class ContextInterpreter {
         this._pos = 0;
         this._type = ContextType.ctFunctionCall;
         this._currentCapturedScope = capturedScope;
+        //По умолчанию свежий функциональный scope не имеет this — обычная функция,
+        //вызванная не через new и не как obj.method, не должна видеть наружный this.
+        this._currentThis = null;
     }
 
     /**
@@ -2573,6 +2767,7 @@ export class ContextInterpreter {
         this._stackVars = data.stackVars;
         this._contextVariable = data.contextVariable;
         this._currentCapturedScope = data.capturedScope ?? null;
+        this._currentThis = data.currentThis ?? null;
     }
 
     addWarning(message: string): void {
