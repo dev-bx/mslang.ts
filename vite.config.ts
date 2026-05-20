@@ -17,6 +17,8 @@ export default defineConfig({
                 globals: {},
             },
         },
+        // tsc заранее положил декларации в dist/types/, не стирать их.
+        emptyOutDir: false,
         target: 'es2015',
         minify: false,
         sourcemap: true,
