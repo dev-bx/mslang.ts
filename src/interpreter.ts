@@ -38,6 +38,8 @@ const InterpreterNodeType = {
     'ntArrayPushSeparatorKeyFinish': 1019,
     'ntArrayPushSeparatorFinish': 1020,
     'ntArrayPushKeyValue': 1021,
+    'ntArrayPushArrayUnpackFinish': 1022,
+    'ntObjSetPropValueFinish': 1023,
 }
 
 export class InterpreterNode extends ParseNode {
@@ -117,6 +119,12 @@ export class Interpreter {
         this.registerNodeHandler(NodeType.ntDiv, (...args: Parameters<TNodeHandler>) => {
             this.divHandler(...args)
         });
+        this.registerNodeHandler(NodeType.ntMod, (...args: Parameters<TNodeHandler>) => {
+            this.modHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntBitAnd, (...args: Parameters<TNodeHandler>) => {
+            this.bitAndHandler(...args)
+        });
 
         this.registerNodeHandler(NodeType.ntShortIncrement, (...args: Parameters<TNodeHandler>) => {
             this.shortIncrementHandler(...args)
@@ -159,6 +167,19 @@ export class Interpreter {
 
         this.registerNodeHandler(NodeType.ntShiftSP, (...args: Parameters<TNodeHandler>) => {
             this.shiftSPHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntObjSetPropValue, (...args: Parameters<TNodeHandler>) => {
+            this.objSetPropValueHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntObjSetPropValueFinish, (...args: Parameters<TNodeHandler>) => {
+            this.objSetPropValueFinishHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntArrayPushArrayUnpack, (...args: Parameters<TNodeHandler>) => {
+            this.arrayPushArrayUnpackHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntArrayPushArrayUnpackFinish, (...args: Parameters<TNodeHandler>) => {
+            this.arrayPushArrayUnpackFinishHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntObjProp, (...args: Parameters<TNodeHandler>) => {
@@ -229,11 +250,19 @@ export class Interpreter {
             this.forLoopHandler(...args)
         });
 
+        this.registerNodeHandler(NodeType.ntWhile, (...args: Parameters<TNodeHandler>) => {
+            this.whileHandler(...args)
+        });
+
         this.registerNodeHandler(NodeType.ntReturn, (...args: Parameters<TNodeHandler>) => {
             this.returnHandler(...args)
         });
         this.registerNodeHandler(InterpreterNodeType.ntReturnFinish, (...args: Parameters<TNodeHandler>) => {
             this.returnFinishHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntContinue, (...args: Parameters<TNodeHandler>) => {
+            this.continueHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntBreak, (...args: Parameters<TNodeHandler>) => {
@@ -322,13 +351,15 @@ export class Interpreter {
     }
 
     assignFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
         context.popExecutionStack(true);
 
         if (typeof token.nValue !== 'string')
             throw new InterpreterException('variable name must be string', token.cursorPos);
 
-        context.setVariable(token.nValue, context.createVariable(variable.type, variable._value));
+        // Через cloneVariable, чтобы корректно работали vtObject (DateTime/Math/хост)
+        // и StackVariableRef — иначе обращение к variable._value напрямую теряет состояние.
+        context.setVariable(token.nValue, context.cloneVariable(variable));
     }
 
     expressionAssignHandler(context: ContextInterpreter, token: ParseNode) {
@@ -387,15 +418,18 @@ export class Interpreter {
     }
 
     plusHandler(context: ContextInterpreter, token: ParseNode) {
+        // Зеркало PHP applyStringOrNumericBinaryOperator для оператора '+'.
+        // 1) Унарный '+': берём правый, приводим к числу.
+        // 2) Если хоть один операнд — строка, кастуем оба к строке и склеиваем.
+        // 3) Иначе делаем toPrimitive у обоих.
+        // 4) Если после этого хоть один — строка, склейка.
+        // 5) Иначе арифметическое сложение через приведение к числу.
         context.execGetVariable();
 
-        let rightVar = context.popStackVar(),
-            rightTmp;
-
-        let variable;
+        let rightVar = context.popStackVar();
 
         if (!context._stackVars.length) {
-            rightTmp = rightVar.castAs(VariableType.vtNumber);
+            const rightTmp = rightVar.castAs(VariableType.vtNumber);
             if (!rightTmp)
                 throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
@@ -403,32 +437,46 @@ export class Interpreter {
             return;
         }
 
-        let leftVar = context.popStackVar(),
-            leftTmp;
+        let leftVar = context.popStackVar();
 
-        if (leftVar.isNumeric && rightVar.isNumeric) {
-            leftTmp = leftVar.castAs(VariableType.vtNumber);
-            if (!leftTmp)
-                throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
+        // снимаем возможные ссылки, кастуя в собственный тип
+        leftVar = leftVar.castAs(leftVar.type) ?? leftVar;
+        rightVar = rightVar.castAs(rightVar.type) ?? rightVar;
 
-            rightTmp = rightVar.castAs(VariableType.vtNumber);
-            if (!rightTmp)
-                throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
-
-            variable = context.createVariable(VariableType.vtNumber, leftTmp.value + rightTmp.value);
-        } else {
-            leftTmp = leftVar.castAs(VariableType.vtString);
-            if (!leftTmp)
-                throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as string', token.cursorPos);
-
-            rightTmp = rightVar.castAs(VariableType.vtString);
-            if (!rightTmp)
-                throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as string', token.cursorPos);
-
-            variable = context.createVariable(VariableType.vtString, leftTmp.value + rightTmp.value);
+        // если хоть одна сторона — строка, сразу кастуем оба к строке
+        if (leftVar.type === VariableType.vtString || rightVar.type === VariableType.vtString) {
+            leftVar = leftVar.castAs(VariableType.vtString) ?? leftVar;
+            rightVar = rightVar.castAs(VariableType.vtString) ?? rightVar;
         }
 
-        context.pushStackVar(variable);
+        // приводим к примитиву (массивы → строка, объекты → строка, и т.п.)
+        leftVar = leftVar.toPrimitive();
+        rightVar = rightVar.toPrimitive();
+
+        // после toPrimitive ещё раз проверяем — мог появиться строковый операнд
+        if (leftVar.type === VariableType.vtString || rightVar.type === VariableType.vtString) {
+            const leftStr = leftVar.castAs(VariableType.vtString);
+            if (!leftStr)
+                throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as string', token.cursorPos);
+
+            const rightStr = rightVar.castAs(VariableType.vtString);
+            if (!rightStr)
+                throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as string', token.cursorPos);
+
+            context.pushStackVar(context.createVariable(VariableType.vtString, (leftStr.value as string) + (rightStr.value as string)));
+            return;
+        }
+
+        // оба операнда — не строки, считаем как числа
+        const leftNum = leftVar.castAs(VariableType.vtNumber);
+        if (!leftNum)
+            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
+
+        const rightNum = rightVar.castAs(VariableType.vtNumber);
+        if (!rightNum)
+            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
+
+        context.pushStackVar(context.createVariable(VariableType.vtNumber, (leftNum.value as number) + (rightNum.value as number)));
     }
 
     minusHandler(context: ContextInterpreter, token: ParseNode) {
@@ -494,6 +542,44 @@ export class Interpreter {
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
         let variable = context.createVariable(VariableType.vtNumber, leftTmp.value / rightTmp.value);
+
+        context.pushStackVar(variable);
+    }
+
+    modHandler(context: ContextInterpreter, token: ParseNode) {
+        context.execGetVariable();
+
+        let rightVar = context.popStackVar(),
+            leftVar = context.popStackVar();
+
+        let leftTmp = leftVar.castAs(VariableType.vtNumber);
+        if (!leftTmp)
+            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
+
+        let rightTmp = rightVar.castAs(VariableType.vtNumber);
+        if (!rightTmp)
+            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
+
+        let variable = context.createVariable(VariableType.vtNumber, (leftTmp.value as number) % (rightTmp.value as number));
+
+        context.pushStackVar(variable);
+    }
+
+    bitAndHandler(context: ContextInterpreter, token: ParseNode) {
+        context.execGetVariable();
+
+        let rightVar = context.popStackVar(),
+            leftVar = context.popStackVar();
+
+        let leftTmp = leftVar.castAs(VariableType.vtNumber);
+        if (!leftTmp)
+            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
+
+        let rightTmp = rightVar.castAs(VariableType.vtNumber);
+        if (!rightTmp)
+            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
+
+        let variable = context.createVariable(VariableType.vtNumber, (leftTmp.value as number) & (rightTmp.value as number));
 
         context.pushStackVar(variable);
     }
@@ -730,35 +816,96 @@ export class Interpreter {
         }
     }
 
-    objPropHandler(context: ContextInterpreter, token: ParseNode) {
-        /*
-        let variable = context.getVariable(token.nValue);
+    arrayPushArrayUnpackHandler(context: ContextInterpreter, token: ParseNode) {
+        // Распаковка массива в литерал-массив: [1, ...a, 4]
+        if (!token.childItems)
+            throw new InterpreterException('arrayPushArrayUnpack childItems not initialized', token.cursorPos);
 
-        if (!variable)
-            throw new MSLangException('variable not defined ' + token.nValue);
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.childItems);
 
+        const node = new InterpreterNode(token.cursorPos);
+        node.nType = InterpreterNodeType.ntArrayPushArrayUnpackFinish;
+        context._codeItems.push(node);
+    }
+
+    arrayPushArrayUnpackFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const variable = context.popStackVar();
+
+        if (variable.type !== VariableType.vtArray)
+            throw new InterpreterException('variable must be array, given ' + variable.typeName, token.cursorPos);
+
+        context.popExecutionStack();
+
+        if (!(context._contextVariable instanceof StackVariableArray))
+            throw new InterpreterException('context variable expected array', token.cursorPos);
+
+        (variable.value as Map<string, StackVariable>).forEach(v => {
+            (context._contextVariable as StackVariableArray).funcInvoke_push(context.cloneVariable(v));
+        });
+    }
+
+    objSetPropValueHandler(context: ContextInterpreter, token: ParseNode) {
+        // obj.prop = value. На стеке уже лежит obj (из ntObjProp слева),
+        // имя свойства — в token.nValue, выражение справа — в childItems.
+        if (!token.childItems)
+            throw new InterpreterException('objSetPropValue childItems not initialized', token.cursorPos);
+
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.childItems);
+
+        const node = new InterpreterNode(token.cursorPos);
+        node.nType = InterpreterNodeType.ntObjSetPropValueFinish;
+        node.nValue = token.nValue;
+        context._codeItems.push(node);
+    }
+
+    objSetPropValueFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const variable = context.popStackVar();
+        context.popExecutionStack();
+
+        const obj = context.popStackVar();
+        obj.setProperty(token.nValue as string, variable);
+
+        // Возвращаем значение на стек — как в JS, присваивание это выражение.
         context.pushStackVar(variable);
-         */
+    }
 
-        let variable = context.popStackVar(),
-            getVar;
+    objPropHandler(context: ContextInterpreter, token: ParseNode) {
+        const variable = context.popStackVar();
 
         if (typeof token.nValue !== 'string')
             throw new InterpreterException('token nValue invalid', token.cursorPos);
 
-        getVar = variable.getProperty(token.nValue);
-        if (!(getVar instanceof StackVariable)) {
-            getVar = variable.getFunctionEntry(token.nValue);
-            if (getVar)
-                getVar = new StackVariableFunction(getVar, variable);
+        const propname = token.nValue;
+        const getVar = variable.getProperty(propname);
+
+        // Зеркало PHP objPropHandler: если у объекта есть это свойство,
+        // отдаём его обёрткой StackVariableRef через get/set — тогда `obj.prop++`
+        // запишется обратно через setProperty.
+        if (getVar instanceof StackVariable) {
+            const refProp = new StackVariableRef({
+                get: () => variable.getProperty(propname) as object,
+                set: (value: unknown) => {
+                    if (!(value instanceof StackVariable))
+                        throw new MSLangException('set property value must be instance of StackVariable');
+                    variable.setProperty(propname, value);
+                },
+            });
+            context.pushStackVar(refProp.getProxy());
+            return;
         }
 
-        if (!getVar) {
-            getVar = new StackVariableUndefined(false);
-            //throw new InterpreterException('Property or function "' + token.nValue + '" not found on ' + variable.typeName, token.cursorPos);
+        const fn = variable.getFunctionEntry(propname);
+        if (fn) {
+            context.pushStackVar(new StackVariableFunction(fn, variable));
+            return;
         }
 
-        context.pushStackVar(getVar);
+        // Нет ни свойства, ни функции — отдаём undefined.
+        context.pushStackVar(new StackVariableUndefined(false));
     }
 
     contextVariableHandler(context: ContextInterpreter, token: ParseNode) {
@@ -893,6 +1040,14 @@ export class Interpreter {
     }
 
     compareVariable(compareType: CompareType, leftCompare: StackVariable, rightCompare: StackVariable, compareResult: StackVariable, cursorPosition?: TokenCursor) {
+        // Refs прозрачно разворачиваем — иначе instanceof-проверки внутри
+        // comparePriority/compare (например, у StackVariableDateTime) видят
+        // прокси StackVariableRef и не узнают исходный тип.
+        if (leftCompare instanceof StackVariableRef)
+            leftCompare = (leftCompare as unknown as { refValue: StackVariable }).refValue;
+        if (rightCompare instanceof StackVariableRef)
+            rightCompare = (rightCompare as unknown as { refValue: StackVariable }).refValue;
+
         let leftPriority = leftCompare.comparePriority(rightCompare, compareType),
             rightPriority = rightCompare.comparePriority(leftCompare, compareType);
 
@@ -1028,10 +1183,16 @@ export class Interpreter {
 
         context._codeItems.push(token.childItems[1]); //check condition
         context._codeItems.push(token.childItems[3]); //execution for code
+
+        // Точка перехода для continue — позиция, на которую надо встать,
+        // чтобы пропустить остаток тела и выполнить инкремент.
+        context._codeData['continue'] = context._codeItems.length;
+
         context._codeItems.push(token.childItems[2]); //increment condition
 
         let node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntForLoop;
+        node.nValue = 4;
         context._codeItems.push(node);
     }
 
@@ -1070,7 +1231,34 @@ export class Interpreter {
     }
 
     forLoopHandler(context: ContextInterpreter, token: ParseNode) {
-        context._pos -= 4;
+        // Размер «шага назад» хранится в nValue: 4 для for (условие+тело+инкремент+ntForLoop),
+        // 3 для while (условие+тело+ntForLoop). Зеркало PHP.
+        const step = typeof token.nValue === 'number' ? token.nValue : 4;
+        context._pos -= step;
+    }
+
+    whileHandler(context: ContextInterpreter, token: ParseNode) {
+        // ntWhile.childItems = [condition (ntForCompare), body (ntSubCode)].
+        // Используем тот же ntForLoop, что и for, но с шагом 3.
+        if (!token.childItems || token.childItems.length !== 2)
+            throw new InterpreterException('while handler must have 2 child items', token.cursorPos);
+
+        context.pushExecutionStack();
+
+        context._type = ContextType.ctAllowBreak;
+        context._codeItems = [];
+
+        context._codeItems.push(token.childItems[0]); // условие
+        context._codeItems.push(token.childItems[1]); // тело
+
+        // У while нет отдельного increment — continue прыгает на ntForLoop,
+        // который сам отматывается к условию.
+        context._codeData['continue'] = context._codeItems.length;
+
+        const node = new InterpreterNode(token.cursorPos);
+        node.nType = InterpreterNodeType.ntForLoop;
+        node.nValue = 3;
+        context._codeItems.push(node);
     }
 
     returnHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1105,6 +1293,31 @@ export class Interpreter {
         context.pushStackVar(variable);
 
         context._type = ContextType.ctReturn;
+    }
+
+    continueHandler(context: ContextInterpreter, token: ParseNode) {
+        // continue: разматываем кадры до ближайшего цикла (ctAllowBreak)
+        // и переставляем _pos на точку перехода, сохранённую в _codeData['continue'].
+        while (context._executionStack.length) {
+            const allowBreak = context._type === ContextType.ctAllowBreak;
+
+            if (!allowBreak && context._type !== ContextType.ctNormal) {
+                throw new InterpreterException('Invalid context execution stack type', token.cursorPos);
+            }
+
+            if (allowBreak) {
+                const pos = context._codeData['continue'];
+                if (typeof pos !== 'number')
+                    throw new InterpreterException('"continue" failed find end loop node', token.cursorPos);
+
+                context._pos = pos;
+                return;
+            }
+
+            context.popExecutionStack();
+        }
+
+        throw new InterpreterException('continue invalid statement', token.cursorPos);
     }
 
     breakHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1318,7 +1531,7 @@ export class Interpreter {
 
         let node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushSeparatorFinish;
-        node.childItems = token.childItems.splice(1);
+        node.childItems = token.childItems.slice(1);
         context._codeItems.push(node);
     }
 
@@ -1391,6 +1604,7 @@ interface ExecutionStackItem {
     variables: Record<string, StackVariable>;
     functions: {};
     codeItems?: ParseNode[];
+    codeData: Record<string, unknown>;
     type: number;
     pos: number;
     stackVars: StackVariable[];
@@ -1401,12 +1615,25 @@ export class ContextInterpreter {
     _variables: Record<string, StackVariable>;
     _functions
     _codeItems?: ParseNode[];
+    // Дополнительные данные для текущего кадра выполнения, например
+    // позиция перехода для continue в цикле. Зеркало PHP _codeData.
+    _codeData: Record<string, unknown> = {};
     _stackVars: StackVariable[];
     _pos:number;
     _executionStack:ExecutionStackItem[];
     _type
     _interpreter
     _contextVariable?: StackVariableArray; //используется для создания массивов "Array"
+
+    // Ограничение количества инструкций выполнения. 0 — без ограничений.
+    // Зеркало PHP limitExecInstruction + instructionCounter.
+    protected limitExecInstruction: number = 0;
+    protected instructionCounter: number = 0;
+
+    setLimitExecInstruction(limit: number) {
+        this.limitExecInstruction = limit;
+        return this;
+    }
 
     constructor(codeItems: ParseNode[], interpreter: Interpreter) {
         this._variables = {};
@@ -1452,6 +1679,7 @@ export class ContextInterpreter {
             variables: this._variables,
             functions: this._functions,
             codeItems: this._codeItems,
+            codeData: this._codeData,
             type: this._type,
             pos: this._pos,
             stackVars: this._stackVars,
@@ -1463,6 +1691,7 @@ export class ContextInterpreter {
         this._stackVars = [];
 
         this._codeItems = undefined;
+        this._codeData = {};
         this._pos = 0;
         this._type = ContextType.ctNormal;
     }
@@ -1475,7 +1704,7 @@ export class ContextInterpreter {
 
         if (!data)
         {
-            throw new MSLangException('Faield pop execution pop stack');
+            throw new MSLangException('Failed to pop execution stack');
         }
 
         if (saveVariables !== true) {
@@ -1490,6 +1719,12 @@ export class ContextInterpreter {
                 if (this._variables[k].type !== tmp[k].type) {
                     this._variables[k] = this.createVariable(tmp[k].type, tmp[k].value);
                 } else {
+                    // У null/undefined/void/object нет осмысленного «нового значения» —
+                    // setter у них read-only или сам объект и есть состояние.
+                    // Пропускаем, чтобы не натыкаться на «value is read only».
+                    const t = this._variables[k].type;
+                    if (t === VariableType.vtNull || t === VariableType.vtUndefined || t === VariableType.vtVoid || t === VariableType.vtObject)
+                        return;
                     this._variables[k].value = tmp[k].value;
                 }
             });
@@ -1497,6 +1732,7 @@ export class ContextInterpreter {
 
         this._functions = data.functions;
         this._codeItems = data.codeItems;
+        this._codeData = data.codeData;
         this._pos = data.pos;
         this._type = data.type;
         this._stackVars = data.stackVars;
@@ -1520,6 +1756,12 @@ export class ContextInterpreter {
     }
 
     cloneVariable(variable: StackVariable): StackVariable {
+        // Объекты (DateTime, Math, хост-объекты) не клонируем — отдаём ту же ссылку,
+        // иначе createVariable не знает, как пересоздать конкретный подкласс,
+        // и теряется состояние/поведение объекта. Это зеркало PHP-реализации.
+        if (variable.type === VariableType.vtObject) {
+            return variable;
+        }
         return this.createVariable(variable.type, variable.value);
     }
 
@@ -1561,6 +1803,13 @@ export class ContextInterpreter {
     }
 
     execOne() {
+        // Защита от бесконечного выполнения, если установлен лимит.
+        // Зеркало PHP execOne (см. ContextInterpreter::execOne).
+        if (this.limitExecInstruction && this.instructionCounter >= this.limitExecInstruction) {
+            throw new InterpreterException('Execution limit [' + this.limitExecInstruction + '] exceeded', this.currentToken?.cursorPos);
+        }
+
+        this.instructionCounter++;
 
         let token = this.getNextInterToken(),
             handler = this._interpreter.getCodeHandler(token.nType);

@@ -1,5 +1,5 @@
 import {LexerTypeArray, LexerType, CodeLexer, TokenCursor} from "./lexer.js";
-import {CursorPos} from "node:readline";
+import {ParserException} from "./exceptions";
 
 export enum CompareType {
     ctEqual = 1,     // Равно
@@ -57,6 +57,9 @@ export const NodeType =
         'ntFuncParamArrayUnpack': 44,
         'ntArrayPushSeparator': 45,
         'ntArrayPushSeparatorKey': 46,
+        'ntArrayPushArrayUnpack': 47,
+        'ntObjSetPropValue': 48,
+        'ntContinue': 49,
     }
 
 export class ParseNode
@@ -91,7 +94,7 @@ export class ParseNode
     set nType(value)
     {
         if (value === undefined)
-            throw new Error('Set undefined nType');
+            throw new ParserException('Set undefined nType', this._cursorPos);
 
         this._nType = value;
     }
@@ -228,7 +231,7 @@ export class CodeParser {
         if (str === "<")
             return CompareType.ctLess;
 
-        throw new Error("Unknown compare token");
+        throw new ParserException("Unknown compare token", this.lexer.tokenCursor);
     }
 
     parseExpression(ParentNode: ParseNode, getFirstToken: boolean, StopLex: LexerTypeArray)
@@ -260,28 +263,28 @@ export class CodeParser {
                     break;
                 case LexerType.ltMul:
                     if (!prevNode || (prevNode.isMathNode() || prevNode.isCompareOrAndNode()))
-                        throw new Error('Invalid mul operator');
+                        throw new ParserException('Invalid mul operator', this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntMul);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltDiv:
                     if (!prevNode || (prevNode.isMathNode() || prevNode.isCompareOrAndNode()))
-                        throw new Error('Invalid div operator');
+                        throw new ParserException('Invalid div operator', this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntDiv);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltMod:
                     if (!prevNode || (prevNode.isMathNode() || prevNode.isCompareOrAndNode()))
-                        throw new Error('Invalid mod operator');
+                        throw new ParserException('Invalid mod operator', this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntMod);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltBitAnd:
                     if (!prevNode || (prevNode.isMathNode() || prevNode.isCompareOrAndNode()))
-                        throw new Error('Invalid BitAnd operator');
+                        throw new ParserException('Invalid BitAnd operator', this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntBitAnd);
                     NodeList.push(SubNode);
@@ -292,27 +295,27 @@ export class CodeParser {
                     break;
                 case LexerType.ltNumeric:
                     if (prevNode && !prevNode.isMathNode() && !prevNode.isCompareOrAndNode() && prevNode.nType !== NodeType.ntArrayPushSeparatorKey)
-                        throw new Error("Parse expression failed");
+                        throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntNumeric, parseInt(this.lexer.tokenValue));
                     if (!Number.isInteger(SubNode.nValue))
-                        throw new Error("Failed parse integer value "+this.lexer.tokenValue);
+                        throw new ParserException("Failed parse integer value "+this.lexer.tokenValue, this.lexer.tokenCursor);
 
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltFloat:
-                    if (prevNode && !prevNode.isMathNode())
-                        throw new Error("Parse expression failed");
+                    if (prevNode && !prevNode.isMathNode() && !prevNode.isCompareOrAndNode() && prevNode.nType !== NodeType.ntArrayPushSeparatorKey)
+                        throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFloat, parseFloat(this.lexer.tokenValue));
 
                     if (isNaN(SubNode.nValue as number))
-                        throw new Error("Failed parse float value "+this.lexer.tokenValue);
+                        throw new ParserException("Failed parse float value "+this.lexer.tokenValue, this.lexer.tokenCursor);
 
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltString:
                     if (prevNode && [NodeType.ntPlus, NodeType.ntMinus, NodeType.ntMul, NodeType.ntDiv, NodeType.ntNegativeIf, NodeType.ntArrayPushSeparatorKey].indexOf(prevNode.nType) === -1)
-                        throw new Error("Parse string expression failed");
+                        throw new ParserException("Parse string expression failed", this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntString, this.lexer.tokenValue);
                     NodeList.push(SubNode);
@@ -320,7 +323,7 @@ export class CodeParser {
                 case LexerType.ltIDStr:
                     /*
                     if (prevNode && !prevNode.isMathNode())
-                        throw new Error("Parse expression failed");
+                        throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
                      */
 
                     SubNode = new ParseNode(this.lexer.tokenCursor);
@@ -328,7 +331,7 @@ export class CodeParser {
 
                     if (this.reservedWords.indexOf(saveToken.toLowerCase())>=0)
                     {
-                        //throw new Error("can");
+                        //throw new ParserException("can", this.lexer.tokenCursor);
                     }
 
                     this.lexer.getToken();
@@ -412,7 +415,7 @@ export class CodeParser {
                     }
 
                     if (prevNode && !prevNode.isMathNode() && !prevNode.isCompareOrAndNode())
-                        throw new Error("Parse expression failed");
+                        throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
                     this.parseExpression(SubNode, true, LexerTypeArray.one(LexerType.ltRPar));
@@ -420,7 +423,11 @@ export class CodeParser {
                     break;
                 case LexerType.ltBracketOpen:
 
-                    if (!prevNode)
+                    // [...] трактуется как новый литерал-массив, если идёт в начале выражения
+                    // ИЛИ сразу после математического/логического оператора, либо как значение
+                    // ключа ассоциативного массива (ntArrayPushSeparatorKey). В остальных случаях
+                    // (после идентификатора/закрывающей скобки и т.п.) это доступ по ключу a[..].
+                    if (!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode() || prevNode.nType === NodeType.ntArrayPushSeparatorKey)
                     {
                         SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntArray);
                         SubNode.childItems = [];
@@ -444,7 +451,6 @@ export class CodeParser {
 
                         NodeList.push(SubNode);
                     } else {
-                        console.log(prevNode.typeName); //TODO remove
                         SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntBracketGetKey);
                         this.parseExpression(SubNode, true, LexerTypeArray.one(LexerType.ltBracketClose));
 
@@ -460,10 +466,10 @@ export class CodeParser {
                             this.parseExpression(SubExpressionNode, true, StopLex);
 
                             if (SubNode.childItems === null)
-                                throw new Error('SubNode.childItems === null');
+                                throw new ParserException('SubNode.childItems === null', this.lexer.tokenCursor);
 
                             if (SubExpressionNode.childItems === null)
-                                throw new Error('SubExpressionNode.childItems === null');
+                                throw new ParserException('SubExpressionNode.childItems === null', this.lexer.tokenCursor);
 
                             //TODO в PHP версии тоже изменить надо
                             /* a[1] = 5;
@@ -489,10 +495,20 @@ export class CodeParser {
 
                     break;
                 case LexerType.ltAssign:
+                    // Установка значения свойства объекта: obj.prop = value.
+                    if (prevNode && prevNode.nType === NodeType.ntObjProp) {
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntObjSetPropValue, prevNode.nValue);
 
-                    throw new Error('Expression is assign');
-                    //ParseExpression(Node, false, StopLex);
-                    break;
+                        NodeList.pop();
+
+                        this.parseExpression(SubNode, true, StopLex);
+                        NodeList.push(SubNode);
+
+                        getNextToken = false;
+                        break;
+                    }
+
+                    throw new ParserException('Expression is assign', this.lexer.tokenCursor);
                 case LexerType.ltCompare:
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntExpressionCompare);
@@ -508,14 +524,14 @@ export class CodeParser {
                     break;
                 case LexerType.ltCompareAnd:
                     if (prevNode && prevNode.isCompareOrAndNode())
-                        throw new Error('Invalid token');
+                        throw new ParserException('Invalid token', this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareAnd);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltCompareOr:
                     if (prevNode && prevNode.isCompareOrAndNode())
-                        throw new Error('Invalid token');
+                        throw new ParserException('Invalid token', this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareOr);
                     NodeList.push(SubNode);
@@ -536,8 +552,11 @@ export class CodeParser {
                     if (ParentNode.nType === NodeType.ntFuncParam)
                     {
                         ParentNode.nType = NodeType.ntFuncParamArrayUnpack;
+                    } else if (ParentNode.nType === NodeType.ntArrayPush) {
+                        // Распаковка внутри литерала-массива: [1, ...a, 4]
+                        ParentNode.nType = NodeType.ntArrayPushArrayUnpack;
                     } else {
-                        throw new Error("Parse lexer expression failed "+this.lexer.tokenName);
+                        throw new ParserException("Parse lexer expression failed "+this.lexer.tokenName, this.lexer.tokenCursor);
                     }
                     break;
                 case LexerType.ltArraySeparator:
@@ -545,7 +564,7 @@ export class CodeParser {
                     {
                         if (!NodeList.length)
                         {
-                            throw new Error("syntax error, unexpected token "+this.lexer.tokenValue);
+                            throw new ParserException("syntax error, unexpected token "+this.lexer.tokenValue, this.lexer.tokenCursor);
                         }
 
                         ParentNode.nType = NodeType.ntArrayPushSeparator;
@@ -553,21 +572,21 @@ export class CodeParser {
                         SubNode.childItems = NodeList;
                         NodeList = [SubNode];
                     } else {
-                        throw new Error("Parse lexer expression failed "+this.lexer.tokenName);
+                        throw new ParserException("Parse lexer expression failed "+this.lexer.tokenName, this.lexer.tokenCursor);
                     }
                     break;
                 default:
-                    throw new Error("Parse lexer expression failed "+this.lexer.tokenName+" wait "+StopLex.asNames.join(', '));
+                    throw new ParserException("Parse lexer expression failed "+this.lexer.tokenName+" wait "+StopLex.asNames.join(', '), this.lexer.tokenCursor);
             }
         }
 
         if (!NodeList.length)
-            throw new Error("Failed parse expression");
+            throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
 
         let lastNode = NodeList[NodeList.length - 1];
 
         if (lastNode.isMathNode() || lastNode.isCompareOrAndNode())
-            throw new Error("Failed parse expression");
+            throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
 
         let idx = 0,
             leftIdx = 0,
@@ -613,10 +632,10 @@ export class CodeParser {
     parseAssign(Node: unknown, EndLineType: unknown)
     {
         if (!(Node instanceof ParseNode))
-            throw new Error('Node must be instanceof ParseNode');
+            throw new ParserException('Node must be instanceof ParseNode', this.lexer.tokenCursor);
 
         if (!(EndLineType instanceof LexerTypeArray))
-            throw new Error('EndLineType must be instanceof LexerTypeArray');
+            throw new ParserException('EndLineType must be instanceof LexerTypeArray', this.lexer.tokenCursor);
 
 
         this.parseExpression(Node, true, EndLineType);
@@ -625,18 +644,18 @@ export class CodeParser {
     parseFunction(Node:unknown)
     {
         if (!(Node instanceof ParseNode))
-            throw new Error('Node must be instanceof ParseNode');
+            throw new ParserException('Node must be instanceof ParseNode', this.lexer.tokenCursor);
 
         this.lexer.getToken();
 
         if (this.lexer.tokenSym !== LexerType.ltIDStr)
-            throw new Error("function name not defined");
+            throw new ParserException("function name not defined", this.lexer.tokenCursor);
 
         Node.nValue2 = this.lexer.tokenValue;
 
         this.lexer.getToken();
         if (this.lexer.tokenSym !== LexerType.ltLPar)
-            throw new Error("function LPar not found");
+            throw new ParserException("function LPar not found", this.lexer.tokenCursor);
 
         const NodeList = [];
 
@@ -660,7 +679,7 @@ export class CodeParser {
     parseFunctionParams(Node:unknown)
     {
         if (!(Node instanceof ParseNode))
-            throw new Error('Node must be instanceof ParseNode');
+            throw new ParserException('Node must be instanceof ParseNode', this.lexer.tokenCursor);
 
         let NodeList = [];
 
@@ -684,7 +703,7 @@ export class CodeParser {
     parseCompare(Node:unknown, EndCompareType:number)
     {
         if (!(Node instanceof ParseNode))
-            throw new Error('Node must be instanceof ParseNode');
+            throw new ParserException('Node must be instanceof ParseNode', this.lexer.tokenCursor);
 
         let NodeList = [];
 
@@ -704,7 +723,7 @@ export class CodeParser {
 
                 if (!SubNode.childItems?.length)
                 {
-                    throw new Error('Expression is empty');
+                    throw new ParserException('Expression is empty', this.lexer.tokenCursor);
                 }
 
                 NodeList.push(SubNode);
@@ -745,11 +764,13 @@ export class CodeParser {
                     continue;
                 }
 
-                throw new Error("Parse IF failed");
+                throw new ParserException("Parse IF failed", this.lexer.tokenCursor);
             }
 
             SubNode = new ParseNode(this.lexer.tokenCursor);
-            this.parseExpression(SubNode, false, new LexerTypeArray(LexerType.ltCompare, LexerType.ltRPar, LexerType.ltCompareAnd, LexerType.ltCompareOr));
+            // EndCompareType должен быть в стоп-списке: иначе bare-выражения вроде
+            // for(i=0; true; ...) не разберутся (`;` встречается раньше любого ltCompare).
+            this.parseExpression(SubNode, false, new LexerTypeArray(LexerType.ltCompare, LexerType.ltRPar, LexerType.ltCompareAnd, LexerType.ltCompareOr, EndCompareType));
             NodeList.push(SubNode);
 
             if (this.lexer.tokenSym === LexerType.ltCompare)
@@ -778,7 +799,7 @@ export class CodeParser {
             else
             if (this.lexer.tokenSym === LexerType.ltCompareOr)
                 SubNode.nType = NodeType.ntCompareOr;
-            else throw new Error("Parse IF failed");
+            else throw new ParserException("Parse IF failed", this.lexer.tokenCursor);
 
             NodeList.push(SubNode);
         }
@@ -791,7 +812,7 @@ export class CodeParser {
         let getNextToken = false;
 
         if (!Array.isArray(NodeList))
-            throw new Error('NodeList must be array');
+            throw new ParserException('NodeList must be array', this.lexer.tokenCursor);
 
         if (!inline)
         {
@@ -828,6 +849,7 @@ export class CodeParser {
                 continue;
             }
 
+
             if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement].indexOf(this.lexer.tokenSym)>=0)
             {
                 let Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntNotSet);
@@ -849,9 +871,9 @@ export class CodeParser {
                 switch (this.lexer.tokenSym)
                 {
                     case LexerType.ltSwitch:
-                        throw new Error('Switch not implemented');
-                        //this.parseSwitch(NodeList);
-                        break;
+                        // switch/case зарезервированы в лексере, но не реализованы в парсере.
+                        // Если возьмёмся — добавить parseSwitch и убрать throw.
+                        throw new ParserException('Switch not implemented', this.lexer.tokenCursor);
                     case LexerType.ltFor:
                         Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntFor);
                         Node.childItems = [];
@@ -859,7 +881,7 @@ export class CodeParser {
 
                         this.lexer.getToken();
                         if (this.lexer.tokenSym !== LexerType.ltLPar)
-                            throw new Error("Parse FOR failed");
+                            throw new ParserException("Parse FOR failed", this.lexer.tokenCursor);
 
                         Node2 = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
                         Node2.childItems = [];
@@ -879,7 +901,7 @@ export class CodeParser {
                         this.parseCode(Node2.childItems, true, true, LexerTypeArray.one(LexerType.ltRPar));
 
                         if (this.lexer.tokenSym !== LexerType.ltRPar)
-                            throw new Error("Parse FOR failed");
+                            throw new ParserException("Parse FOR failed", this.lexer.tokenCursor);
 
                         this.lexer.getToken();
 
@@ -897,27 +919,31 @@ export class CodeParser {
 
                         break;
                     case LexerType.ltWhile:
+                        // Узел while хранит двух детей: [0] — условие (ntForCompare),
+                        // [1] — тело (ntSubCode). Тот же контракт, что у ntFor, минус init и increment.
                         Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntWhile);
+                        Node.childItems = [];
                         NodeList.push(Node);
 
                         this.lexer.getToken();
                         if (this.lexer.tokenSym !== LexerType.ltLPar)
-                            throw new Error("operator if LPar not found");
+                            throw new ParserException("operator while LPar not found", this.lexer.tokenCursor);
 
-                        this.parseCompare(Node, LexerType.ltRPar);
+                        Node2 = new ParseNode(this.lexer.tokenCursor, NodeType.ntForCompare);
+                        Node.childItems.push(Node2);
+                        this.parseCompare(Node2, LexerType.ltRPar);
 
-                        Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
-                        Node.childItems = [];
-
-                        NodeList.push(Node);
+                        Node2 = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
+                        Node2.childItems = [];
+                        Node.childItems.push(Node2);
 
                         this.lexer.getToken();
 
                         if (this.lexer.tokenSym === LexerType.ltStartCode)
                         {
-                            this.parseCode(Node.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+                            this.parseCode(Node2.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
                         } else {
-                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon));
+                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon));
                         }
 
                         break;
@@ -927,7 +953,15 @@ export class CodeParser {
 
                         this.lexer.getToken();
                         if (this.lexer.tokenSym !== LexerType.ltSemicolon)
-                            throw new Error("Parse break failed");
+                            throw new ParserException("Parse break failed", this.lexer.tokenCursor);
+                        break;
+                    case LexerType.ltContinue:
+                        Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntContinue);
+                        NodeList.push(Node);
+
+                        this.lexer.getToken();
+                        if (this.lexer.tokenSym !== LexerType.ltSemicolon)
+                            throw new ParserException("Parse continue failed", this.lexer.tokenCursor);
                         break;
                     case LexerType.ltIF:
                         Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntIF);
@@ -935,12 +969,12 @@ export class CodeParser {
 
                         this.lexer.getToken();
                         if (this.lexer.tokenSym !== LexerType.ltLPar)
-                            throw new Error("operator if LPar not found");
+                            throw new ParserException("operator if LPar not found", this.lexer.tokenCursor);
 
                         this.parseCompare(Node, LexerType.ltRPar);
 
                         if (!Node.childItems?.length)
-                            throw new Error('Expression is empty');
+                            throw new ParserException('Expression is empty', this.lexer.tokenCursor);
 
                         Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
                         Node.childItems = [];
@@ -991,15 +1025,13 @@ export class CodeParser {
                     case LexerType.ltSemicolon:
                         break;
                     default:
-                        throw new Error("Failed parse code, tokenSym: "+this.lexer.tokenName);
+                        throw new ParserException("Failed parse code, tokenSym: "+this.lexer.tokenName, this.lexer.tokenCursor);
                 }
             }
 
             if (inline && endLineType.indexOf(this.lexer.tokenSym) !== -1)
                 return;
         }
-
-        throw new Error("WTF");
     }
 
 }

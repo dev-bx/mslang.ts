@@ -2,23 +2,23 @@ import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
+import {MSLangException} from "./exceptions";
 
 export class StackVariableFunction extends StackVariable
 {
     private _self: unknown;
-    constructor(value?:unknown, self?: unknown) {
+    constructor(value?: unknown, self?: unknown) {
         super(VariableType.vtFunction, true);
 
         this._value = value;
         this._self = self;
     }
 
-
     get value() {
         return this._value;
     }
-    set value(value) {
-        throw new Error('Cannot override function')
+    set value(_value) {
+        throw new MSLangException('Cannot override function');
     }
 
     get self() {
@@ -36,6 +36,10 @@ export class StackVariableFunction extends StackVariable
         }
 
         return null;
+    }
+
+    toPrimitive(): StackVariable {
+        return new StackVariableString(false, 'function() {}');
     }
 
 }

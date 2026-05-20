@@ -6,9 +6,9 @@ export enum VariableType {
     vtInteger = 3,    // Целое число
     vtFloat = 3,      // Дробное число (алиас для vtInteger)
     vtNumber = 3,     // Число (алиас)
-    vtString = 5,     // Строка
-    vtBoolean = 6,    // Булево
-    vtArray = 7,      // Массив
-    vtObject = 8,     // Объект
-    vtFunction = 9,   // Функция
+    vtString = 4,     // Строка
+    vtBoolean = 5,    // Булево
+    vtArray = 6,      // Массив
+    vtObject = 7,     // Объект
+    vtFunction = 8,   // Функция
 }

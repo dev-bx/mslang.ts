@@ -28,6 +28,15 @@ export class StackVariableRef extends StackVariable {
         this.setRefValue(value);
     }
 
+    toPrimitive(): StackVariable {
+        return (this.getRefValue() as StackVariable).toPrimitive();
+    }
+
+    // Зеркало PHP funcInvokeToString — делегирует во внутренний объект.
+    funcInvokeToString() {
+        return (this.getRefValue() as StackVariable).funcInvokeToString();
+    }
+
     getProxy() {
         return new Proxy(
             this,

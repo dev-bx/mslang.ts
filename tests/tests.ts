@@ -20,21 +20,28 @@ class FieldsObject extends StackVariable {
 }
 
 class TestObject extends StackVariable {
+    private objProperties: Record<string, StackVariable> | null = null;
+
     constructor() {
         super(VariableType.vtObject, true);
     }
 
-    getProperty(name: string) {
-        switch (name) {
-            case 'Number1':
-                return new StackVariableNumber(true, 10);
-            case 'Number2':
-                return new StackVariableNumber(true, 20);
-            case 'Number3':
-                return new StackVariableNumber(true, 30);
-        }
+    private initProperties() {
+        this.objProperties = {
+            'Number1': new StackVariableNumber(true, 10),
+            'Number2': new StackVariableNumber(true, 20),
+            'Number3': new StackVariableNumber(true, 30),
+        };
+    }
 
-        return undefined;
+    getProperty(name: string) {
+        if (!this.objProperties) this.initProperties();
+        return this.objProperties && name in this.objProperties ? this.objProperties[name] : undefined;
+    }
+
+    setProperty(name: string, value: StackVariable) {
+        if (!this.objProperties) this.initProperties();
+        if (this.objProperties) this.objProperties[name] = value;
     }
 }
 
@@ -652,34 +659,40 @@ test('029', (t) => {
         ar['c'] = 'b';
         ar['d'] = 'u';
         ar['e'] = 'g';
-        
+
         s = '';
-        
+
         for (i=0;i<ar.count();i++)
         {
             s = s+ ar[ar.keys()[i]];
         }
-    
+
         return s;
     `);
+});
 
-    returnVal = executeReturnCode(`
+test('029_2', (t) => {
+    const returnVal = executeReturnCode(`
     k1 = 'ab';
-    k2 = 'cd';    
-    
+    k2 = 'cd';
+
     ar = [k1+k2=>k1,0=>'a',1=>5];
-    
+
     return ar.join()+'_'+ar.keys().join();
     `);
 
     assert.strictEqual('ab,a,5_abcd,0,1', returnVal?.value);
+});
+
+test('029_3', (t) => {
+    let returnVal, ar;
 
     returnVal = executeReturnCode(`
     k1 = 'ab';
-    k2 = 'cd';    
-    
+    k2 = 'cd';
+
     ar = [k1+k2=>k1,0=>'a',1=>5];
-    
+
     return [ar.flip().keys().join(), ar.flip().values().join()];
     `);
 
@@ -689,21 +702,21 @@ test('029', (t) => {
     assert.strictEqual('abcd,0,1', ar[1]);
 
     returnVal = executeReturnCode(`
-    
+
     ar = [1,2,3];
-    
+
     ar.shift();
-    
+
     for (i=0;i<50;i++) ar.unshift(Math.random());
-    
+
     ar.push('a');
     ar.push('b');
     ar.push('c');
-    
+
     for (i=0;i<50;i++) ar.push(Math.random());
-    
+
     return ar;
-    
+
     `);
 
     ar = (returnVal as StackVariableArray).convertToNativeMap();
@@ -713,7 +726,6 @@ test('029', (t) => {
     assert.strictEqual('a', ar.get('52'));
     assert.strictEqual('b', ar.get('53'));
     assert.strictEqual('c', ar.get('54'));
-
 });
 
 test('030', (t) => {
@@ -736,4 +748,708 @@ test('030', (t) => {
 
     //ar = returnVal.convertToNativeArray();
 
+});
+
+// --- Перенесено из PHP-зеркала (tests/Test.php) ---
+
+test('031_IfElse', (t) => {
+    let returnVal;
+
+    // 1. if (true)
+    returnVal = executeReturnCode('a = 10; if (a == 10) { a = 20; } return a;');
+    assert.strictEqual(20, returnVal?.value);
+
+    // 2. if (false)
+    returnVal = executeReturnCode('a = 10; if (a == 11) { a = 20; } return a;');
+    assert.strictEqual(10, returnVal?.value);
+
+    // 3. if (true) ... else ...
+    returnVal = executeReturnCode('a = 10; if (a == 10) { a = 20; } else { a = 30; } return a;');
+    assert.strictEqual(20, returnVal?.value);
+
+    // 4. if (false) ... else ...
+    returnVal = executeReturnCode('a = 10; if (a == 11) { a = 20; } else { a = 30; } return a;');
+    assert.strictEqual(30, returnVal?.value);
+});
+
+test('032_LogicalOperators', (t) => {
+    let returnVal;
+
+    // 1. AND (true && true)
+    returnVal = executeReturnCode('return (1 == 1) && (2 == 2);');
+    assert.strictEqual(true, returnVal?.value);
+
+    // 2. AND (true && false)
+    returnVal = executeReturnCode('return (1 == 1) && (2 == 3);');
+    assert.strictEqual(false, returnVal?.value);
+
+    // 3. OR (true || false)
+    returnVal = executeReturnCode('return (1 == 1) || (2 == 3);');
+    assert.strictEqual(true, returnVal?.value);
+
+    // 4. OR (false || false)
+    returnVal = executeReturnCode('return (1 == 2) || (2 == 3);');
+    assert.strictEqual(false, returnVal?.value);
+
+    // 5. Приоритет: && раньше ||. (false || (true && false)) -> false
+    returnVal = executeReturnCode('return false || true && false;');
+    assert.strictEqual(false, returnVal?.value);
+
+    // 6. Приоритет со скобками: (true) && false -> false
+    returnVal = executeReturnCode('return (false || true) && false;');
+    assert.strictEqual(false, returnVal?.value);
+});
+
+test('033_WhileLoop', (t) => {
+    const returnVal = executeReturnCode(`
+        a = 0;
+        i = 0;
+        while (i < 5) {
+            a = a + 10;
+            i = i + 1;
+        }
+        return a;
+    `);
+    assert.strictEqual(50, returnVal?.value);
+});
+
+test('034_MissingOperatorsAndKeywords', (t) => {
+    let returnVal;
+
+    // 1. Оператор % (modulo)
+    returnVal = executeReturnCode('return 10 % 3;');
+    assert.strictEqual(1, returnVal?.value);
+
+    // 2. Оператор & (битовое И)
+    returnVal = executeReturnCode('return 7 & 3;');
+    assert.strictEqual(3, returnVal?.value);
+
+    // 3. Ключевое слово null
+    returnVal = executeReturnCode('return null;');
+    assert.strictEqual(VariableType.vtNull, returnVal?.type);
+    assert.strictEqual(null, returnVal?.value);
+
+    // 4. Сравнение с null
+    returnVal = executeReturnCode('a = null; return a == null;');
+    assert.strictEqual(true, returnVal?.value);
+
+    // 5. undefined при доступе к несуществующему свойству
+    returnVal = executeReturnCode('a = []; return a.foo == undefined;');
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('035_SpecialNumbersAndAssignments', (t) => {
+    let returnVal;
+
+    // 1. Каскадное присваивание
+    returnVal = executeReturnCode('a = 0; b = 0; a = b = 10; return a + b;');
+    assert.strictEqual(20, returnVal?.value);
+
+    // 2. NaN.isNaN
+    returnVal = executeReturnCode('return NaN.isNaN;');
+    assert.strictEqual(true, returnVal?.value);
+
+    // 3. Infinity и isFinite
+    returnVal = executeReturnCode('a = Infinity; return [a.isFinite, (1/0).isFinite];');
+    const ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual(false, ar[0]);
+    assert.strictEqual(false, ar[1]);
+});
+
+test('036_DateTimeFeatures', (t) => {
+    // 1. DateTime.Today — полночь сегодня (локальное время)
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+
+    let returnVal = executeReturnCode('return DateTime.Today;');
+    const actualDate = new Date((returnVal?.value as number) * 1000);
+    assert.strictEqual(todayMidnight.toDateString(), actualDate.toDateString());
+    assert.strictEqual(0, actualDate.getHours());
+    assert.strictEqual(0, actualDate.getMinutes());
+    assert.strictEqual(0, actualDate.getSeconds());
+
+    // 2. Свойства .Year, .Month, .Day
+    returnVal = executeReturnCode('a = DateTime.Today; return [a.Year, a.Month, a.Day];');
+    const ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual(todayMidnight.getFullYear(), ar[0]);
+    assert.strictEqual(todayMidnight.getMonth() + 1, ar[1]);
+    assert.strictEqual(todayMidnight.getDate(), ar[2]);
+
+    // 3. Сравнение DateTime.Now > DateTime.Today
+    returnVal = executeReturnCode('return DateTime.Now > DateTime.Today;');
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('037_StringAndArrayFeatures', (t) => {
+    let returnVal;
+
+    // 1. string.length
+    returnVal = executeReturnCode('a = "hello"; return a.length;');
+    assert.strictEqual(5, returnVal?.value);
+
+    // 2. string.indexOf — найдено
+    returnVal = executeReturnCode('a = "hello world"; return a.indexOf("world");');
+    assert.strictEqual(6, returnVal?.value);
+
+    // 3. string.indexOf — не найдено
+    returnVal = executeReturnCode('a = "hello world"; return a.indexOf("foo");');
+    assert.strictEqual(-1, returnVal?.value);
+
+    // 4. array.indexOf
+    returnVal = executeReturnCode('a = ["a", "b", "c"]; return a.indexOf("b");');
+    assert.strictEqual(1, returnVal?.value);
+
+    // 5. Ключ массива как выражение
+    returnVal = executeReturnCode('a = [1,2,3]; a[1+1] = 5; return a.join();');
+    assert.strictEqual('1,2,5', returnVal?.value);
+
+    // 6. Ассоциативный массив
+    returnVal = executeReturnCode('a = ["key1" => 10, "key2" => 20]; return a["key1"] + a["key2"];');
+    assert.strictEqual(30, returnVal?.value);
+});
+
+test('038_TypeCastingToString', (t) => {
+    let returnVal;
+
+    // 1. Неявное приведение при конкатенации
+    returnVal = executeReturnCode('return "val-" + null;');
+    assert.strictEqual('val-null', returnVal?.value);
+
+    returnVal = executeReturnCode('return "val-" + true;');
+    assert.strictEqual('val-true', returnVal?.value);
+
+    returnVal = executeReturnCode('return "val-" + [1,2];');
+    assert.strictEqual('val-array', returnVal?.value);
+
+    // 2. Явное .ToString()
+    returnVal = executeReturnCode('return null.ToString();');
+    assert.strictEqual('null', returnVal?.value);
+
+    returnVal = executeReturnCode('return [1,2,3].ToString();');
+    assert.strictEqual('array', returnVal?.value);
+});
+
+test('039_StringCastingToNumber', (t) => {
+    let returnVal;
+
+    // 1. "10.5" * 2
+    returnVal = executeReturnCode('return "10.5" * 2;');
+    assert.strictEqual(21, returnVal?.value);
+
+    // 2. "" - 5 → -5
+    returnVal = executeReturnCode('return "" - 5;');
+    assert.strictEqual(-5, returnVal?.value);
+
+    // 3. "abc" - 5 → NaN
+    returnVal = executeReturnCode('return ("abc" - 5).isNaN;');
+    assert.strictEqual(true, returnVal?.value);
+
+    // 4. "abc" * 1 → NaN
+    returnVal = executeReturnCode('return Math.abs("abc" * 1).isNaN;');
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('040_AdvancedDateTime', (t) => {
+    let returnVal;
+
+    // 1. Сравнение DateTime со строкой
+    returnVal = executeReturnCode('return DateTime.Now > "2000-01-01 12:00:00";');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('return DateTime.Now < "1999-01-01 12:00:00";');
+    assert.strictEqual(false, returnVal?.value);
+
+    // 2. AddHours и свойства
+    returnVal = executeReturnCode('a = DateTime.Today.AddHours(9); return [a.Day, a.Hour, a.Minute];');
+    const ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual(new Date().getDate(), ar[0]);
+    assert.strictEqual(9, ar[1]);
+    assert.strictEqual(0, ar[2]);
+
+    // 3. DayOfWeek (свойство, 0=Sun..6=Sat)
+    returnVal = executeReturnCode('return DateTime.Today.DayOfWeek;');
+    assert.strictEqual(new Date().getDay(), returnVal?.value);
+});
+
+test('041_AdvancedArrayFeatures', (t) => {
+    let returnVal;
+
+    // 1. Динамический ключ
+    returnVal = executeReturnCode(`
+        keyName = "dynamicKey";
+        a = [keyName => 100, "staticKey" => 200];
+        return a["dynamicKey"] + a["staticKey"];
+    `);
+    assert.strictEqual(300, returnVal?.value);
+
+    // 2. Метод .values()
+    returnVal = executeReturnCode(`
+        a = ["c" => 10, "b" => 20, "a" => 30];
+        return a.values().join("-");
+    `);
+    assert.strictEqual('10-20-30', returnVal?.value);
+});
+
+test('042_SideEffectsAndComplexExpressions', (t) => {
+    let returnVal;
+
+    // 1. break в while
+    returnVal = executeReturnCode(`
+        i = 0;
+        while(true) {
+            i++;
+            if (i == 15) {
+                break;
+            }
+        }
+        return i;
+    `);
+    assert.strictEqual(15, returnVal?.value);
+
+    // 2. ++a + a (11 + 11)
+    returnVal = executeReturnCode('a = 10; return ++a + a;');
+    assert.strictEqual(22, returnVal?.value);
+
+    // 3. a++ + a (10 + 11)
+    returnVal = executeReturnCode('a = 10; return a++ + a;');
+    assert.strictEqual(21, returnVal?.value);
+
+    // 4. --a + a (9 + 9)
+    returnVal = executeReturnCode('a = 10; return --a + a;');
+    assert.strictEqual(18, returnVal?.value);
+
+    // 5. a-- + a (10 + 9)
+    returnVal = executeReturnCode('a = 10; return a-- + a;');
+    assert.strictEqual(19, returnVal?.value);
+});
+
+test('043_VariableScoping', (t) => {
+    // 1. Переменная a обновляется, b (создана в блоке) исчезает
+    const returnVal = executeReturnCode(`
+        a = 10;
+        {
+            a = 20;
+            b = 30;
+        }
+        return a;
+    `);
+    assert.strictEqual(20, returnVal?.value);
+
+    // 2. Доступ к b снаружи → ошибка
+    assert.throws(() => {
+        executeReturnCode(`
+            a = 10;
+            {
+                b = 30;
+            }
+            return b;
+        `);
+    }, /variable not defined b/);
+});
+
+test('043_ScopingPart2', (t) => {
+    // 3. b объявлена снаружи — обновляется
+    const returnVal = executeReturnCode(`
+        a = 10;
+        b = 10;
+        {
+            a = 20;
+            b = 30;
+        }
+        return a + b;
+    `);
+    assert.strictEqual(50, returnVal?.value);
+});
+
+test('044_ArrayUnpackOperator', (t) => {
+    let returnVal;
+
+    // 1. Простая распаковка
+    returnVal = executeReturnCode(`
+        a = [2, 3, 4];
+        return Math.max(1, ...a, 5);
+    `);
+    assert.strictEqual(5, returnVal?.value);
+
+    // 2. Распаковка в .concat()
+    returnVal = executeReturnCode(`
+        a = [1, 2];
+        b = [3, 4];
+        return a.concat(...b).join();
+    `);
+    assert.strictEqual('1,2,3,4', returnVal?.value);
+});
+
+test('045_CoercionToNumber', (t) => {
+    let returnVal;
+
+    // 1. null + 5 → 5
+    returnVal = executeReturnCode('return null + 5;');
+    assert.strictEqual(5, returnVal?.value);
+
+    // 2. true + 5 → 6
+    returnVal = executeReturnCode('return true + 5;');
+    assert.strictEqual(6, returnVal?.value);
+
+    // 3. false + 5 → 5
+    returnVal = executeReturnCode('return false + 5;');
+    assert.strictEqual(5, returnVal?.value);
+});
+
+test('046_ComplexBooleanLogic', (t) => {
+    let returnVal;
+
+    // 1. !(true && false) → true
+    returnVal = executeReturnCode('return !(true && false);');
+    assert.strictEqual(true, returnVal?.value);
+
+    // 2. !(true || false) → false
+    returnVal = executeReturnCode('return !(true || false);');
+    assert.strictEqual(false, returnVal?.value);
+
+    // 3. Закон Де Моргана: !(a || b) == !a && !b
+    returnVal = executeReturnCode(`
+        a = true;
+        b = false;
+        return !(a || b) == (!a && !b);
+    `);
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('047_ComplexAssignments', (t) => {
+    let returnVal;
+
+    // 1. Присваивание по ключу
+    returnVal = executeReturnCode('a = [10, 20]; a[0] = 30; return a[0];');
+    assert.strictEqual(30, returnVal?.value);
+
+    // 2. Каскадное присваивание по ключу: a[0] = b = 40
+    returnVal = executeReturnCode(`
+        a = [10, 20];
+        b = 0;
+        a[0] = b = 40;
+        return a[0] + b;
+    `);
+    assert.strictEqual(80, returnVal?.value);
+
+    // 3. Каскад по разным ключам: a[0] = a[1] = 5
+    returnVal = executeReturnCode(`
+        a = [1, 2, 3];
+        a[0] = a[1] = 5;
+        return a.join();
+    `);
+    assert.strictEqual('5,5,3', returnVal?.value);
+});
+
+test('048_EvaluationOrder', (t) => {
+    // a[i++] = i; i=0 → ключ 0, i=1, значение 1 → a[0]=1, a[1]=0, i=1
+    const returnVal = executeReturnCode(`
+        i = 0;
+        a = [0, 0, 0];
+        a[i++] = i;
+        return [a[0], a[1], i];
+    `);
+    const ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual(1, ar[0]);
+    assert.strictEqual(0, ar[1]);
+    assert.strictEqual(1, ar[2]);
+});
+
+test('049_PropertyIncrement', (t) => {
+    // Один объект хоста, два контекста: первый делает ++, второй читает.
+    const fieldsObj = new TestObject();
+
+    const contextAction = createCodeContext('Fields.Number1++;');
+    contextAction.setVariable('Fields', fieldsObj);
+    contextAction.exec(true);
+
+    const contextCheck = createCodeContext('return Fields.Number1;');
+    contextCheck.setVariable('Fields', fieldsObj);
+    const returnVal = contextCheck.exec(true);
+
+    assert.strictEqual(11, returnVal?.value);
+});
+
+test('050_InvalidArrayKeys', (t) => {
+    assert.throws(() => {
+        executeReturnCode('return [null => 1];');
+    }, /array key must be number or string/);
+});
+
+test('050_InvalidArrayKeysPart2', (t) => {
+    assert.throws(() => {
+        executeReturnCode('return [true => 1];');
+    }, /array key must be number or string/);
+});
+
+test('050_InvalidArrayKeysPart3', (t) => {
+    assert.throws(() => {
+        executeReturnCode('return [[1,2] => 1];');
+    }, /array key must be number or string/);
+});
+
+test('051_DoubleNegativeCasting', (t) => {
+    let returnVal;
+
+    returnVal = executeReturnCode('return !!10;');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('return !!0;');
+    assert.strictEqual(false, returnVal?.value);
+
+    returnVal = executeReturnCode('return !!"hello";');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('return !!"";');
+    assert.strictEqual(false, returnVal?.value);
+
+    returnVal = executeReturnCode('return !![1,2];');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('return !![];');
+    assert.strictEqual(false, returnVal?.value);
+
+    returnVal = executeReturnCode('return !!null;');
+    assert.strictEqual(false, returnVal?.value);
+});
+
+test('052_DateTimeAdvancedComparison', (t) => {
+    let returnVal;
+
+    returnVal = executeReturnCode('return DateTime.Now == null;');
+    assert.strictEqual(false, returnVal?.value);
+
+    returnVal = executeReturnCode('return DateTime.Now != null;');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('return DateTime.Now == true;');
+    assert.strictEqual(false, returnVal?.value);
+});
+
+test('053_StringIndexOfWithPosition', (t) => {
+    let returnVal;
+
+    returnVal = executeReturnCode('return "hello hello".indexOf("hello");');
+    assert.strictEqual(0, returnVal?.value);
+
+    returnVal = executeReturnCode('return "hello hello".indexOf("hello", 1);');
+    assert.strictEqual(6, returnVal?.value);
+
+    returnVal = executeReturnCode('return "hello hello".indexOf("world", 1);');
+    assert.strictEqual(-1, returnVal?.value);
+});
+
+test('054_ParserSyntaxErrors', (t) => {
+    assert.throws(() => {
+        executeReturnCode('a = 1 +;');
+    }, /Parse expression failed/);
+});
+
+test('054_ParserSyntaxErrors_Part2', (t) => {
+    assert.throws(() => {
+        executeReturnCode('a = [1,2,3] 5;');
+    }, /Parse expression failed/);
+});
+
+test('055_ExecutionLimit', (t) => {
+    const context = createCodeContext('for(i=0; i<10000000000; i=i+1) {}');
+    // @ts-expect-error — метод setLimitExecInstruction может отсутствовать в TS-версии
+    context.setLimitExecInstruction(10000000);
+    assert.throws(() => {
+        context.exec(true);
+    }, /Execution limit/);
+});
+
+test('056_ArrayCoercion', (t) => {
+    let returnVal;
+
+    returnVal = executeReturnCode('return [1,2] + 1;');
+    assert.strictEqual('1,21', returnVal?.value);
+
+    returnVal = executeReturnCode('return 1 + [1,2];');
+    assert.strictEqual('11,2', returnVal?.value);
+
+    returnVal = executeReturnCode('return [1,2] + [3,4];');
+    assert.strictEqual('1,23,4', returnVal?.value);
+});
+
+test('057_UnaryCoercion', (t) => {
+    let returnVal;
+
+    returnVal = executeReturnCode('return +"10.5";');
+    assert.strictEqual(10.5, returnVal?.value);
+
+    returnVal = executeReturnCode('return -true;');
+    assert.strictEqual(-1, returnVal?.value);
+
+    returnVal = executeReturnCode('return +null;');
+    assert.strictEqual(0, returnVal?.value);
+
+    returnVal = executeReturnCode('return +"";');
+    assert.strictEqual(0, returnVal?.value);
+
+    returnVal = executeReturnCode('return (+"hello").isNaN;');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('return (+"[1,2]").isNaN;');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('return +[];');
+    assert.strictEqual(0, returnVal?.value);
+});
+
+test('058_NullVsUndefined', (t) => {
+    let returnVal;
+
+    returnVal = executeReturnCode('a = []; return a.foo == undefined;');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('a = []; return a.foo == null;');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('a = []; return null == a.foo;');
+    assert.strictEqual(true, returnVal?.value);
+
+    returnVal = executeReturnCode('a = []; return (null + a.foo).isNaN;');
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('059_ArraySpreadLiteral', (t) => {
+    const returnVal = executeReturnCode(`
+        a = [2, 3];
+        b = [1, ...a, 4];
+        return b.join();
+    `);
+    assert.strictEqual('1,2,3,4', returnVal?.value);
+});
+
+test('060_ArrayLengthManipulation', (t) => {
+    let returnVal;
+
+    // 1. Усечение через .length
+    returnVal = executeReturnCode('a = [1,2,3,4,5]; a.length = 2; return a.join();');
+    assert.strictEqual('1,2', returnVal?.value);
+
+    // 2. Расширение через .length
+    returnVal = executeReturnCode('a = [1,2]; a.length = 4; return [a.length, a[3] == null, a.join()];');
+    const ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual(4, ar[0]);
+    assert.strictEqual(true, ar[1]);
+    assert.strictEqual('1,2,,', ar[2]);
+});
+
+test('061_NestedLoopControl', (t) => {
+    let returnVal;
+
+    // 1. break во вложенном цикле — выходит только из внутреннего
+    returnVal = executeReturnCode(`
+        a = 0;
+        for(i=0; i<3; i++) {
+            for(j=0; j<3; j++) {
+                if (i == 1 && j == 1) {
+                    break;
+                }
+                a = a + 1;
+            }
+        }
+        return a;
+    `);
+    assert.strictEqual(7, returnVal?.value);
+
+    // 2. continue во вложенном цикле — пропускает итерацию внутреннего
+    returnVal = executeReturnCode(`
+        a = 0;
+        for(i=0; i<3; i++) {
+            for(j=0; j<3; j++) {
+                if (i == 1 && j == 1) {
+                    continue;
+                }
+                a = a + 1;
+            }
+        }
+        return a;
+    `);
+    assert.strictEqual(8, returnVal?.value);
+});
+
+test('062_EvaluationOrderReversed', (t) => {
+    // a[i] = i++; i=0 → ключ 0, значение 0 (потом i=1), a[0]=0
+    const returnVal = executeReturnCode(`
+        i = 0;
+        a = [0, 0, 0];
+        a[i] = i++;
+        return [a[0], a[1], i];
+    `);
+    const ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual(0, ar[0]);
+    assert.strictEqual(0, ar[1]);
+    assert.strictEqual(1, ar[2]);
+});
+
+test('063_InvalidControlFlow', (t) => {
+    assert.throws(() => {
+        executeReturnCode('break;');
+    }, /break invalid statement/);
+});
+
+test('063_InvalidControlFlow_Part2', (t) => {
+    assert.throws(() => {
+        executeReturnCode('continue;');
+    }, /continue invalid statement/);
+});
+
+test('064_CyclicReference', (t) => {
+    const returnVal = executeReturnCode(`
+        a = [1,2];
+        a[0] = a;
+        return [a[0] == a, a[0][0] == a];
+    `);
+    const ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual(true, ar[0]);
+    assert.strictEqual(true, ar[1]);
+});
+
+test('065_BitwiseCoercion', (t) => {
+    let returnVal;
+
+    // 1. строка → число
+    returnVal = executeReturnCode('return "7" & 3;');
+    assert.strictEqual(3, returnVal?.value);
+
+    // 2. float → int (отбрасывается дробная часть)
+    returnVal = executeReturnCode('return 7.7 & 3.3;');
+    assert.strictEqual(3, returnVal?.value);
+
+    // 3. boolean → int
+    returnVal = executeReturnCode('return true & 3;');
+    assert.strictEqual(1, returnVal?.value);
+
+    // 4. null → int
+    returnVal = executeReturnCode('return null & 3;');
+    assert.strictEqual(0, returnVal?.value);
+
+    // 5. не-числовая строка (NaN) → 0
+    returnVal = executeReturnCode('return "abc" & 3;');
+    assert.strictEqual(0, returnVal?.value);
+});
+
+test('066_SparseArrayKeys', (t) => {
+    let returnVal, ar;
+
+    // 1. Разреженный массив
+    returnVal = executeReturnCode('a = []; a[100] = "test"; return [a.length, a.Count()];');
+    ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual(1, ar[0]);
+    assert.strictEqual(1, ar[1]);
+
+    // 2. .keys() и .values()
+    returnVal = executeReturnCode('a = []; a[100] = "test"; return [a.keys().join(), a.values().join()];');
+    ar = (returnVal as StackVariableArray).convertToNativeArray();
+    assert.strictEqual('100', ar[0]);
+    assert.strictEqual('test', ar[1]);
+});
+
+test('067_SimpleFor', (t) => {
+    const returnVal = executeReturnCode('for(i=0; true; i=i+1) {break;}');
+    assert.strictEqual(VariableType.vtVoid, returnVal?.type);
 });
