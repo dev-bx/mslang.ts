@@ -76,6 +76,12 @@ public/
 # Vite
 .vite/
 
+# Fuzz output (артефакт `npm run test:fuzz` для скармливания PHP-фаззеру).
+tests/.fuzz.jsonl
+
+# Локальные настройки Claude Code (сессии, шаблоны).
+.claude/
+
 # Temporary folders
 tmp/
 temp/
