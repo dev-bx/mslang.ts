@@ -340,7 +340,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntAssignFinish;
@@ -368,7 +368,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntExpressionAssignFinish;
@@ -664,7 +664,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntSubExpressionFinish;
@@ -685,7 +685,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntFuncCallFinish;
@@ -701,7 +701,7 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntFuncParamFinish;
@@ -755,7 +755,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntSelfFuncCallFinish;
@@ -823,7 +823,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushArrayUnpackFinish;
@@ -854,7 +854,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntObjSetPropValueFinish;
@@ -932,7 +932,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntIFFinish;
@@ -946,7 +946,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntIFValueFinish;
@@ -961,7 +961,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntIFValueBOOLFinish;
@@ -1145,7 +1145,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntSubCodeFinish;
@@ -1168,27 +1168,30 @@ export class Interpreter {
         if (token.childItems.length !== 4)
             throw new InterpreterException('for handler must be 4 child items', token.cursorPos);
 
-        if (!(token.childItems[0] instanceof ParseNode))
-            throw new InterpreterException('for handler must be contains ParseNode', token.cursorPos)
+        const initNode = token.childItems[0];
+        const checkNode = token.childItems[1];
+        const incrNode = token.childItems[2];
+        const bodyNode = token.childItems[3];
 
-        if (!token.childItems[0].childItems)
-            throw new InterpreterException('for handler ParseNode is empty', token.cursorPos)
+        if (!(initNode instanceof ParseNode) || !(checkNode instanceof ParseNode)
+            || !(incrNode instanceof ParseNode) || !(bodyNode instanceof ParseNode))
+            throw new InterpreterException('for handler must be contains ParseNode', token.cursorPos);
 
         context.pushExecutionStack();
 
         context._type = ContextType.ctAllowBreak;
         context._codeItems = [];
 
-        context._codeItems.push(...token.childItems[0].childItems); //init for variable;
+        context._codeItems.push(...initNode.nodeChildren()); //init for variable;
 
-        context._codeItems.push(token.childItems[1]); //check condition
-        context._codeItems.push(token.childItems[3]); //execution for code
+        context._codeItems.push(checkNode); //check condition
+        context._codeItems.push(bodyNode); //execution for code
 
         // Точка перехода для continue — позиция, на которую надо встать,
         // чтобы пропустить остаток тела и выполнить инкремент.
         context._codeData['continue'] = context._codeItems.length;
 
-        context._codeItems.push(token.childItems[2]); //increment condition
+        context._codeItems.push(incrNode); //increment condition
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntForLoop;
@@ -1205,7 +1208,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntForCompareFinish;
@@ -1248,8 +1251,13 @@ export class Interpreter {
         context._type = ContextType.ctAllowBreak;
         context._codeItems = [];
 
-        context._codeItems.push(token.childItems[0]); // условие
-        context._codeItems.push(token.childItems[1]); // тело
+        const checkNode = token.childItems[0];
+        const bodyNode = token.childItems[1];
+        if (!(checkNode instanceof ParseNode) || !(bodyNode instanceof ParseNode))
+            throw new InterpreterException('while handler must contain ParseNode children', token.cursorPos);
+
+        context._codeItems.push(checkNode); // условие
+        context._codeItems.push(bodyNode); // тело
 
         // У while нет отдельного increment — continue прыгает на ntForLoop,
         // который сам отматывается к условию.
@@ -1276,7 +1284,7 @@ export class Interpreter {
 
         context.pushExecutionStack();
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntReturnFinish;
@@ -1344,7 +1352,7 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         context._contextVariable = new StackVariableArray(false, []);
 
@@ -1361,7 +1369,7 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushFinish;
@@ -1397,7 +1405,7 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntBracketGetKeyFinish;
@@ -1435,17 +1443,23 @@ export class Interpreter {
         if (!token.childItems.length)
             throw new InterpreterException('Bracket Set Key childItems is empty', token.cursorPos);
 
+        // Эталон PHP: childItems[0] — путь к ячейке (ParseNode[]),
+        // childItems[1] — выражение присваивания (ParseNode[]).
+        // См. CodeParser::parseExpression и Interpreter::BracketSetKeyHandler.
+        const leftItems = token.childItems[0];
+        const rightItems = token.childItems[1];
+
+        if (!Array.isArray(leftItems) || !Array.isArray(rightItems))
+            throw new InterpreterException('Bracket Set Key: childItems[0]/[1] must be ParseNode[]', token.cursorPos);
+
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
-
-        /** @see /src/parser.ts */
-        /** @see CodeParser::parseExpression */
+        context._codeItems.push(...leftItems);
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntBracketSetKeyLeftFinish;
-        node.nValue = token.nValue2;
+        node.nValue = rightItems;
         context._codeItems.push(node);
     }
 
@@ -1456,11 +1470,8 @@ export class Interpreter {
             throw new InterpreterException('You can access a property by string or numeric key, given ' + variable.typeName, token.cursorPos);
         }
 
-        if (!(token.nValue instanceof ParseNode))
-            throw new InterpreterException('Bracket Set Key Left Finish: nValue must be ParseNode', token.cursorPos);
-
-        if (!token.nValue.childItems)
-            throw new InterpreterException('Bracket Set Key Left Finish: nValue childItems is empty', token.cursorPos);
+        if (!Array.isArray(token.nValue))
+            throw new InterpreterException('Bracket Set Key Left Finish: nValue must be ParseNode[]', token.cursorPos);
 
         context.popExecutionStack();
 
@@ -1469,7 +1480,7 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.nValue.childItems);
+        context._codeItems.push(...token.nValue);
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntBracketSetKeyRightFinish;
@@ -1499,7 +1510,7 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntFuncParamArrayUnpackFinish;
@@ -1527,11 +1538,14 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(token.childItems[0]);
+        const first = token.childItems[0];
+        if (!(first instanceof ParseNode))
+            throw new InterpreterException('Array Push Separator: childItems[0] must be ParseNode', token.cursorPos);
+        context._codeItems.push(first);
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushSeparatorFinish;
-        node.childItems = token.childItems.slice(1);
+        node.childItems = token.nodeChildren().slice(1);
         context._codeItems.push(node);
     }
 
@@ -1542,7 +1556,7 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushSeparatorKeyFinish;
@@ -1573,7 +1587,7 @@ export class Interpreter {
         context.pushExecutionStack();
 
         context._codeItems = [];
-        context._codeItems.push(...token.childItems);
+        context._codeItems.push(...token.nodeChildren());
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushKeyValue;
