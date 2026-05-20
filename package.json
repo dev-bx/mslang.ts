@@ -38,8 +38,16 @@
     "prepublishOnly": "npm run test:all && npm run build"
   },
   "keywords": ["mslang", "scripting", "interpreter", "bitrix", "devbx"],
-  "author": "DevBx",
+  "author": "DevBx <info@dev-bx.ru> (https://dev-bx.ru/)",
   "license": "ISC",
+  "homepage": "https://github.com/dev-bx/mslang.ts#readme",
+  "bugs": {
+    "url": "https://github.com/dev-bx/mslang.ts/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dev-bx/mslang.ts.git"
+  },
   "devDependencies": {
     "@types/node": "^24.5.0",
     "@typescript-eslint/eslint-plugin": "^8.44.0",
