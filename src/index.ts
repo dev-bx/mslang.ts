@@ -13,6 +13,7 @@ import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableObject} from "./stackvariableobject";
 import {StackVariableFunction} from "./stackvariablefunction";
 import {StackVariableUserFunction} from "./stackvariableuserfunction";
+import {StackVariableClass} from "./stackvariableclass";
 import {ErrorConstructor} from "./errorconstructor";
 import {StackVariableDateTime} from './stackvariabledatetime';
 import {FunctionEntry} from "./functionentry";
@@ -42,6 +43,7 @@ export {
     StackVariableDateTime,
     StackVariableFunction,
     StackVariableUserFunction,
+    StackVariableClass,
     ErrorConstructor,
     VariableType,
     InterpreterNode,

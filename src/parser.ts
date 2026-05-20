@@ -75,6 +75,14 @@ export const NodeType =
         'ntThrow': 56,
         /** Оператор new ClassName(args). nValue = имя класса, childItems = аргументы. */
         'ntNew': 57,
+        /**
+         * Объявление класса: `class Name { constructor(...) { ... } method1(...) { ... } ... }`.
+         * nValue = имя класса. childItems = массив `ntFunctionDef` (конструктор и методы,
+         * один из них может иметь имя `constructor`).
+         */
+        'ntClassDecl': 58,
+        /** Ссылка `this` внутри конструктора и методов. childItems и nValue не используются. */
+        'ntThis': 59,
     }
 
 export class ParseNode
@@ -246,7 +254,6 @@ export class CodeParser {
             'try',
             'xor',
             'as',
-            'class',
             'elseif',
             'foreach',
             'new',
@@ -364,6 +371,13 @@ export class CodeParser {
                         throw new ParserException("Parse string expression failed", this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntString, this.lexer.tokenValue);
+                    NodeList.push(SubNode);
+                    break;
+                case LexerType.ltThis:
+                    //this — ссылка на текущий instance внутри метода/конструктора.
+                    //За пределами метода runtime бросит ошибку, но синтаксически
+                    //разрешено где угодно в выражении.
+                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntThis);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltNew:
@@ -933,7 +947,7 @@ export class CodeParser {
             }
 
 
-            if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement].indexOf(this.lexer.tokenSym)>=0)
+            if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement, LexerType.ltThis].indexOf(this.lexer.tokenSym)>=0)
             {
                 let Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntNotSet);
 
@@ -960,6 +974,10 @@ export class CodeParser {
                     case LexerType.ltFunction:
                         this.parseFunctionDef(NodeList);
                         //parseFunctionDef оставил лексер на '}' тела
+                        break;
+                    case LexerType.ltClass:
+                        this.parseClassDecl(NodeList);
+                        //parseClassDecl оставил лексер на '}' тела класса
                         break;
                     case LexerType.ltTry:
                         this.parseTry(NodeList);
@@ -1309,6 +1327,118 @@ export class CodeParser {
         }
 
         NodeList.push(funcNode);
+    }
+
+    /**
+     * Парсит объявление класса:
+     *   `class Name { constructor(a) { ... } method1(b) { ... } ... }`.
+     *
+     * На входе: tokenSym = ltClass.
+     * На выходе: лексер стоит на `}` тела класса — внешний parseCode сам сделает getToken.
+     *
+     * Структура узла:
+     *   ntClassDecl
+     *     nValue = имя класса
+     *     childItems = [ntFunctionDef("constructor"|"methodName", ...), ...]
+     *
+     * Конструктор не обязателен — если его нет, new создаст экземпляр с пустыми полями.
+     *
+     * Зеркало PHP-эталона `CodeParser::parseClassDecl`.
+     */
+    protected parseClassDecl(NodeList: Array<ParseNode | ParseNode[]>): void {
+        const classNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntClassDecl);
+        classNode.childItems = [];
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+            throw new ParserException("Class: name expected", this.lexer.tokenCursor);
+        }
+        classNode.nValue = this.lexer.tokenValue;
+
+        if (this.reservedWords.indexOf(String(classNode.nValue).toLowerCase()) !== -1) {
+            throw new ParserException('Class name cannot be a reserved word "' + classNode.nValue + '"', this.lexer.tokenCursor);
+        }
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltStartCode) {
+            throw new ParserException("Class: '{' expected", this.lexer.tokenCursor);
+        }
+
+        while (true) {
+            this.lexer.getToken();
+
+            if (this.lexer.tokenSym === LexerType.ltEndCode) {
+                //пустой класс или конец членов
+                break;
+            }
+
+            if (this.lexer.tokenSym === LexerType.ltSemicolon) {
+                //лишние ';' между методами — пропускаем без шума
+                continue;
+            }
+
+            if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                throw new ParserException("Class member: method name expected", this.lexer.tokenCursor);
+            }
+
+            const methodNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFunctionDef);
+            methodNode.nValue = this.lexer.tokenValue;
+            methodNode.childItems = [];
+
+            //Параметры метода.
+            this.lexer.getToken();
+            if (this.lexer.tokenSym !== LexerType.ltLPar) {
+                throw new ParserException("Class member: '(' expected", this.lexer.tokenCursor);
+            }
+
+            this.lexer.getToken();
+            if (this.lexer.tokenSym !== LexerType.ltRPar) {
+                const endParam = LexerTypeArray.one(LexerType.ltComma).cloneAdd(LexerType.ltRPar);
+                while (true) {
+                    if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                        throw new ParserException("Class member: parameter name expected", this.lexer.tokenCursor);
+                    }
+
+                    const paramNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncDefParam);
+                    paramNode.nValue = this.lexer.tokenValue;
+                    paramNode.childItems = [];
+
+                    this.lexer.getToken();
+
+                    if (this.lexer.tokenSym === LexerType.ltAssign) {
+                        const defaultExpr = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
+                        this.parseExpression(defaultExpr, true, endParam);
+                        paramNode.childItems.push(defaultExpr);
+                    }
+
+                    methodNode.childItems.push(paramNode);
+
+                    if (this.lexer.tokenSym === LexerType.ltRPar) {
+                        break;
+                    }
+                    if (this.lexer.tokenSym !== LexerType.ltComma) {
+                        throw new ParserException("Class member: ',' or ')' expected after parameter", this.lexer.tokenCursor);
+                    }
+                    this.lexer.getToken();
+                }
+            }
+
+            //Тело метода.
+            this.lexer.getToken();
+            if (this.lexer.tokenSym !== LexerType.ltStartCode) {
+                throw new ParserException("Class member: '{' expected", this.lexer.tokenCursor);
+            }
+
+            const bodyList: Array<ParseNode | ParseNode[]> = [];
+            this.parseCode(bodyList, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+            for (const bodyItem of bodyList) {
+                methodNode.childItems.push(bodyItem);
+            }
+
+            classNode.childItems.push(methodNode);
+        }
+
+        NodeList.push(classNode);
     }
 
     /**

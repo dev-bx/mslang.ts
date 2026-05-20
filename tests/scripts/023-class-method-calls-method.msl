@@ -1,0 +1,6 @@
+class N {
+    constructor(n) { this.n = n; }
+    doubled() { return this.n * 2; }
+    label() { return this.doubled() + 1; }
+}
+return new N(5).label();

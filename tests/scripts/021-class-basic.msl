@@ -1,0 +1,13 @@
+class Counter {
+    constructor(start) {
+        this.value = start;
+    }
+    inc(by) {
+        this.value = this.value + by;
+        return this.value;
+    }
+}
+c = new Counter(10);
+c.inc(2);
+c.inc(3);
+return c.inc(4);

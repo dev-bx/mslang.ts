@@ -1,0 +1,11 @@
+class C {
+    constructor() { this.v = 0; }
+    inc() { this.v = this.v + 1; return this.v; }
+}
+a = new C();
+b = new C();
+a.inc();
+a.inc();
+a.inc();
+b.inc();
+return a.v + 100 * b.v;
