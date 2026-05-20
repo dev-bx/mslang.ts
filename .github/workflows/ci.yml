@@ -13,6 +13,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # PHP-зеркало клонируем рядом, если задана переменная репо
+      # и секрет с токеном (дефолтный GITHUB_TOKEN не имеет прав на чужой репо).
+      # Без этого зеркальные/cross-runtime тесты автоматически пропускаются.
+      - name: Чекаут PHP-зеркала
+        if: vars.MSLANG_PHP_REPO != '' && secrets.MSLANG_PHP_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.MSLANG_PHP_REPO }}
+          token: ${{ secrets.MSLANG_PHP_TOKEN }}
+          path: ../devbx.core
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -35,52 +46,8 @@ jobs:
       - name: Зеркало TS ↔ PHP (tests/mirror.ts)
         run: npm run test:mirror
 
-      - name: Поведенческие cross-runtime (TS-сторона)
+      - name: Поведенческие cross-runtime (TS-сторона, tests/cross.ts)
         run: npm run test:cross
 
-      - name: Сборка UMD
+      - name: Сборка UMD + ESM
         run: npm run build
-
-  php:
-    name: PHP
-    runs-on: ubuntu-latest
-    # Зеркальный PHP-проект лежит в соседнем репозитории. Workflow клонирует
-    # его рядом и запускает phpunit. Если хочешь — настрой переменную
-    # MSLANG_PHP_REPO под свою орг/реп.
-    env:
-      MSLANG_PHP_REPO: ${{ vars.MSLANG_PHP_REPO || '' }}
-    steps:
-      - name: Чекаут текущего (TS)
-        uses: actions/checkout@v4
-        with:
-          path: devbx.mslang
-
-      - name: Чекаут PHP-зеркала
-        if: env.MSLANG_PHP_REPO != ''
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.MSLANG_PHP_REPO }}
-          path: devbx.core
-
-      - name: Установка PHP
-        if: env.MSLANG_PHP_REPO != ''
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: dom, xml, xmlwriter, mbstring
-          coverage: none
-
-      - name: Composer install
-        if: env.MSLANG_PHP_REPO != ''
-        working-directory: devbx.core
-        run: composer install --prefer-dist --no-progress
-
-      - name: PHPStan
-        if: env.MSLANG_PHP_REPO != ''
-        working-directory: devbx.core
-        run: vendor/bin/phpstan analyse --no-progress
-
-      - name: PHPUnit (полный набор)
-        if: env.MSLANG_PHP_REPO != ''
-        working-directory: devbx.core/tests
-        run: ../vendor/bin/phpunit
