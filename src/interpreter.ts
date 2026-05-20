@@ -916,8 +916,7 @@ export class Interpreter {
 
         //Метод пользовательского класса: если у self есть класс и в нём
         //(или в его родителе) объявлен метод с этим именем — вызываем его
-        //как UserFunction с this = self. Иначе fallback на хост-функции
-        //через FunctionEntry.
+        //как UserFunction с this = self.
         if (selfResolved instanceof StackVariableObject) {
             const cls = selfResolved.getClass();
             if (cls !== null) {
@@ -938,8 +937,22 @@ export class Interpreter {
                     return;
                 }
             }
+
+            //Свойство-функция (старый JS-стиль: this.greet = function() { ... }).
+            //Используется в function-конструкторах — методы цепляются прямо
+            //к instance. Если совпадает с именем вызова — выполняем её как
+            //метод с this = self.
+            let prop: StackVariable | undefined = selfResolved.getProperty(funcName) as StackVariable | undefined;
+            if (prop instanceof StackVariableRef) {
+                prop = prop.refValue as StackVariable;
+            }
+            if (prop instanceof StackVariableUserFunction) {
+                this.invokeUserFunction(context, prop, parameters, token, selfResolved, null, false);
+                return;
+            }
         }
 
+        //Fallback на хост-функции через FunctionEntry (Math.abs, [1,2,3].push и т.п.).
         context.pushStackVar(context.selfCallFunction(self, funcName, parameters));
     }
 
@@ -1965,6 +1978,17 @@ export class Interpreter {
      */
     functionDefHandler(context: ContextInterpreter, token: ParseNode) {
         const name = String(token.nValue);
+
+        //function-выражение: `x = function() { ... }` или `this.greet = function() {...}`.
+        //Парсер ставит метку nValue2 = 'expr'. Имя может быть пустым (anonymous)
+        //или непустым (named expression). Здесь мы НЕ регистрируем функцию
+        //в _variables — она используется как значение и попадает на стек.
+        if (token.nValue2 === 'expr') {
+            const func = this.buildUserFunction(context, token);
+            context.pushStackVar(func);
+            return;
+        }
+
         if (name === '') {
             throw new InterpreterException('Function definition has empty name', token.cursorPos);
         }
@@ -1986,6 +2010,9 @@ export class Interpreter {
         for (const node of nodes) {
             if (!(node instanceof ParseNode)) continue;
             if (node.nType === NodeType.ntFunctionDef) {
+                //function-выражения (`x = function() {...}`) не hoist'им — они
+                //живут как обычные значения и присваиваются по месту.
+                if (node.nValue2 === 'expr') continue;
                 const name = String(node.nValue);
                 if (name === '') continue;
                 const func = this.buildUserFunction(context, node);
@@ -2518,9 +2545,33 @@ export class Interpreter {
             return;
         }
 
-        //Если это не StackVariableClass — `new` не применим. Раньше тут был
-        //специальный путь для ErrorConstructor; теперь Error — обычный
-        //пользовательский класс, объявленный в ContextInterpreter.registerConst.
+        //Function-конструктор (этап 4): обычная пользовательская функция,
+        //вызванная через `new`. Создаём для неё класс-обёртку (lazy, кешируется
+        //на самой функции — чтобы `a instanceof Foo` и `b instanceof Foo`
+        //смотрели на один и тот же класс), привязываем instance к этой
+        //обёртке и вызываем функцию как ctor.
+        if (constructor instanceof StackVariableUserFunction) {
+            const wrapperClass = constructor.getOrCreateWrapperClass();
+            const instance = new StackVariableObject(false, {});
+            instance.setClass(wrapperClass);
+
+            context.pushStackVar(instance);
+
+            const afterCtor = new InterpreterNode(token.cursorPos);
+            afterCtor.nType = InterpreterNodeType.ntCtorReturnInstance;
+            if (!context._codeItems)
+                throw new InterpreterException('newFinish: codeItems is empty', token.cursorPos);
+            context._codeItems.splice(context._pos, 0, afterCtor);
+
+            //У function-конструктора по определению нет extends, поэтому TDZ
+            //не нужен. ownerClass = обёртка — это нужно, чтобы внутри
+            //конструктора возможные `super.x()` дали понятную ошибку
+            //«class without extends», а не молчаливое null-обращение.
+            this.invokeUserFunction(context, constructor, parameters, token, instance, wrapperClass, false);
+            return;
+        }
+
+        //Не класс и не function-конструктор — `new` не применим.
         throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos);
     }
 
@@ -2774,9 +2825,15 @@ export class Interpreter {
         }
 
         const className = String(token.nValue);
-        const classVar = context.getVariable(className);
+        let classVar: StackVariable | undefined = context.getVariable(className);
         if (!classVar) {
             throw new InterpreterException('Unknown class "' + className + '" in instanceof', token.cursorPos);
+        }
+        //Function-конструктор: справа лежит обычная функция, использованная
+        //как ctor. Берём её класс-обёртку (lazy create) — она и есть то,
+        //к чему instance был привязан в newFinishHandler.
+        if (classVar instanceof StackVariableUserFunction) {
+            classVar = classVar.getOrCreateWrapperClass();
         }
         if (!(classVar instanceof StackVariableClass)) {
             throw new InterpreterException(

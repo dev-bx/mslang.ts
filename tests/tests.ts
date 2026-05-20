@@ -2363,12 +2363,12 @@ test('075_InstanceofUnknownClassFails', (t) => {
 });
 
 test('075_InstanceofRightNotClassFails', (t) => {
-    //Справа должен быть класс. Имя, под которым лежит не-класс
-    //(например обычная функция), даёт ошибку.
+    //Справа должен быть класс или function-конструктор (этап 4). Имя,
+    //под которым лежит обычное значение (число, строка, массив) — даёт ошибку.
     assert.throws(() => {
         executeReturnCode(`
-            function f() { return 1; }
-            return 1 instanceof f;
+            x = 5;
+            return 1 instanceof x;
         `);
     }, /Right operand of instanceof must be a class/);
 });
@@ -2438,4 +2438,123 @@ test('075_ThrowCustomErrorCaughtByInstanceof', (t) => {
         }
     `);
     assert.strictEqual('my:bad', returnVal?.value);
+});
+
+test('076_FunctionCtorBasic', (t) => {
+    //Старый JS-стиль: function-конструктор пишет в this.x.
+    const returnVal = executeReturnCode(`
+        function Point(x, y) {
+            this.x = x;
+            this.y = y;
+        }
+        p = new Point(3, 4);
+        return p.x + p.y;
+    `);
+    assert.strictEqual(7, returnVal?.value);
+});
+
+test('076_FunctionCtorMethodOnInstance', (t) => {
+    //Методы цепляются как свойства instance внутри конструктора.
+    const returnVal = executeReturnCode(`
+        function Counter(start) {
+            this.value = start;
+            this.inc = function(by) {
+                this.value = this.value + by;
+                return this.value;
+            };
+        }
+        c = new Counter(10);
+        c.inc(2);
+        c.inc(3);
+        return c.inc(4);
+    `);
+    assert.strictEqual(19, returnVal?.value);
+});
+
+test('076_FunctionCtorInstanceof', (t) => {
+    //instance созданный через new Foo() — instanceof Foo.
+    const returnVal = executeReturnCode(`
+        function User(name) { this.name = name; }
+        return new User("Anna") instanceof User;
+    `);
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('076_FunctionCtorInstanceofWrapperShared', (t) => {
+    //Два разных вызова new Foo() дают instance того же класса-обёртки —
+    //иначе instanceof a-instance с обёрткой b-instance дал бы false.
+    const returnVal = executeReturnCode(`
+        function Bag() {}
+        a = new Bag();
+        b = new Bag();
+        return (a instanceof Bag) && (b instanceof Bag);
+    `);
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('076_FunctionCallWithoutNewFails', (t) => {
+    //Вызов функции-конструктора без new — обычная функция, this недоступен.
+    assert.throws(() => {
+        executeReturnCode(`
+            function User(name) { this.name = name; }
+            User("Anna");
+            return 0;
+        `);
+    }, /'this' is not available/);
+});
+
+test('076_FunctionCtorTwoIndependentInstances', (t) => {
+    //Два instance, созданные через function-конструктор, не делят состояние.
+    const returnVal = executeReturnCode(`
+        function C() {
+            this.value = 0;
+            this.inc = function() { this.value = this.value + 1; return this.value; };
+        }
+        a = new C();
+        b = new C();
+        a.inc(); a.inc(); a.inc();
+        b.inc();
+        return a.value + 100 * b.value;
+    `);
+    assert.strictEqual(103, returnVal?.value);
+});
+
+test('076_NewOnNonFunctionFails', (t) => {
+    //new по имени, под которым лежит не класс и не функция — ошибка.
+    assert.throws(() => {
+        executeReturnCode(`
+            x = 5;
+            return new x();
+        `);
+    }, /"x" is not a constructor/);
+});
+
+test('076_FunctionCtorClassMethodMix', (t) => {
+    //Метод класса работает рядом с function-конструктором: оба пути
+    //разрешаются в selfFuncCallFinishHandler.
+    const returnVal = executeReturnCode(`
+        class A {
+            greet() { return "hi"; }
+        }
+        function B() {
+            this.greet = function() { return "hello"; };
+        }
+        a = new A();
+        b = new B();
+        return a.greet() + "/" + b.greet();
+    `);
+    assert.strictEqual('hi/hello', returnVal?.value);
+});
+
+test('076_FunctionCtorReturnsInstance', (t) => {
+    //Если в function-конструкторе вызван return примитива — он
+    //игнорируется. Возвращается всегда созданный instance (этап 1).
+    const returnVal = executeReturnCode(`
+        function F() {
+            this.x = 42;
+            return 0;
+        }
+        return new F().x;
+    `);
+    assert.strictEqual(42, returnVal?.value);
 });

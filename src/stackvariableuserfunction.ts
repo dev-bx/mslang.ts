@@ -3,6 +3,7 @@ import {VariableType} from "./variabletype.js";
 import {ParseNode} from "./parser.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
+import {StackVariableClass} from "./stackvariableclass.js";
 import {MSLangException} from "./exceptions.js";
 
 /**
@@ -26,6 +27,16 @@ export class StackVariableUserFunction extends StackVariable {
      * (snapshot захватывается копией на момент создания функции).
      */
     private _capturedScope: Record<string, StackVariable> = {};
+
+    /**
+     * Обёртка-класс для function-конструктора (этап 4). Создаётся лениво,
+     * когда функцию вызывают через `new`. Нужен, чтобы:
+     *   - instance, созданный через `new Foo()`, был привязан к классу
+     *     (для `instanceof Foo` и общей унификации с class-based path);
+     *   - повторный `new Foo()` использовал тот же класс-обёртку (instanceof
+     *     сравнивает по ссылке).
+     */
+    private _wrapperClass: StackVariableClass | null = null;
 
     constructor(name: string, params: ParseNode[], body: ParseNode[]) {
         //isConst=true важно для popExecutionStack: при автокопировании переменных
@@ -65,6 +76,24 @@ export class StackVariableUserFunction extends StackVariable {
 
     get capturedScope(): Record<string, StackVariable> {
         return this._capturedScope;
+    }
+
+    /**
+     * Возвращает (создавая при необходимости) класс-обёртку для использования
+     * этой функции как конструктора через `new`. Имя класса совпадает с именем
+     * функции; конструктор класса — сама функция; родителя нет.
+     *
+     * Кешируется на самой UserFunction, чтобы все экземпляры,
+     * созданные через `new Foo()`, и проверки `... instanceof Foo`
+     * ссылались на один и тот же класс.
+     */
+    getOrCreateWrapperClass(): StackVariableClass {
+        if (this._wrapperClass === null) {
+            const cls = new StackVariableClass(this._name);
+            cls.setConstructor(this);
+            this._wrapperClass = cls;
+        }
+        return this._wrapperClass;
     }
 
     castAs<T extends VariableType>(variableType: T): StackVariable | null {
