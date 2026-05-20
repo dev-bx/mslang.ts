@@ -45,6 +45,7 @@ export const LexerType = {
     'ltBracketClose': 36,
     'ltArrayUnpack': 37,
     'ltArraySeparator': 38,
+    'ltContinue': 39,
 }
 
 export class FullTokenInfo {
@@ -562,6 +563,11 @@ export class CodeLexer extends Lexer {
             return;
         }
 
+        if (this._tokenValue === "continue") {
+            this._tokenSym = LexerType.ltContinue;
+            return;
+        }
+
         if (this._tokenValue === "for") {
             this._tokenSym = LexerType.ltFor;
             return;
@@ -597,8 +603,11 @@ export class CodeLexer extends Lexer {
             if (this.lastChar === '/' && this.whoNextCh() === '/') {
                 let pos = this.indexOfAnyFirst(['\r', '\n'], this._textPos);
 
+                // Комментарий // в конце файла без перевода строки —
+                // нормальный код, просто перематываем курсор до конца текста,
+                // тогда следующий getCh() вернёт null и токенизация даст ltEof.
                 if (pos === -1)
-                    throw new LexerException('end of file');
+                    pos = this._text.length;
 
                 this._textPos = pos;
                 continue;

@@ -21,9 +21,27 @@ export class StackVariableString extends StackVariable {
     }
     set value(value: unknown) {
         if (typeof value !== 'string')
-            throw new Error('variable type '+typeof value+' expected string')
+            throw new MSLangException('variable type ' + typeof value + ' expected string');
 
         this._value = value;
+    }
+
+    /** indexOf */
+
+    funcInvoke_indexOfReturn = () => VariableType.vtNumber;
+
+    funcInvoke_indexOfArgs() {
+        return [
+            new FunctionParameter('searchString', VariableType.vtString, true),
+            new FunctionParameter('position', VariableType.vtNumber, false),
+        ];
+    }
+
+    funcInvoke_indexOf(searchString: string, position?: number) {
+        if (typeof this.value !== 'string')
+            return -1;
+
+        return this.value.indexOf(String(searchString), position ?? 0);
     }
 
     castAs(variableType: VariableType): StackVariable|null {
@@ -185,7 +203,7 @@ export class StackVariableString extends StackVariable {
             let varString = value.castAs(VariableType.vtString);
 
             if (!varString)
-                throw new Error('Failed convert '+value.typeName+' to string');
+                throw new MSLangException('Failed convert ' + value.typeName + ' to string');
 
             values.push(varString.value);
         });

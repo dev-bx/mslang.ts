@@ -1,6 +1,7 @@
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariable} from "./stackvariable";
 import {VariableType} from "./variabletype";
+import {MSLangException} from "./exceptions";
 
 type InvokeCallback = (this: any, ...args: InvokeArguments[]) => any;
 
@@ -29,7 +30,7 @@ export class FunctionEntry {
             const lastParameter = this._parameters.at(-1) as FunctionParameter;
 
             if (!lastParameter.isRequired()) {
-                throw new Error('Previous parameter not required');
+                throw new MSLangException('Previous parameter not required');
             }
         }
 
@@ -55,17 +56,7 @@ export class FunctionEntry {
 
     getRequiredCount()
     {
-        let count = 0;
-
-        this.getParameters().every(param => {
-            if (!param.isRequired())
-                return false;
-
-            count++;
-            return true;
-        })
-
-        return count;
+        return this.getParameters().filter(p => p.isRequired()).length;
     }
 
     invokeArguments(callArguments: InvokeArguments)

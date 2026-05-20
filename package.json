@@ -2,11 +2,17 @@
   "name": "devbx.mslang",
   "version": "1.0.0",
   "main": "index.js",
+  "types": "./dist/types/index.d.ts",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "tsx tests/tests.ts",
+    "test:bugs": "tsx tests/bugs.ts",
+    "test:mirror": "tsx tests/mirror.ts",
+    "test:cross": "tsx tests/cross.ts",
+    "lint": "eslint src tests",
+    "coverage": "node --experimental-test-coverage --import tsx tests/tests.ts",
     "test:compile": "tsc && tsc -p tsconfig.test.json && node dist/tests/tests.js",
     "test:watch": "node --loader ts-node/esm --watch tests/tests.ts"
   },
@@ -20,6 +26,7 @@
     "@typescript-eslint/parser": "^8.44.0",
     "eslint": "^9.35.0",
     "ts-node": "^10.9.2",
+    "tsx": "^4.22.3",
     "typescript": "^5.9.2",
     "vite": "^7.1.5"
   }
