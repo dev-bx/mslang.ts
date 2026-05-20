@@ -1,0 +1,5 @@
+class A {
+    hello() { return "A"; }
+}
+class B extends A {}
+return new B().hello();

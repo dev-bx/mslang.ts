@@ -76,13 +76,18 @@ export const NodeType =
         /** Оператор new ClassName(args). nValue = имя класса, childItems = аргументы. */
         'ntNew': 57,
         /**
-         * Объявление класса: `class Name { constructor(...) { ... } method1(...) { ... } ... }`.
-         * nValue = имя класса. childItems = массив `ntFunctionDef` (конструктор и методы,
-         * один из них может иметь имя `constructor`).
+         * Объявление класса: `class Name [extends Parent] { constructor(...) { ... } method1(...) { ... } ... }`.
+         * nValue = имя класса, nValue2 = имя родительского класса (или null).
+         * childItems = массив `ntFunctionDef` (конструктор и методы, один из них
+         * может иметь имя `constructor`).
          */
         'ntClassDecl': 58,
         /** Ссылка `this` внутри конструктора и методов. childItems и nValue не используются. */
         'ntThis': 59,
+        /** Вызов родительского конструктора: `super(args)`. childItems = аргументы. */
+        'ntSuperCall': 60,
+        /** Вызов метода родителя: `super.method(args)`. nValue = имя метода, childItems = аргументы. */
+        'ntSuperMethodCall': 61,
     }
 
 export class ParseNode
@@ -380,6 +385,31 @@ export class CodeParser {
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntThis);
                     NodeList.push(SubNode);
                     break;
+                case LexerType.ltSuper: {
+                    //super должен идти строго в одной из двух форм:
+                    //  super(args)         — вызов родительского ctor (ntSuperCall)
+                    //  super.method(args)  — вызов метода родителя (ntSuperMethodCall)
+                    //Любая другая форма (super как значение, super[...]) — ошибка.
+                    this.lexer.getToken();
+                    if (this.lexer.tokenSym === LexerType.ltLPar) {
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSuperCall);
+                        this.parseFunctionParams(SubNode);
+                        NodeList.push(SubNode);
+                        break;
+                    }
+                    if (this.lexer.tokenSym === LexerType.ltObjProp) {
+                        const methodName = this.lexer.tokenValue;
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSuperMethodCall, methodName);
+                        this.lexer.getToken();
+                        if (this.lexer.tokenSym !== LexerType.ltLPar) {
+                            throw new ParserException("'super." + methodName + "' expects '('", this.lexer.tokenCursor);
+                        }
+                        this.parseFunctionParams(SubNode);
+                        NodeList.push(SubNode);
+                        break;
+                    }
+                    throw new ParserException("'super' expects '(' or '.method'", this.lexer.tokenCursor);
+                }
                 case LexerType.ltNew:
                     //new ClassName(args) — оператор создания экземпляра. На данный
                     //этап поддерживаем только builtin-конструкторы (например Error),
@@ -947,7 +977,7 @@ export class CodeParser {
             }
 
 
-            if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement, LexerType.ltThis].indexOf(this.lexer.tokenSym)>=0)
+            if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement, LexerType.ltThis, LexerType.ltSuper].indexOf(this.lexer.tokenSym)>=0)
             {
                 let Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntNotSet);
 
@@ -1359,7 +1389,20 @@ export class CodeParser {
             throw new ParserException('Class name cannot be a reserved word "' + classNode.nValue + '"', this.lexer.tokenCursor);
         }
 
+        //Опциональный `extends Parent` — имя родителя сохраняем в nValue2.
+        //Реальную ссылку на класс-родитель резолвим лениво в рантайме
+        //(см. StackVariableClass.getParent), чтобы не зависеть от порядка
+        //объявления классов в скрипте.
         this.lexer.getToken();
+        if (this.lexer.tokenSym === LexerType.ltExtends) {
+            this.lexer.getToken();
+            if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                throw new ParserException("Class: parent name expected after 'extends'", this.lexer.tokenCursor);
+            }
+            classNode.nValue2 = this.lexer.tokenValue;
+            this.lexer.getToken();
+        }
+
         if (this.lexer.tokenSym !== LexerType.ltStartCode) {
             throw new ParserException("Class: '{' expected", this.lexer.tokenCursor);
         }

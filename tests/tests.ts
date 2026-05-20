@@ -2126,3 +2126,179 @@ test('073_NewUnknownClassFails', (t) => {
         `);
     }, /Unknown class "Foo"/);
 });
+
+test('074_ExtendsBasic', (t) => {
+    //Метод родителя доступен через obj потомка.
+    const returnVal = executeReturnCode(`
+        class A {
+            hello() { return "A"; }
+        }
+        class B extends A {}
+        return new B().hello();
+    `);
+    assert.strictEqual('A', returnVal?.value);
+});
+
+test('074_SuperCtor', (t) => {
+    //super(args) вызывает родительский ctor, поля родителя появляются.
+    const returnVal = executeReturnCode(`
+        class A {
+            constructor(x) { this.x = x; }
+        }
+        class B extends A {
+            constructor(x, y) {
+                super(x);
+                this.y = y;
+            }
+        }
+        b = new B(3, 4);
+        return b.x + b.y;
+    `);
+    assert.strictEqual(7, returnVal?.value);
+});
+
+test('074_SuperMethod', (t) => {
+    //super.method берёт реализацию родителя, не своего.
+    const returnVal = executeReturnCode(`
+        class A {
+            kind() { return "A"; }
+        }
+        class B extends A {
+            kind() { return "B"; }
+            bothKinds() { return super.kind() + "/" + this.kind(); }
+        }
+        return new B().bothKinds();
+    `);
+    assert.strictEqual('A/B', returnVal?.value);
+});
+
+test('074_AutoSuperCtor', (t) => {
+    //extends-класс без своего ctor использует родительский автоматически.
+    const returnVal = executeReturnCode(`
+        class A {
+            constructor(v) { this.v = v; }
+        }
+        class B extends A {}
+        return new B(42).v;
+    `);
+    assert.strictEqual(42, returnVal?.value);
+});
+
+test('074_ChildOverridesMethod', (t) => {
+    //У потомка свой метод — obj.method ведёт к потомку.
+    const returnVal = executeReturnCode(`
+        class A {
+            tag() { return "parent"; }
+        }
+        class B extends A {
+            tag() { return "child"; }
+        }
+        return new B().tag();
+    `);
+    assert.strictEqual('child', returnVal?.value);
+});
+
+test('074_ThreeLevels', (t) => {
+    //A → B → C. super из B вызывает A; через цепочку всё работает.
+    const returnVal = executeReturnCode(`
+        class A {
+            constructor() { this.tag = "A"; }
+        }
+        class B extends A {
+            constructor() {
+                super();
+                this.tag = this.tag + "+B";
+            }
+        }
+        class C extends B {
+            constructor() {
+                super();
+                this.tag = this.tag + "+C";
+            }
+        }
+        return new C().tag;
+    `);
+    assert.strictEqual('A+B+C', returnVal?.value);
+});
+
+test('074_JSThisInSuperMethod', (t) => {
+    //Внутри super.method вызов this.foo() должен резолвиться через
+    //цепочку класса instance (потомка), а не родителя.
+    const returnVal = executeReturnCode(`
+        class A {
+            name() { return "A"; }
+            greet() { return "Hi, " + this.name(); }
+        }
+        class B extends A {
+            name() { return "B"; }
+            shout() { return super.greet(); }
+        }
+        return new B().shout();
+    `);
+    assert.strictEqual('Hi, B', returnVal?.value);
+});
+
+test('074_NoExtendsSuperFails', (t) => {
+    //super() в классе без extends — ошибка.
+    assert.throws(() => {
+        executeReturnCode(`
+            class A {
+                constructor() { super(); }
+            }
+            return new A();
+        `);
+    }, /without extends/);
+});
+
+test('074_UnknownParentFails', (t) => {
+    //extends X, где X не объявлен — ошибка при первом обращении к super.
+    assert.throws(() => {
+        executeReturnCode(`
+            class B extends Ghost {
+                constructor() { super(); }
+            }
+            return new B();
+        `);
+    }, /Unknown parent class "Ghost"/);
+});
+
+test('074_ThisBeforeSuperFails', (t) => {
+    //TDZ: обращение к this до super() в ctor extends-класса — ошибка.
+    assert.throws(() => {
+        executeReturnCode(`
+            class A {
+                constructor() { this.x = 1; }
+            }
+            class B extends A {
+                constructor() {
+                    this.y = 2;
+                    super();
+                }
+            }
+            return new B();
+        `);
+    }, /Must call super constructor/);
+});
+
+test('074_SuperOutsideClassFails', (t) => {
+    //super в обычной функции — ошибка.
+    assert.throws(() => {
+        executeReturnCode(`
+            function f() { return super.foo(); }
+            return f();
+        `);
+    }, /'super' is not available/);
+});
+
+test('074_SuperMethodNotFound', (t) => {
+    //super.foo() в классе, у которого ни один родитель не объявил foo.
+    assert.throws(() => {
+        executeReturnCode(`
+            class A {}
+            class B extends A {
+                run() { return super.missing(); }
+            }
+            return new B().run();
+        `);
+    }, /Method 'missing' not found/);
+});

@@ -1,0 +1,9 @@
+class A {
+    name() { return "A"; }
+    greet() { return "Hi, " + this.name(); }
+}
+class B extends A {
+    name() { return "B"; }
+    shout() { return super.greet(); }
+}
+return new B().shout();
