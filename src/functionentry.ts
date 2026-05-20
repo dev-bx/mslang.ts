@@ -1,5 +1,4 @@
 import {FunctionParameter} from "./functionparameter.js";
-import {StackVariable} from "./stackvariable";
 import {VariableType} from "./variabletype";
 import {MSLangException} from "./exceptions";
 

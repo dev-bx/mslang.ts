@@ -1,5 +1,5 @@
 import {CompareType, NodeType, ParseNode} from "./parser";
-import {LexerType, TokenCursor} from "./lexer";
+import {TokenCursor} from "./lexer";
 import {VariableType} from "./variabletype";
 import {StackVariable} from "./stackvariable";
 import {StackVariableNumber} from "./stackvariablenumber";
@@ -532,9 +532,9 @@ export class Interpreter {
     minusHandler(context: ContextInterpreter, token: ParseNode) {
         context.execGetVariable();
 
-        let rightVar = context.popStackVar(),
-            rightVarTmp = rightVar.castAs(VariableType.vtNumber),
-            variable;
+        const rightVar = context.popStackVar();
+        const rightVarTmp = rightVar.castAs(VariableType.vtNumber);
+        let variable;
 
         if (!rightVarTmp)
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
@@ -559,15 +559,14 @@ export class Interpreter {
     mulHandler(context: ContextInterpreter, token: ParseNode) {
         context.execGetVariable();
 
-        let rightVar = context.popStackVar(),
-            leftVar = context.popStackVar(),
-            rightTmp, leftTmp;
+        const rightVar = context.popStackVar();
+        const leftVar = context.popStackVar();
 
-        leftTmp = leftVar.castAs(VariableType.vtNumber);
+        const leftTmp = leftVar.castAs(VariableType.vtNumber);
         if (!leftTmp)
             throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
 
-        rightTmp = rightVar.castAs(VariableType.vtNumber);
+        const rightTmp = rightVar.castAs(VariableType.vtNumber);
         if (!rightTmp)
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
@@ -579,15 +578,14 @@ export class Interpreter {
     divHandler(context: ContextInterpreter, token: ParseNode) {
         context.execGetVariable();
 
-        let rightVar = context.popStackVar(),
-            leftVar = context.popStackVar(),
-            rightTmp, leftTmp;
+        const rightVar = context.popStackVar();
+        const leftVar = context.popStackVar();
 
-        leftTmp = leftVar.castAs(VariableType.vtNumber);
+        const leftTmp = leftVar.castAs(VariableType.vtNumber);
         if (!leftTmp)
             throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
 
-        rightTmp = rightVar.castAs(VariableType.vtNumber);
+        const rightTmp = rightVar.castAs(VariableType.vtNumber);
         if (!rightTmp)
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
@@ -2446,6 +2444,8 @@ export class ContextInterpreter {
         this.setVariable('Math', new MathFunctions());
         this.setVariable('DateTime', new StackVariableDateTime(undefined));
         this.setVariable('debug', new StackVariableFunction(new FunctionEntry('debug', undefined, (...args: unknown[]) => {
+            //Это намеренно: встроенная функция debug() из скриптов выводит в консоль.
+            // eslint-disable-next-line no-console
             console.log(...args);
         })))
         this.setVariable('Error', new ErrorConstructor());
@@ -2912,7 +2912,6 @@ export class ContextInterpreter {
         }
 
         const callFuncArgs: (StackVariable|null)[] = [null];
-        const index = 0;
 
         const funcParameters = funcEntry.getParameters();
         const paramCount = Math.max(parameters.length, funcParameters.length);

@@ -12,8 +12,8 @@
  */
 import {
     CodeLexer, CodeParser, Interpreter, ContextInterpreter,
-    LexerTypeArray, LexerType, ParseNode, StackVariable, StackVariableArray, StackVariableString, StackVariableNumber,
-    StackVariableBoolean, StackVariableNull, StackVariableUndefined, VariableType,
+    LexerTypeArray, LexerType, ParseNode, StackVariableArray,
+    StackVariableNull, StackVariableUndefined, VariableType,
 } from '../src';
 
 function arg(name: string, def: string): string {
@@ -72,7 +72,7 @@ function executeScript(source: string): unknown {
         ctx.registerConst();
 
         return unwrap(ctx.exec(true));
-    } catch (e) {
+    } catch {
         return {error: true};
     }
 }

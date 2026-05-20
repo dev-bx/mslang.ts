@@ -98,8 +98,11 @@ const loopAst = parse(HOT_LOOP);
 results.push(bench('exec only (hot loop 1000×, parsed once)', 50, () => build(loopAst).exec(true)));
 
 // --- вывод ---
+//Это намеренно: бенчмарк-скрипт печатает результаты прогона.
+/* eslint-disable no-console */
 console.log('\n=== MSLang benchmarks ===');
 console.log('runs\tms total\tms/run\tname');
 for (const r of results) {
     console.log(`${r.runs}\t${r.ms.toFixed(1)}\t\t${r.msPerRun.toFixed(3)}\t${r.name}`);
 }
+/* eslint-enable no-console */

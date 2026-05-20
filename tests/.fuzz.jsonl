@@ -1,0 +1,200 @@
+{"src":"return ((null != null) == (\"1\" == 0));","ts":true}
+{"src":"return (false != null);","ts":false}
+{"src":"return true;","ts":true}
+{"src":"return \"ab\";","ts":"ab"}
+{"src":"return 7;","ts":7}
+{"src":"return (true && null);","ts":null}
+{"src":"return ((null - (-5 == true)) - ((9 || false) != -10));","ts":{"error":true}}
+{"src":"return false;","ts":false}
+{"src":"return ((null || null) + ((\"ab\" == null) + null));","ts":{"error":true}}
+{"src":"return null;","ts":null}
+{"src":"return false;","ts":false}
+{"src":"return (((4 * false) == (false + 10)) || null);","ts":null}
+{"src":"return (((3 * \"b\") - (8 * true)) - ((2 || true) != null));","ts":{"error":true}}
+{"src":"return (true * \"ab\");","ts":"NaN"}
+{"src":"return (null - true);","ts":-1}
+{"src":"return (false != false);","ts":false}
+{"src":"return (true != null);","ts":true}
+{"src":"return 4;","ts":4}
+{"src":"return -4;","ts":-4}
+{"src":"return null;","ts":null}
+{"src":"return true;","ts":true}
+{"src":"return ((\"ab\" == (true || null)) || (null - (\"\" == null)));","ts":true}
+{"src":"return -7;","ts":-7}
+{"src":"return (((\"\" != null) || false) != ((false != -3) * 3));","ts":true}
+{"src":"return (((true - -4) == (null == \"1\")) || null);","ts":null}
+{"src":"return (((true * null) == null) == ((-7 + \"a\") != (null == 7)));","ts":true}
+{"src":"return true;","ts":true}
+{"src":"return (\"1\" == ((null && -9) && -5));","ts":{"error":true}}
+{"src":"return ((true || \"ab\") != \"\");","ts":{"error":true}}
+{"src":"return null;","ts":null}
+{"src":"return (((false * null) == (null == \"\")) || ((\"b\" != \"b\") * (false * \"1\")));","ts":0}
+{"src":"return (false != ((null && null) - \"\"));","ts":{"error":true}}
+{"src":"return (false == ((null != null) * -8));","ts":{"error":true}}
+{"src":"return false;","ts":false}
+{"src":"return (-5 != ((\"\" != true) - (true - false)));","ts":true}
+{"src":"return (((\"a\" != -10) + -6) == ((null * 5) != (6 * null)));","ts":false}
+{"src":"return 6;","ts":6}
+{"src":"return (((1 - null) == \"b\") || null);","ts":null}
+{"src":"return (\"ab\" == ((true != false) + (\"ab\" - 3)));","ts":false}
+{"src":"return ((\"b\" + (null == false)) - \"\");","ts":"NaN"}
+{"src":"return 0;","ts":0}
+{"src":"return (((\"b\" + true) - (null + 8)) == ((null + null) != (true == null)));","ts":false}
+{"src":"return null;","ts":null}
+{"src":"return null;","ts":null}
+{"src":"return false;","ts":false}
+{"src":"return (((null + true) || (5 && null)) - ((\"a\" + null) && (null != null)));","ts":{"error":true}}
+{"src":"return (((\"\" && -9) || (false + null)) != ((\"1\" == true) * null));","ts":{"error":true}}
+{"src":"return -5;","ts":-5}
+{"src":"return (((null && 4) || (null - \"ab\")) * \"1\");","ts":{"error":true}}
+{"src":"return false;","ts":false}
+{"src":"return (((false && \"b\") + (\"a\" - null)) - ((\"1\" != -9) == \"a\"));","ts":{"error":true}}
+{"src":"return null;","ts":null}
+{"src":"return null;","ts":null}
+{"src":"return ((5 && (null + null)) + ((false != -8) != (false && \"ab\")));","ts":{"error":true}}
+{"src":"return (((false != null) || (-4 - \"ab\")) * ((\"b\" != \"b\") + (null * true)));","ts":"NaN"}
+{"src":"return \"1\";","ts":"1"}
+{"src":"return null;","ts":null}
+{"src":"return true;","ts":true}
+{"src":"return (((\"ab\" != null) == (null != null)) || (null - true));","ts":-1}
+{"src":"return null;","ts":null}
+{"src":"return -1;","ts":-1}
+{"src":"return ((null - false) + (-3 && (\"ab\" || 3)));","ts":{"error":true}}
+{"src":"return ((8 * (8 - 1)) && ((null == null) != (-6 || \"b\")));","ts":{"error":true}}
+{"src":"return ((false * (2 || false)) == ((-1 || -7) != -3));","ts":{"error":true}}
+{"src":"return (((true && null) * null) == 7);","ts":false}
+{"src":"return 9;","ts":9}
+{"src":"return \"ab\";","ts":"ab"}
+{"src":"return null;","ts":null}
+{"src":"return (((true == true) - true) - \"1\");","ts":-1}
+{"src":"return -7;","ts":-7}
+{"src":"return (((null - null) && (7 - \"\")) && -10);","ts":{"error":true}}
+{"src":"return (((\"a\" != \"b\") + (-5 * \"\")) != (\"a\" - (\"\" * \"a\")));","ts":true}
+{"src":"return true;","ts":true}
+{"src":"return (((\"1\" + null) != (-2 && 9)) == 2);","ts":{"error":true}}
+{"src":"return ((false * null) == ((false && -1) != (10 * \"ab\")));","ts":false}
+{"src":"return (false || false);","ts":false}
+{"src":"return null;","ts":null}
+{"src":"return \"a\";","ts":"a"}
+{"src":"return ((true * 4) && true);","ts":{"error":true}}
+{"src":"return (((null * null) == \"\") + ((null * \"b\") != (false * true)));","ts":1}
+{"src":"return (((null || null) || \"b\") && null);","ts":{"error":true}}
+{"src":"return 5;","ts":5}
+{"src":"return -7;","ts":-7}
+{"src":"return \"ab\";","ts":"ab"}
+{"src":"return (((true * null) - (true || null)) || ((null && null) - (false || \"a\")));","ts":{"error":true}}
+{"src":"return ((\"b\" - (true || null)) && false);","ts":{"error":true}}
+{"src":"return ((\"b\" - \"1\") == true);","ts":true}
+{"src":"return \"\";","ts":""}
+{"src":"return (((null == true) - (null == 4)) * (true != (null + \"b\")));","ts":0}
+{"src":"return true;","ts":true}
+{"src":"return (null == ((-10 || \"1\") == (true + \"ab\")));","ts":{"error":true}}
+{"src":"return false;","ts":false}
+{"src":"return (((null || \"b\") == 0) && ((null || \"b\") - (false + null)));","ts":{"error":true}}
+{"src":"return (((\"1\" && \"b\") && (true + null)) && null);","ts":{"error":true}}
+{"src":"return \"b\";","ts":"b"}
+{"src":"return -7;","ts":-7}
+{"src":"return (false || (2 - (\"\" != null)));","ts":2}
+{"src":"return (true - ((false && \"1\") - 0));","ts":{"error":true}}
+{"src":"return ((null + 3) * (-6 - \"\"));","ts":-18}
+{"src":"return true;","ts":true}
+{"src":"return (null - ((8 == null) == (1 + \"b\")));","ts":0}
+{"src":"return 0;","ts":0}
+{"src":"return ((false == -5) * false);","ts":0}
+{"src":"return ((\"a\" != (null && null)) != null);","ts":{"error":true}}
+{"src":"return ((true - (-3 * true)) - ((null && true) + (7 + 1)));","ts":{"error":true}}
+{"src":"return (((true != null) == (\"\" || null)) && -8);","ts":{"error":true}}
+{"src":"return ((null == (false * \"1\")) != null);","ts":true}
+{"src":"return (-2 - \"\");","ts":-2}
+{"src":"return (((false * null) * (-8 * true)) + ((null || null) == -9));","ts":{"error":true}}
+{"src":"return \"a\";","ts":"a"}
+{"src":"return -4;","ts":-4}
+{"src":"return (null == ((10 * null) == -9));","ts":true}
+{"src":"return 5;","ts":5}
+{"src":"return (false * -1);","ts":{"error":true}}
+{"src":"return (10 * ((true * \"1\") || \"\"));","ts":{"error":true}}
+{"src":"return (null == 3);","ts":false}
+{"src":"return (((true * false) - (true && -9)) * (\"1\" == (null == null)));","ts":8}
+{"src":"return (((\"ab\" || -1) == \"\") - (5 || (1 + 10)));","ts":{"error":true}}
+{"src":"return (true == true);","ts":true}
+{"src":"return \"a\";","ts":"a"}
+{"src":"return (\"ab\" + ((null * null) != (true + \"1\")));","ts":"abtrue"}
+{"src":"return (false == ((-3 || \"ab\") - 7));","ts":{"error":true}}
+{"src":"return (true && false);","ts":false}
+{"src":"return true;","ts":true}
+{"src":"return -6;","ts":-6}
+{"src":"return (null - \"ab\");","ts":"NaN"}
+{"src":"return ((\"1\" == -9) + (null != true));","ts":1}
+{"src":"return (null * (null * (null != -4)));","ts":0}
+{"src":"return (\"1\" != ((-10 || null) != \"\"));","ts":{"error":true}}
+{"src":"return ((9 && (null - true)) + \"\");","ts":{"error":true}}
+{"src":"return \"b\";","ts":"b"}
+{"src":"return \"\";","ts":""}
+{"src":"return (\"\" || ((null || null) - 7));","ts":{"error":true}}
+{"src":"return (((3 != false) != -9) + (\"a\" - (9 + 6)));","ts":"NaN"}
+{"src":"return true;","ts":true}
+{"src":"return (((null * true) != (-9 || \"\")) == 1);","ts":{"error":true}}
+{"src":"return (((9 == \"1\") + (true != false)) == null);","ts":false}
+{"src":"return (\"ab\" != (\"ab\" && 3));","ts":{"error":true}}
+{"src":"return (((false + -8) * \"a\") - null);","ts":"NaN"}
+{"src":"return (null * (null && (\"a\" + true)));","ts":{"error":true}}
+{"src":"return (true * ((\"ab\" != \"1\") == \"\"));","ts":0}
+{"src":"return false;","ts":false}
+{"src":"return (((\"b\" * false) - (null - false)) == ((true - null) || (\"b\" == 2)));","ts":{"error":true}}
+{"src":"return (((true != false) && false) == \"1\");","ts":false}
+{"src":"return (true == (\"a\" || (null && 10)));","ts":{"error":true}}
+{"src":"return -7;","ts":-7}
+{"src":"return \"\";","ts":""}
+{"src":"return -10;","ts":-10}
+{"src":"return ((\"\" || (\"a\" - null)) && ((true - null) * (null != null)));","ts":{"error":true}}
+{"src":"return ((-4 + -8) == ((false != \"a\") * (\"a\" || true)));","ts":{"error":true}}
+{"src":"return (((true * -6) - (\"b\" + 2)) != null);","ts":{"error":true}}
+{"src":"return -5;","ts":-5}
+{"src":"return ((true * (-8 - true)) != (-3 && \"b\"));","ts":{"error":true}}
+{"src":"return -6;","ts":-6}
+{"src":"return (((null && null) - (3 || null)) * ((10 || true) || 10));","ts":{"error":true}}
+{"src":"return ((\"1\" == \"\") + ((-1 - 2) == (null + true)));","ts":0}
+{"src":"return (-5 + ((\"ab\" || 3) + null));","ts":{"error":true}}
+{"src":"return -2;","ts":-2}
+{"src":"return (null || 3);","ts":{"error":true}}
+{"src":"return null;","ts":null}
+{"src":"return null;","ts":null}
+{"src":"return (((8 == \"b\") || (true == false)) == ((-9 && -7) == (\"b\" == 6)));","ts":{"error":true}}
+{"src":"return true;","ts":true}
+{"src":"return (null == (\"ab\" - (false || 5)));","ts":false}
+{"src":"return \"b\";","ts":"b"}
+{"src":"return \"ab\";","ts":"ab"}
+{"src":"return \"\";","ts":""}
+{"src":"return (((true - 4) != (6 + 9)) && (\"b\" * (true + null)));","ts":"NaN"}
+{"src":"return \"ab\";","ts":"ab"}
+{"src":"return (((null != true) == false) * ((\"1\" == \"a\") || null));","ts":0}
+{"src":"return (((true - \"a\") && (null != \"ab\")) != -9);","ts":{"error":true}}
+{"src":"return (\"1\" - true);","ts":0}
+{"src":"return null;","ts":null}
+{"src":"return -10;","ts":-10}
+{"src":"return -7;","ts":-7}
+{"src":"return (((1 + false) * \"\") + 0);","ts":0}
+{"src":"return \"a\";","ts":"a"}
+{"src":"return null;","ts":null}
+{"src":"return (((\"a\" + null) * (\"ab\" != 7)) && (true + false));","ts":{"error":true}}
+{"src":"return true;","ts":true}
+{"src":"return \"ab\";","ts":"ab"}
+{"src":"return (((null - -7) == (null * null)) && (\"\" != (false && null)));","ts":false}
+{"src":"return \"b\";","ts":"b"}
+{"src":"return ((true || (false && false)) || null);","ts":true}
+{"src":"return (((null - null) != (false + null)) && null);","ts":false}
+{"src":"return (\"b\" + 4);","ts":"b4"}
+{"src":"return (null == null);","ts":true}
+{"src":"return (((null + \"ab\") || \"b\") || ((4 + null) - 6));","ts":{"error":true}}
+{"src":"return ((true * (10 == true)) != -2);","ts":true}
+{"src":"return -2;","ts":-2}
+{"src":"return (((-4 + \"1\") || (null * null)) + (null && \"1\"));","ts":{"error":true}}
+{"src":"return ((null + (null + 10)) != (null * (\"a\" == true)));","ts":true}
+{"src":"return ((\"\" != (-7 || false)) == true);","ts":{"error":true}}
+{"src":"return ((\"ab\" - -9) == ((true * null) != null));","ts":false}
+{"src":"return -6;","ts":-6}
+{"src":"return -2;","ts":-2}
+{"src":"return (true - ((true - false) + (null && \"a\")));","ts":{"error":true}}
+{"src":"return \"1\";","ts":"1"}
+{"src":"return (((true || null) || (false + \"b\")) - (false || (\"\" && -9)));","ts":{"error":true}}
+{"src":"return ((6 != null) && true);","ts":true}

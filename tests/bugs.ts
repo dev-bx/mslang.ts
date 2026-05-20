@@ -12,8 +12,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    StackVariable, VariableType, StackVariableBoolean, StackVariableNumber, CodeLexer, CodeParser,
-    LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString,
+    VariableType, StackVariableBoolean, CodeLexer, CodeParser,
+    LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray,
     ParseNode, StackVariableUndefined, FunctionEntry,
 } from "../src";
 import {FunctionParameter} from "../src/functionparameter";
