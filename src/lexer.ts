@@ -56,12 +56,12 @@ export class FullTokenInfo {
 
 export class LexerTypeArray extends Array<number> {
     get asNames() {
-        let result: string[] = [],
+        const result: string[] = [],
             k = Object.keys(LexerType),
             v = Object.values(LexerType);
 
         this.forEach(value => {
-            let idx = v.indexOf(value);
+            const idx = v.indexOf(value);
 
             if (idx === -1)
                 throw new LexerException('Unknown LexerType ' + value);
@@ -73,13 +73,13 @@ export class LexerTypeArray extends Array<number> {
     }
 
     static one(value: number) {
-        let r = new LexerTypeArray();
+        const r = new LexerTypeArray();
         r.push(value);
         return r;
     }
 
     cloneAdd(value: number | number[]) {
-        let r = new LexerTypeArray();
+        const r = new LexerTypeArray();
 
         r.push(...this);
 
@@ -156,7 +156,7 @@ export class Lexer {
     }
 
     whoNextCh(offset = 0) {
-        let ch = this._text.charAt(this._textPos + offset);
+        const ch = this._text.charAt(this._textPos + offset);
 
         if (ch === '')
             return null;
@@ -168,7 +168,7 @@ export class Lexer {
         if (typeof ch !== 'string')
             return null;
 
-        let n = ch.charCodeAt(0);
+        const n = ch.charCodeAt(0);
 
         return (n >= 65 && n < 91) || (n >= 97 && n < 123);
     }
@@ -177,7 +177,7 @@ export class Lexer {
         if (typeof ch !== 'string')
             return null;
 
-        let n = ch.charCodeAt(0);
+        const n = ch.charCodeAt(0);
 
         return (n >= 65 && n < 91) || (n >= 97 && n < 123) || (n >= 48 && n <= 57);
     }
@@ -186,7 +186,7 @@ export class Lexer {
         if (typeof ch !== 'string')
             return null;
 
-        let n = ch.charCodeAt(0);
+        const n = ch.charCodeAt(0);
 
         return (n >= 48 && n <= 57);
     }
@@ -231,7 +231,7 @@ export class CodeLexer extends Lexer {
     }
 
     get tokenName() {
-        let idx = Object.values(LexerType).indexOf(this._tokenSym);
+        const idx = Object.values(LexerType).indexOf(this._tokenSym);
 
         if (idx === -1)
             return 'Unknown';
@@ -241,10 +241,10 @@ export class CodeLexer extends Lexer {
 
 
     indexOfAny(chars: string[], fromPos = 0) {
-        let result: number[] = [];
+        const result: number[] = [];
 
         chars.forEach(ch => {
-            let i = this._text.indexOf(ch, fromPos);
+            const i = this._text.indexOf(ch, fromPos);
 
             if (i > -1)
                 result.push(i);
@@ -254,7 +254,7 @@ export class CodeLexer extends Lexer {
     }
 
     indexOfAnyFirst(chars: string[], fromPos = 0) {
-        let result = this.indexOfAny(chars, fromPos);
+        const result = this.indexOfAny(chars, fromPos);
 
         if (!result.length)
             return -1;
@@ -447,7 +447,7 @@ export class CodeLexer extends Lexer {
 
         this._tokenValue += this.lastChar;
 
-        let allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']'];
+        const allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']'];
 
         if (this.isDigit(this.lastChar) || this.lastChar === '-') {
             let isFloat = false;
@@ -498,7 +498,7 @@ export class CodeLexer extends Lexer {
             throw new LexerException("Parse failed");
         }
 
-        let isObjProp = this._tokenValue === '.';
+        const isObjProp = this._tokenValue === '.';
 
         if (isObjProp && this.whoNextCh(0) === '.' && this.whoNextCh(1) === '.') {
             this.getCh(); // skip dot
@@ -616,7 +616,7 @@ export class CodeLexer extends Lexer {
             break;
         }
 
-        let tokenCursor = new TokenCursor();
+        const tokenCursor = new TokenCursor();
         tokenCursor.startCursorLine = this.lastCursorLine;
         tokenCursor.startCursorCol = this.lastCursorCol;
 

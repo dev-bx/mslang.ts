@@ -1,25 +1,45 @@
 {
   "name": "devbx.mslang",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "MSLang — встраиваемый язык скриптов для Bitrix DevBx (TypeScript-реализация, зеркало PHP-версии)",
+  "type": "module",
+  "main": "./dist/mslang.umd.js",
+  "module": "./dist/mslang.es.js",
   "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/mslang.es.js",
+      "require": "./dist/mslang.umd.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "MSLang.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "node scripts/sync-version.mjs && tsc && vite build",
+    "version:sync": "node scripts/sync-version.mjs",
     "preview": "vite preview",
     "test": "tsx tests/tests.ts",
     "test:bugs": "tsx tests/bugs.ts",
     "test:mirror": "tsx tests/mirror.ts",
     "test:cross": "tsx tests/cross.ts",
+    "test:fuzz": "tsx tests/fuzz.ts --count 200 --seed 42 > tests/.fuzz.jsonl",
+    "bench": "tsx tests/bench.ts",
+    "test:all": "npm test && npm run test:bugs && npm run test:mirror && npm run test:cross",
     "lint": "eslint src tests",
     "coverage": "node --experimental-test-coverage --import tsx tests/tests.ts",
     "test:compile": "tsc && tsc -p tsconfig.test.json && node dist/tests/tests.js",
-    "test:watch": "node --loader ts-node/esm --watch tests/tests.ts"
+    "test:watch": "node --loader ts-node/esm --watch tests/tests.ts",
+    "prepublishOnly": "npm run test:all && npm run build"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["mslang", "scripting", "interpreter", "bitrix", "devbx"],
+  "author": "DevBx",
   "license": "ISC",
-  "description": "",
   "devDependencies": {
     "@types/node": "^24.5.0",
     "@typescript-eslint/eslint-plugin": "^8.44.0",

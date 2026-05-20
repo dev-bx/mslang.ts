@@ -4,6 +4,7 @@ import {FunctionEntry} from "./functionentry.js";
 import {ContextInterpreter} from "./interpreter.js";
 import {FunctionParameter} from "./functionparameter";
 import {MSLangException} from "./exceptions";
+import {phpLooseEqual} from "./phpsemantics";
 
 interface VariableProperty {
     get?: unknown;
@@ -63,7 +64,7 @@ export class StackVariable {
                 return 'function';
         }
 
-        let idx = Object.values(VariableType).indexOf(this._type);
+        const idx = Object.values(VariableType).indexOf(this._type);
 
         if (idx < 0)
             return '???';
@@ -84,7 +85,7 @@ export class StackVariable {
     }
 
     get functions() {
-        let c = this.constructor.name;
+        const c = this.constructor.name;
 
         if (!funcEntryCache.hasOwnProperty(c))
         {
@@ -125,9 +126,9 @@ export class StackVariable {
     compare(variable: StackVariable, compareType: CompareType) {
         switch (compareType) {
             case CompareType.ctEqual:
-                return this.value == variable.value;
+                return phpLooseEqual(this.value, variable.value);
             case CompareType.ctNotEqual:
-                return this.value != variable.value;
+                return !phpLooseEqual(this.value, variable.value);
         }
 
         throw new MSLangException('Invalid compare type');
@@ -139,7 +140,7 @@ export class StackVariable {
 
     _getFunctionEntry(name:string)
     {
-        let methodName = name.charAt(0).toUpperCase() === name.charAt(0) ? 'funcInvoke' + name : 'funcInvoke_'+name;
+        const methodName = name.charAt(0).toUpperCase() === name.charAt(0) ? 'funcInvoke' + name : 'funcInvoke_'+name;
 
         if (typeof (this as any)[methodName] !== 'function') {
             return null;
@@ -179,7 +180,7 @@ export class StackVariable {
 
     _getFunctions()
     {
-        let list:Record<string, FunctionEntry> = {};
+        const list:Record<string, FunctionEntry> = {};
 
         let keys = [],
             obj = this;
@@ -218,7 +219,7 @@ export class StackVariable {
             if (typeof (this as any)[k] !== 'function')
                 return;
 
-            let entry = this._getFunctionEntry(funcName);
+            const entry = this._getFunctionEntry(funcName);
             if (entry)
             {
                 list[funcName.toLowerCase()] = entry;
@@ -229,7 +230,7 @@ export class StackVariable {
     }
 
     getFunctionEntry(name: string) {
-        let c = this.constructor.name;
+        const c = this.constructor.name;
 
         if (!funcEntryCache.hasOwnProperty(c))
         {
@@ -247,11 +248,11 @@ export class StackVariable {
             throw new MSLangException('Arguments is empty');
         }
 
-        let funcArguments = entry.getParameters();
+        const funcArguments = entry.getParameters();
 
         invokeArguments = Object.values(invokeArguments);
 
-        let self = invokeArguments.shift();
+        const self = invokeArguments.shift();
 
         if (typeof self !== 'object' || self === null)
         {
@@ -281,7 +282,7 @@ export class StackVariable {
             index++;
         });
 
-        let returnValue =  (this as any)[methodName].apply(self, callArguments);
+        const returnValue =  (this as any)[methodName].apply(self, callArguments);
 
         if (returnValue instanceof StackVariable)
             return returnValue;
@@ -300,7 +301,7 @@ export class StackVariable {
     }
 
     funcInvokeToString() {
-        let v = this.castAs(VariableType.vtString);
+        const v = this.castAs(VariableType.vtString);
 
         if (v)
             return v.value;

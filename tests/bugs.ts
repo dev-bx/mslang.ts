@@ -22,7 +22,7 @@ function createCodeContext(text: string) {
     const lexer = new CodeLexer(text);
     const parser = new CodeParser(lexer);
 
-    let nodeList: ParseNode[] = [];
+    const nodeList: ParseNode[] = [];
 
     parser.parseCode(nodeList, true, true, LexerTypeArray.one(LexerType.ltEof));
 

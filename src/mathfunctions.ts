@@ -341,7 +341,7 @@ export class MathFunctions extends StackVariable {
         const values: number[] = [];
 
         Object.values(arguments).forEach(value => {
-            let varNumber = value.castAs(VariableType.vtNumber);
+            const varNumber = value.castAs(VariableType.vtNumber);
 
             if (!varNumber)
                 throw new MSLangException('Failed cast ' + value.typeName + ' as number');
@@ -360,7 +360,7 @@ export class MathFunctions extends StackVariable {
         const values: number[] = [];
 
         Object.values(arguments).forEach(value => {
-            let varNumber = value.castAs(VariableType.vtNumber);
+            const varNumber = value.castAs(VariableType.vtNumber);
 
             if (!varNumber)
                 throw new MSLangException('Failed cast ' + value.typeName + ' as number');

@@ -13,7 +13,18 @@ import {fileURLToPath} from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TS_ROOT = path.resolve(__dirname, '../src');
-const PHP_ROOT = path.resolve(__dirname, '../../devbx.core/local/modules/devbx.core/lib/MSLang');
+const PHP_ROOT = process.env.MSLANG_PHP_ROOT
+    ?? path.resolve(__dirname, '../../devbx.core/local/modules/devbx.core/lib/MSLang');
+
+// Если PHP-зеркала рядом нет (например, в CI без чекаута соседнего репо),
+// зеркальные тесты пропускаем — иначе они падают на ENOENT и красят всю
+// сборку. Локально папка обычно есть.
+const PHP_AVAILABLE = fs.existsSync(PHP_ROOT);
+if (!PHP_AVAILABLE) {
+    // eslint-disable-next-line no-console
+    console.warn(`[mirror] PHP-зеркало не найдено в ${PHP_ROOT}, тесты пропущены.`);
+    console.warn('[mirror] Чтобы прогнать, склонируй devbx.core рядом или задай MSLANG_PHP_ROOT.');
+}
 
 // PHP: вытаскиваем константы вида `const Имя = число;`
 function readPhpConsts(file: string): Record<string, number> {
@@ -71,7 +82,7 @@ function compareConsts(ts: Record<string, number>, php: Record<string, number>, 
     assert.deepStrictEqual(mismatches, [], `${label}: расхождения значений:\n  ${mismatches.join('\n  ')}`);
 }
 
-test('mirror_VariableType', () => {
+test('mirror_VariableType', {skip: !PHP_AVAILABLE}, () => {
     compareConsts(
         readTsConsts(path.join(TS_ROOT, 'variabletype.ts'), 'VariableType'),
         readPhpConsts('VariableType.php'),
@@ -79,7 +90,7 @@ test('mirror_VariableType', () => {
     );
 });
 
-test('mirror_LexerType', () => {
+test('mirror_LexerType', {skip: !PHP_AVAILABLE}, () => {
     compareConsts(
         readTsConsts(path.join(TS_ROOT, 'lexer.ts'), 'LexerType'),
         readPhpConsts('LexerType.php'),
@@ -87,7 +98,7 @@ test('mirror_LexerType', () => {
     );
 });
 
-test('mirror_NodeType', () => {
+test('mirror_NodeType', {skip: !PHP_AVAILABLE}, () => {
     compareConsts(
         readTsConsts(path.join(TS_ROOT, 'parser.ts'), 'NodeType'),
         readPhpConsts('NodeType.php'),
@@ -95,7 +106,7 @@ test('mirror_NodeType', () => {
     );
 });
 
-test('mirror_CompareType', () => {
+test('mirror_CompareType', {skip: !PHP_AVAILABLE}, () => {
     compareConsts(
         readTsConsts(path.join(TS_ROOT, 'parser.ts'), 'CompareType'),
         readPhpConsts('CompareType.php'),
@@ -103,7 +114,7 @@ test('mirror_CompareType', () => {
     );
 });
 
-test('mirror_InterpreterNodeType', () => {
+test('mirror_InterpreterNodeType', {skip: !PHP_AVAILABLE}, () => {
     compareConsts(
         readTsConsts(path.join(TS_ROOT, 'interpreter.ts'), 'InterpreterNodeType'),
         readPhpConsts('InterpreterNodeType.php'),
@@ -111,7 +122,7 @@ test('mirror_InterpreterNodeType', () => {
     );
 });
 
-test('mirror_ContextType', () => {
+test('mirror_ContextType', {skip: !PHP_AVAILABLE}, () => {
     compareConsts(
         readTsConsts(path.join(TS_ROOT, 'interpreter.ts'), 'ContextType'),
         readPhpConsts('ContextType.php'),
@@ -142,7 +153,7 @@ function readTsHandlers(): Set<string> {
     return out;
 }
 
-test('mirror_handlers — какие NodeType зарегистрированы в обоих интерпретаторах', () => {
+test('mirror_handlers — какие NodeType зарегистрированы в обоих интерпретаторах', {skip: !PHP_AVAILABLE}, () => {
     const tsH = readTsHandlers();
     const phpH = readPhpHandlers();
 
@@ -198,7 +209,7 @@ const STACK_VAR_PAIRS = [
 ];
 
 for (const [tsFile, phpFile] of STACK_VAR_PAIRS) {
-    test(`mirror_funcInvoke_${tsFile.replace(/\.ts$/, '')}`, () => {
+    test(`mirror_funcInvoke_${tsFile.replace(/\.ts$/, '')}`, {skip: !PHP_AVAILABLE}, () => {
         const ts = readTsFuncInvokes(tsFile);
         const php = readPhpFuncInvokes(phpFile);
 
