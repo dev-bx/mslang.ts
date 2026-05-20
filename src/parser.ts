@@ -471,20 +471,11 @@ export class CodeParser {
                             if (SubExpressionNode.childItems === null)
                                 throw new ParserException('SubExpressionNode.childItems === null', this.lexer.tokenCursor);
 
-                            //TODO в PHP версии тоже изменить надо
-                            /* a[1] = 5;
-                            SubNode.childItems -> a[1]
-                            SubNode.nValue2 -> 5;
-
-                            было
-
-                            SubNode.childItems = [
-                                SubNode.childItems, //a[1] код куда устанавливается значения
-                                SubExpressionNode.childItems, // = 5; выражение
-                            ];
-
-                             */
-                            SubNode.nValue2 =  SubExpressionNode;
+                            // a[1] = 5;
+                            // childItems — путь к ячейке (a, [, 1, ]),
+                            // nValue2 — ParseNode выражения присваивания (= 5).
+                            // PHP эталон зеркалит ту же схему (см. CodeParser.php).
+                            SubNode.nValue2 = SubExpressionNode;
 
                             ParentNode.childItems = NodeList; //выражение закончено, выходим из парсинга
                             return;
