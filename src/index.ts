@@ -12,6 +12,7 @@ import {StackVariableBoolean} from "./stackvariableboolean";
 import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableObject} from "./stackvariableobject";
 import {StackVariableFunction} from "./stackvariablefunction";
+import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableDateTime} from './stackvariabledatetime';
 import {FunctionEntry} from "./functionentry";
 
@@ -39,6 +40,7 @@ export {
     StackVariableObject,
     StackVariableDateTime,
     StackVariableFunction,
+    StackVariableUserFunction,
     VariableType,
     InterpreterNode,
     ContextType,

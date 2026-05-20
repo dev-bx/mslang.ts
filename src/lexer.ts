@@ -47,6 +47,7 @@ export const LexerType = {
     'ltArraySeparator': 38,
     'ltContinue': 39,
     'ltDefault': 40,
+    'ltFunction': 41,
 }
 
 export class FullTokenInfo {
@@ -561,6 +562,11 @@ export class CodeLexer extends Lexer {
 
         if (this._tokenValue === "default") {
             this._tokenSym = LexerType.ltDefault;
+            return;
+        }
+
+        if (this._tokenValue === "function") {
+            this._tokenSym = LexerType.ltFunction;
             return;
         }
 

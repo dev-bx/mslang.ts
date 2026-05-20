@@ -61,6 +61,10 @@ export const NodeType =
         'ntObjSetPropValue': 48,
         'ntContinue': 49,
         'ntDefault': 50,
+        /** Определение пользовательской функции: nValue = имя, childItems = [ntFuncDefParam..., тело...]. */
+        'ntFunctionDef': 51,
+        /** Параметр в определении функции: nValue = имя, childItems = [default-выражение] или пусто. */
+        'ntFuncDefParam': 52,
     }
 
 export class ParseNode
@@ -266,7 +270,7 @@ export class CodeParser {
         throw new ParserException("Unknown compare token", this.lexer.tokenCursor);
     }
 
-    parseExpression(ParentNode: ParseNode, getFirstToken: boolean, StopLex: LexerTypeArray)
+    parseExpression(ParentNode: ParseNode, getFirstToken: boolean, StopLex: LexerTypeArray, allowEmpty: boolean = false)
     {
         let NodeList: ParseNode[] = [];
         let getNextToken = getFirstToken;
@@ -608,8 +612,13 @@ export class CodeParser {
             }
         }
 
-        if (!NodeList.length)
+        if (!NodeList.length) {
+            if (allowEmpty) {
+                ParentNode.childItems = [];
+                return;
+            }
             throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
+        }
 
         const lastNode = NodeList[NodeList.length - 1];
 
@@ -870,11 +879,13 @@ export class CodeParser {
                 const Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntReturn);
                 NodeList.push(Node);
 
+                //`return;` без значения разрешён внутри пользовательских функций —
+                //тогда результат функции = undefined.
                 if (inline)
                 {
-                    this.parseExpression(Node, true, endLineType.cloneAdd(LexerType.ltSemicolon));
+                    this.parseExpression(Node, true, endLineType.cloneAdd(LexerType.ltSemicolon), true);
                 } else {
-                    this.parseExpression(Node, true, LexerTypeArray.one(LexerType.ltSemicolon));
+                    this.parseExpression(Node, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
                 }
 
                 continue;
@@ -904,6 +915,10 @@ export class CodeParser {
                     case LexerType.ltSwitch:
                         this.parseSwitch(NodeList);
                         //parseSwitch потребил '}', getNextToken остаётся true
+                        break;
+                    case LexerType.ltFunction:
+                        this.parseFunctionDef(NodeList);
+                        //parseFunctionDef оставил лексер на '}' тела
                         break;
                     case LexerType.ltFor:
                         Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntFor);
@@ -1162,6 +1177,91 @@ export class CodeParser {
         }
 
         NodeList.push(switchNode);
+    }
+
+    /**
+     * Парсит определение пользовательской функции:
+     *   `function name(a, b = 5) { body... }`.
+     *
+     * На входе текущий tokenSym = ltFunction. На выходе лексер стоит на `}` тела —
+     * внешний parseCode сам сделает следующий getToken.
+     *
+     * Структура узла:
+     *   ntFunctionDef
+     *     nValue = имя
+     *     childItems = [ntFuncDefParam..., тело...]
+     *
+     *   ntFuncDefParam
+     *     nValue = имя параметра
+     *     childItems = [ntSubExpression(default)] или пусто
+     *
+     * Зеркало PHP-эталона `CodeParser::parseFunctionDef`.
+     */
+    protected parseFunctionDef(NodeList: Array<ParseNode | ParseNode[]>): void {
+        const funcNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFunctionDef);
+        funcNode.childItems = [];
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+            throw new ParserException("Function: name expected", this.lexer.tokenCursor);
+        }
+        funcNode.nValue = this.lexer.tokenValue;
+
+        if (this.reservedWords.indexOf(String(funcNode.nValue).toLowerCase()) !== -1) {
+            throw new ParserException('Function name cannot be a reserved word "' + funcNode.nValue + '"', this.lexer.tokenCursor);
+        }
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltLPar) {
+            throw new ParserException("Function: '(' expected", this.lexer.tokenCursor);
+        }
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltRPar) {
+            //разбираем список параметров через запятую.
+            const endParam = LexerTypeArray.one(LexerType.ltComma).cloneAdd(LexerType.ltRPar);
+            while (true) {
+                if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                    throw new ParserException("Function: parameter name expected", this.lexer.tokenCursor);
+                }
+
+                const paramNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncDefParam);
+                paramNode.nValue = this.lexer.tokenValue;
+                paramNode.childItems = [];
+
+                this.lexer.getToken();
+
+                if (this.lexer.tokenSym === LexerType.ltAssign) {
+                    //необязательный default: function f(a, b = 5)
+                    const defaultExpr = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
+                    this.parseExpression(defaultExpr, true, endParam);
+                    paramNode.childItems.push(defaultExpr);
+                }
+
+                funcNode.childItems.push(paramNode);
+
+                if (this.lexer.tokenSym === LexerType.ltRPar) {
+                    break;
+                }
+                if (this.lexer.tokenSym !== LexerType.ltComma) {
+                    throw new ParserException("Function: ',' or ')' expected after parameter", this.lexer.tokenCursor);
+                }
+                this.lexer.getToken();
+            }
+        }
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltStartCode) {
+            throw new ParserException("Function: '{' expected", this.lexer.tokenCursor);
+        }
+
+        const bodyList: Array<ParseNode | ParseNode[]> = [];
+        this.parseCode(bodyList, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+        for (const bodyItem of bodyList) {
+            funcNode.childItems.push(bodyItem);
+        }
+
+        NodeList.push(funcNode);
     }
 
 }
