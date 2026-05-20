@@ -218,13 +218,12 @@ fn.addParameter(new FunctionParameter('name', VariableType.vtString, true));
 ctx.setVariable('greet', new StackVariableFunction(fn, null));
 ```
 
-## Чего ЕЩЁ нет
+## Что ещё не сделано
 
-- `switch`/`case` — токены зарезервированы, но не реализованы.
-- Пользовательские функции внутри скрипта (`function f() {}`) — нет.
 - Регулярные выражения — нет.
-- Исключения внутри скрипта (`try/catch`) — нет.
 - Импорт модулей — нет.
+
+(`switch/case`, пользовательские функции, `try/catch/finally`, `throw`, `new Error()`, классы — `class Name [extends Parent] { ... }`, `new`, `this`, `super(...)`, `super.method(...)`, `instanceof`, иерархии ошибок через `class MyError extends Error`, function-конструктор старого JS-стиля — уже реализованы.)
 
 ## Лимиты выполнения
 
