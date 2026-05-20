@@ -234,3 +234,36 @@ test('Bug14_ClassMethodRecursionThroughThis', () => {
     // 4 + 3 + 2 + 1 = 10
     assert.strictEqual(10, returnVal?.value);
 });
+
+// Баг: `if (cond) stmt;` без `{}` внутри пользовательской функции
+// продолжал «жрать» следующие statement-ы как часть then-блока, и
+// локальные переменные после if терялись. Исправлено через параметр
+// singleStatement в parseCode для inline-формы if/else/for/while.
+test('Bug15_InlineIfDoesNotEatNextStatement', () => {
+    const returnVal = executeReturnCode(`
+        function f(n) {
+            if (n <= 0) return -2;
+            a = 1;
+            return a;
+        }
+        return f(3);
+    `);
+    assert.strictEqual(1, returnVal?.value);
+});
+
+// Баг 15b: каскад if-ов без {} для каждого case — типичная
+// switch-подмена через несколько последовательных if. Должны
+// выполниться все, и сохранить локальную, которую они меняют.
+test('Bug15_InlineIfChainKeepsLocals', () => {
+    const returnVal = executeReturnCode(`
+        function rate(tier) {
+            r = 0;
+            if (tier == "silver") r = 3;
+            if (tier == "gold")   r = 7;
+            if (tier == "vip")    r = 12;
+            return r;
+        }
+        return rate("gold");
+    `);
+    assert.strictEqual(7, returnVal?.value);
+});
