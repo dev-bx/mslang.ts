@@ -88,6 +88,12 @@ export const NodeType =
         'ntSuperCall': 60,
         /** Вызов метода родителя: `super.method(args)`. nValue = имя метода, childItems = аргументы. */
         'ntSuperMethodCall': 61,
+        /**
+         * Оператор `obj instanceof Class`. nValue = имя класса справа.
+         * Левый операнд уже лежит на стеке как предыдущий узел выражения.
+         * Возвращает boolean.
+         */
+        'ntInstanceof': 62,
     }
 
 export class ParseNode
@@ -636,6 +642,20 @@ export class CodeParser {
                         throw new ParserException('Invalid token', this.lexer.tokenCursor);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareOr);
+                    NodeList.push(SubNode);
+                    break;
+                case LexerType.ltInstanceof:
+                    //obj instanceof Class — справа всегда имя класса (ltIDStr).
+                    //Левый операнд уже лежит в выражении как prevNode; интерпретатор
+                    //снимет его со стека в instanceofHandler.
+                    if (!prevNode) {
+                        throw new ParserException("'instanceof' requires a left operand", this.lexer.tokenCursor);
+                    }
+                    this.lexer.getToken();
+                    if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                        throw new ParserException("'instanceof' expects class name", this.lexer.tokenCursor);
+                    }
+                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntInstanceof, this.lexer.tokenValue);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltNegativeIf:

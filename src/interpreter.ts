@@ -1,5 +1,5 @@
-import {CompareType, NodeType, ParseNode} from "./parser";
-import {TokenCursor} from "./lexer";
+import {CompareType, CodeParser, NodeType, ParseNode} from "./parser";
+import {CodeLexer, LexerType, LexerTypeArray, TokenCursor} from "./lexer";
 import {VariableType} from "./variabletype";
 import {StackVariable} from "./stackvariable";
 import {StackVariableNumber} from "./stackvariablenumber";
@@ -13,7 +13,6 @@ import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableClass} from "./stackvariableclass";
 import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
-import {ErrorConstructor} from "./errorconstructor";
 import {StackVariableDateTime} from "./stackvariabledatetime";
 import {InterpreterException, MSLangException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
@@ -360,6 +359,10 @@ export class Interpreter {
         });
         this.registerNodeHandler(InterpreterNodeType.ntSuperMethodCallFinish, (...args: Parameters<TNodeHandler>) => {
             this.superMethodCallFinishHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntInstanceof, (...args: Parameters<TNodeHandler>) => {
+            this.instanceofHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntArray, (...args: Parameters<TNodeHandler>) => {
@@ -2382,6 +2385,14 @@ export class Interpreter {
      */
     wrapAsError(context: ContextInterpreter, e: unknown): StackVariableObject {
         const obj = new StackVariableObject(false, {});
+
+        //Привязываем объект к встроенному классу Error из текущего контекста —
+        //это позволяет ловить системные ошибки через `catch (e) { if (e instanceof Error) ... }`.
+        const errorClass = context.getVariable('Error');
+        if (errorClass instanceof StackVariableClass) {
+            obj.setClass(errorClass);
+        }
+
         const msg = (e instanceof Error) ? e.message : String(e);
         obj.registerProperty('message', new StackVariableString(false, msg));
         obj.registerProperty('name', new StackVariableString(false, 'Error'));
@@ -2507,27 +2518,10 @@ export class Interpreter {
             return;
         }
 
-        //Builtin-конструктор Error на этапах 1–2 остаётся специальным; этапом 3
-        //он унифицируется с пользовательским классом через registerConst.
-        if (!(constructor instanceof ErrorConstructor)) {
-            throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos);
-        }
-
-        //Для Error: первый аргумент — сообщение (приводим к строке).
-        let message = '';
-        if (parameters.length > 0) {
-            let first = parameters[0];
-            if (first instanceof StackVariableRef) {
-                first = first.refValue as StackVariable;
-            }
-            const strVar = first.castAs(VariableType.vtString);
-            if (strVar) {
-                message = String(strVar.value);
-            }
-        }
-
-        const obj = constructor.build(message);
-        context.pushStackVar(obj);
+        //Если это не StackVariableClass — `new` не применим. Раньше тут был
+        //специальный путь для ErrorConstructor; теперь Error — обычный
+        //пользовательский класс, объявленный в ContextInterpreter.registerConst.
+        throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos);
     }
 
     /**
@@ -2764,6 +2758,66 @@ export class Interpreter {
         //вложенный this.foo() резолвился через цепочку класса instance (JS-семантика).
         this.invokeUserFunction(context, method, parameters, token, thisValue, methodOwner, false);
     }
+
+    /**
+     * Обработчик `obj instanceof Class`. Левый операнд лежит на стеке —
+     * результат предыдущих узлов выражения. Если объект (или один из его
+     * родительских классов в цепочке) совпадает с переданным классом, кладём
+     * на стек true. Иначе false. Если obj — не объект пользовательского
+     * класса, всегда false (это безопаснее, чем JS TypeError, и удобнее
+     * в catch-обработчиках).
+     */
+    instanceofHandler(context: ContextInterpreter, token: ParseNode) {
+        let obj: StackVariable = context.popStackVar();
+        if (obj instanceof StackVariableRef) {
+            obj = obj.refValue as StackVariable;
+        }
+
+        const className = String(token.nValue);
+        const classVar = context.getVariable(className);
+        if (!classVar) {
+            throw new InterpreterException('Unknown class "' + className + '" in instanceof', token.cursorPos);
+        }
+        if (!(classVar instanceof StackVariableClass)) {
+            throw new InterpreterException(
+                'Right operand of instanceof must be a class, got ' + classVar.typeName,
+                token.cursorPos,
+            );
+        }
+
+        if (!(obj instanceof StackVariableObject)) {
+            context.pushStackVar(new StackVariableBoolean(false, false));
+            return;
+        }
+
+        const instanceClass = obj.getClass();
+        if (instanceClass === null) {
+            context.pushStackVar(new StackVariableBoolean(false, false));
+            return;
+        }
+
+        //Ходим по цепочке родителей. Сравниваем по ССЫЛКЕ (===) — это
+        //устойчиво даже если в области будут два класса с одинаковым именем
+        //(например, локальное переопределение в будущем).
+        let cur: StackVariableClass | null = instanceClass;
+        let depth = 0;
+        while (cur !== null) {
+            if (cur === classVar) {
+                context.pushStackVar(new StackVariableBoolean(false, true));
+                return;
+            }
+            cur = cur.getParent(context);
+            depth++;
+            if (depth > StackVariableClass.PARENT_CHAIN_LIMIT) {
+                throw new InterpreterException(
+                    'Class inheritance chain is too deep or has a cycle',
+                    token.cursorPos,
+                );
+            }
+        }
+
+        context.pushStackVar(new StackVariableBoolean(false, false));
+    }
 }
 
 export const ContextType = {
@@ -2892,7 +2946,27 @@ export class ContextInterpreter {
             // eslint-disable-next-line no-console
             console.log(...args);
         })))
-        this.setVariable('Error', new ErrorConstructor());
+        this.registerErrorClass();
+    }
+
+    /**
+     * Регистрирует встроенный класс `Error` через стандартный путь объявления
+     * пользовательского класса — парсим мини-скрипт и hoist'им как обычный
+     * `class Error { constructor(message) { this.message = message; this.name = "Error"; } }`.
+     *
+     * Делается так, чтобы `new Error("oops")`, `e instanceof Error` и
+     * `class MyError extends Error { ... }` работали через единый механизм
+     * пользовательских классов. До этого был отдельный `ErrorConstructor`-builtin.
+     */
+    protected registerErrorClass(): void {
+        const src = 'class Error { constructor(message) { this.message = message; this.name = "Error"; } }';
+
+        const lexer = new CodeLexer(src);
+        const parser = new CodeParser(lexer);
+        const nodes: ParseNode[] = [];
+        parser.parseCode(nodes, true, true, LexerTypeArray.one(LexerType.ltEof));
+
+        this._interpreter.hoistFunctions(this, nodes);
     }
 
     pushExecutionStack() {

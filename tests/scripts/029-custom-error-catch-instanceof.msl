@@ -1,0 +1,14 @@
+class MyError extends Error {
+    constructor(m) { super(m); this.name = "MyError"; }
+}
+try {
+    throw new MyError("bad");
+} catch (e) {
+    if (e instanceof MyError) {
+        return "my:" + e.message;
+    }
+    if (e instanceof Error) {
+        return "err:" + e.message;
+    }
+    return "other";
+}

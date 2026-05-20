@@ -2302,3 +2302,140 @@ test('074_SuperMethodNotFound', (t) => {
         `);
     }, /Method 'missing' not found/);
 });
+
+test('075_InstanceofBasic', (t) => {
+    //instance instanceof класс, которому он принадлежит — true.
+    const returnVal = executeReturnCode(`
+        class A {}
+        return new A() instanceof A;
+    `);
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('075_InstanceofParent', (t) => {
+    //instance дочернего класса — instance and родителя тоже.
+    const returnVal = executeReturnCode(`
+        class A {}
+        class B extends A {}
+        b = new B();
+        return b instanceof A;
+    `);
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('075_InstanceofNotParent', (t) => {
+    //Параллельные классы не связаны — false.
+    const returnVal = executeReturnCode(`
+        class A {}
+        class B {}
+        return new A() instanceof B;
+    `);
+    assert.strictEqual(false, returnVal?.value);
+});
+
+test('075_InstanceofNonObject', (t) => {
+    //Левый операнд — не объект. Безопасно false.
+    const returnVal = executeReturnCode(`
+        class A {}
+        return 42 instanceof A;
+    `);
+    assert.strictEqual(false, returnVal?.value);
+});
+
+test('075_InstanceofThreeLevels', (t) => {
+    //Цепочка A → B → C. C-instance — экземпляр и A, и B, и C.
+    const returnVal = executeReturnCode(`
+        class A {}
+        class B extends A {}
+        class C extends B {}
+        c = new C();
+        return c instanceof A;
+    `);
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('075_InstanceofUnknownClassFails', (t) => {
+    assert.throws(() => {
+        executeReturnCode(`
+            return 1 instanceof Ghost;
+        `);
+    }, /Unknown class "Ghost" in instanceof/);
+});
+
+test('075_InstanceofRightNotClassFails', (t) => {
+    //Справа должен быть класс. Имя, под которым лежит не-класс
+    //(например обычная функция), даёт ошибку.
+    assert.throws(() => {
+        executeReturnCode(`
+            function f() { return 1; }
+            return 1 instanceof f;
+        `);
+    }, /Right operand of instanceof must be a class/);
+});
+
+test('075_NewErrorIsInstanceofError', (t) => {
+    //Унификация: new Error("oops") — экземпляр класса Error.
+    const returnVal = executeReturnCode(`
+        return new Error("oops") instanceof Error;
+    `);
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('075_ErrorMessageAndName', (t) => {
+    //Унифицированный Error даёт те же поля, что и старый builtin.
+    const returnVal = executeReturnCode(`
+        e = new Error("boom");
+        return e.message + "/" + e.name;
+    `);
+    assert.strictEqual('boom/Error', returnVal?.value);
+});
+
+test('075_CustomErrorExtendsError', (t) => {
+    //Пользовательский класс, унаследованный от Error, — экземпляр и Error.
+    const returnVal = executeReturnCode(`
+        class MyError extends Error {
+            constructor(msg) {
+                super(msg);
+                this.name = "MyError";
+            }
+        }
+        e = new MyError("nope");
+        return e.name + "|" + e.message + "|" + (e instanceof Error);
+    `);
+    assert.strictEqual('MyError|nope|true', returnVal?.value);
+});
+
+test('075_SystemErrorIsInstanceofError', (t) => {
+    //Системная ошибка интерпретатора (например, обращение к
+    //необъявленной переменной) после wrapAsError тоже instance Error.
+    const returnVal = executeReturnCode(`
+        try {
+            undef + 1;
+        } catch (e) {
+            return e instanceof Error;
+        }
+        return false;
+    `);
+    assert.strictEqual(true, returnVal?.value);
+});
+
+test('075_ThrowCustomErrorCaughtByInstanceof', (t) => {
+    //throw new MyError() — catch различает через instanceof.
+    const returnVal = executeReturnCode(`
+        class MyError extends Error {
+            constructor(m) { super(m); this.name = "MyError"; }
+        }
+        try {
+            throw new MyError("bad");
+        } catch (e) {
+            if (e instanceof MyError) {
+                return "my:" + e.message;
+            }
+            if (e instanceof Error) {
+                return "err:" + e.message;
+            }
+            return "other";
+        }
+    `);
+    assert.strictEqual('my:bad', returnVal?.value);
+});
