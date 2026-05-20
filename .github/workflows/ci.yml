@@ -13,17 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # PHP-зеркало клонируем рядом, если задана переменная репо
-      # и секрет с токеном (дефолтный GITHUB_TOKEN не имеет прав на чужой репо).
-      # Без этого зеркальные/cross-runtime тесты автоматически пропускаются.
-      - name: Чекаут PHP-зеркала
-        if: vars.MSLANG_PHP_REPO != '' && secrets.MSLANG_PHP_TOKEN != ''
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ vars.MSLANG_PHP_REPO }}
-          token: ${{ secrets.MSLANG_PHP_TOKEN }}
-          path: ../devbx.core
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -43,6 +32,9 @@ jobs:
       - name: Ловушки на баги (tests/bugs.ts)
         run: npm run test:bugs
 
+      # tests/mirror.ts сам пропускает свои 19 тестов, если PHP-зеркало
+      # рядом не найдено (см. PHP_AVAILABLE в файле). Локально, где репо
+      # devbx.core лежит рядом, тесты прогоняются. В CI они skipped.
       - name: Зеркало TS ↔ PHP (tests/mirror.ts)
         run: npm run test:mirror
 
