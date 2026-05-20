@@ -55,6 +55,8 @@ export const LexerType = {
     'ltNew': 46,
     'ltClass': 47,
     'ltThis': 48,
+    'ltExtends': 49,
+    'ltSuper': 50,
 }
 
 export class FullTokenInfo {
@@ -609,6 +611,16 @@ export class CodeLexer extends Lexer {
 
         if (this._tokenValue === "this") {
             this._tokenSym = LexerType.ltThis;
+            return;
+        }
+
+        if (this._tokenValue === "extends") {
+            this._tokenSym = LexerType.ltExtends;
+            return;
+        }
+
+        if (this._tokenValue === "super") {
+            this._tokenSym = LexerType.ltSuper;
             return;
         }
 

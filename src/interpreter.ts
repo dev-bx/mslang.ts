@@ -62,6 +62,18 @@ const InterpreterNodeType = {
      * который положил `newFinishHandler` перед вызовом конструктора.
      */
     'ntCtorReturnInstance': 1030,
+    /**
+     * Финиш `super(args)` — вызова родительского конструктора. После
+     * `ntUserFuncFinish` родителя снимает его undefined-возврат и пушит
+     * undefined как результат самого `super(...)` выражения. Дополнительно
+     * сбрасывает TDZ-флаг текущего ctor-кадра (super был вызван).
+     */
+    'ntSuperCallFinish': 1031,
+    /**
+     * Финиш `super.method(args)` — вызова родительского метода. Не трогает стек:
+     * значение, возвращённое методом, идёт наверх как обычно.
+     */
+    'ntSuperMethodCallFinish': 1032,
 }
 
 export class InterpreterNode extends ParseNode {
@@ -335,6 +347,19 @@ export class Interpreter {
         });
         this.registerNodeHandler(InterpreterNodeType.ntCtorReturnInstance, (...args: Parameters<TNodeHandler>) => {
             this.ctorReturnInstanceHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntSuperCall, (...args: Parameters<TNodeHandler>) => {
+            this.superCallHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntSuperCallFinish, (...args: Parameters<TNodeHandler>) => {
+            this.superCallFinishHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntSuperMethodCall, (...args: Parameters<TNodeHandler>) => {
+            this.superMethodCallHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntSuperMethodCallFinish, (...args: Parameters<TNodeHandler>) => {
+            this.superMethodCallFinishHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntArray, (...args: Parameters<TNodeHandler>) => {
@@ -887,14 +912,26 @@ export class Interpreter {
         }
 
         //Метод пользовательского класса: если у self есть класс и в нём
-        //объявлен метод с этим именем — вызываем его как UserFunction
-        //с this = self. Иначе fallback на хост-функции через FunctionEntry.
+        //(или в его родителе) объявлен метод с этим именем — вызываем его
+        //как UserFunction с this = self. Иначе fallback на хост-функции
+        //через FunctionEntry.
         if (selfResolved instanceof StackVariableObject) {
             const cls = selfResolved.getClass();
             if (cls !== null) {
-                const method = cls.getMethod(funcName);
-                if (method !== null) {
-                    this.invokeUserFunction(context, method, parameters, token, selfResolved);
+                //Поиск метода идёт по цепочке наследования; нужно найти, КЕМ
+                //именно объявлен этот метод — чтобы super(...) внутри метода
+                //смотрел на правильного родителя (не на класс instance).
+                let methodOwner: StackVariableClass | null = cls;
+                let method: StackVariableUserFunction | null = null;
+                while (methodOwner !== null) {
+                    method = methodOwner.getOwnMethod(funcName);
+                    if (method !== null) {
+                        break;
+                    }
+                    methodOwner = methodOwner.getParent(context);
+                }
+                if (method !== null && methodOwner !== null) {
+                    this.invokeUserFunction(context, method, parameters, token, selfResolved, methodOwner, false);
                     return;
                 }
             }
@@ -1999,6 +2036,11 @@ export class Interpreter {
      * @param thisValue Если не null, после открытия scope выставляется
      *        `_currentThis = thisValue` — функция вызывается как
      *        метод/конструктор и видит `this` внутри тела.
+     * @param ownerClass Класс, в котором определён этот метод/ctor. Нужен
+     *        для `super(...)` и `super.method(...)`: они ищут родителя
+     *        именно владельца, а не класса instance.
+     * @param isCtorTDZ true, если это конструктор extends-класса и
+     *        super() ещё не вызывали — `this` под TDZ до первого `super(...)`.
      */
     protected invokeUserFunction(
         context: ContextInterpreter,
@@ -2006,6 +2048,8 @@ export class Interpreter {
         parameters: StackVariable[],
         callToken: ParseNode,
         thisValue: StackVariable | null = null,
+        ownerClass: StackVariableClass | null = null,
+        isCtorTDZ: boolean = false,
     ): void {
         const funcParams = func.params;
         const body = func.body;
@@ -2064,6 +2108,14 @@ export class Interpreter {
         if (thisValue !== null) {
             context._currentThis = thisValue;
         }
+
+        //Кто владеет этим телом — нужно для super(...) и super.method(...),
+        //чтобы знать, какой класс считать «родителем». pushFunctionScope сбросил
+        //это в null, поэтому выставляем явно тут.
+        if (ownerClass !== null) {
+            context._currentMethodOwner = ownerClass;
+        }
+        context._isCtorTDZ = isCtorTDZ;
 
         //Имя функции видно внутри её тела — позволяет прямую рекурсию.
         context._variables[func.name] = func;
@@ -2408,13 +2460,30 @@ export class Interpreter {
             const instance = new StackVariableObject(false, {});
             instance.setClass(constructor);
 
-            const ctor = constructor.getConstructor();
-            if (ctor === null) {
-                //Конструктор не объявлен — игнорируем аргументы и сразу возвращаем
-                //пустой instance.
-                context.pushStackVar(instance);
-                return;
+            //Свой ctor — берём его и владельца = сам класс. Иначе ищем ближайший
+            //конструктор по цепочке родителей (auto super-call для extends-классов
+            //без своего ctor): JS-семантика, аналог "constructor(...args) { super(...args); }".
+            let ctor: StackVariableUserFunction;
+            let ctorOwner: StackVariableClass;
+            const ownCtor = constructor.getConstructor();
+            if (ownCtor !== null) {
+                ctor = ownCtor;
+                ctorOwner = constructor;
+            } else {
+                const found = constructor.findCtorInChain(context);
+                if (found === null) {
+                    //Конструктора нет ни здесь, ни у родителей — просто пустой instance.
+                    context.pushStackVar(instance);
+                    return;
+                }
+                ctorOwner = found[0];
+                ctor = found[1];
             }
+
+            //Если ctor определён в extends-классе — внутри его scope действует TDZ
+            //до super(...). Иначе (например, ctor только у родителя без extends
+            //или auto-вызванный родительский ctor) TDZ не нужен.
+            const isCtorTDZ = (ctorOwner.getParentName() !== null);
 
             //Кладём instance на стек ДО invokeUserFunction: pushFunctionScope
             //сохранит текущий _stackVars в кадр, после ntUserFuncFinish стек
@@ -2434,7 +2503,7 @@ export class Interpreter {
                 throw new InterpreterException('newFinish: codeItems is empty', token.cursorPos);
             context._codeItems.splice(context._pos, 0, afterCtor);
 
-            this.invokeUserFunction(context, ctor, parameters, token, instance);
+            this.invokeUserFunction(context, ctor, parameters, token, instance, ctorOwner, isCtorTDZ);
             return;
         }
 
@@ -2477,10 +2546,15 @@ export class Interpreter {
 
     /**
      * `this` — кладёт текущий объект на стек. Вне метода/конструктора это ошибка.
+     * Внутри конструктора extends-класса до первого `super(...)` тоже ошибка
+     * (TDZ — зеркало JS-поведения).
      */
     thisHandler(context: ContextInterpreter, token: ParseNode) {
         if (context._currentThis === null) {
             throw new InterpreterException("'this' is not available outside of class method or constructor", token.cursorPos);
+        }
+        if (context._isCtorTDZ) {
+            throw new InterpreterException("Must call super constructor before using 'this' in derived class constructor", token.cursorPos);
         }
         context.pushStackVar(context._currentThis);
     }
@@ -2509,6 +2583,12 @@ export class Interpreter {
     protected buildUserClass(context: ContextInterpreter, defNode: ParseNode): StackVariableClass {
         const cls = new StackVariableClass(String(defNode.nValue));
 
+        //Если у объявления есть `extends Parent`, имя родителя лежит в nValue2.
+        //Реальная ссылка резолвится лениво в StackVariableClass.getParent().
+        if (defNode.nValue2 !== null && defNode.nValue2 !== undefined && defNode.nValue2 !== '') {
+            cls.setParentName(String(defNode.nValue2));
+        }
+
         for (const member of defNode.childItems ?? []) {
             if (!(member instanceof ParseNode)) continue;
             if (member.nType !== NodeType.ntFunctionDef) continue;
@@ -2522,6 +2602,167 @@ export class Interpreter {
         }
 
         return cls;
+    }
+
+    /**
+     * Обработчик `super(args)` — вызов родительского конструктора. Структура
+     * напоминает newHandler: открываем кадр для аргументов, после них
+     * `ntSuperCallFinish` уже знает, кого позвать.
+     */
+    superCallHandler(context: ContextInterpreter, token: ParseNode) {
+        if (context._currentMethodOwner === null) {
+            throw new InterpreterException("'super' is not available outside class method or constructor", token.cursorPos);
+        }
+
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntSuperCallFinish;
+        finish.nValue = token;
+        finish.nValue2 = context._stackVars.length;
+        context._codeItems.push(finish);
+    }
+
+    superCallFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        if (typeof token.nValue2 !== 'number') {
+            throw new InterpreterException('superCallFinish: invalid stack length', token.cursorPos);
+        }
+        let paramCount = context._stackVars.length - token.nValue2;
+        const parameters: StackVariable[] = [];
+        while (paramCount > 0) {
+            parameters.unshift(context.popStackVar());
+            paramCount--;
+        }
+
+        context.popExecutionStack();
+
+        const owner = context._currentMethodOwner;
+        if (owner === null) {
+            throw new InterpreterException("'super' is not available outside class method or constructor", token.cursorPos);
+        }
+        const parent = owner.getParent(context);
+        if (parent === null) {
+            throw new InterpreterException(
+                "'super' call in class '" + owner.name + "' without extends",
+                token.cursorPos,
+            );
+        }
+
+        const thisValue = context._currentThis;
+        if (thisValue === null) {
+            //Внутри ctor `this` уже должен существовать (newFinishHandler выставил
+            //его до запуска тела). Сюда попасть можно, только если super(...)
+            //вызвали из контекста, где currentThis по какой-то причине null —
+            //защитный путь.
+            throw new InterpreterException("'super' requires 'this' which is not set", token.cursorPos);
+        }
+
+        //Ищем ближайший ctor в цепочке родителей: parent.constructor, иначе
+        //parent.parent.constructor и т.д.
+        const found = parent.findCtorInChain(context);
+        if (found === null) {
+            //У родителей нет конструктора — super() становится no-op (поля
+            //не выставляются), но TDZ-флаг всё равно снимаем: super был вызван.
+            context._isCtorTDZ = false;
+            context.pushStackVar(new StackVariableUndefined(false));
+            return;
+        }
+        const ctorOwner = found[0];
+        const parentCtor = found[1];
+
+        //TDZ для родительского ctor — если у него самого есть свой extends.
+        const parentIsCtorTDZ = (ctorOwner.getParentName() !== null);
+
+        //Снимаем TDZ-флаг в нашем (текущем) ctor-кадре сразу: после успешного
+        //возврата из родительского ctor super считается вызванным, и обращения
+        //к this в оставшейся части нашего ctor больше не валятся в TDZ.
+        context._isCtorTDZ = false;
+
+        //super(...) возвращает undefined как выражение — это финальный pushStackVar
+        //ниже после возврата. Сам родительский ctor пушнет undefined через
+        //ntUserFuncFinish; нам это сходит за результат.
+        this.invokeUserFunction(context, parentCtor, parameters, token, thisValue, ctorOwner, parentIsCtorTDZ);
+    }
+
+    /**
+     * Обработчик `super.method(args)` — вызов метода родителя. Структура
+     * аналогична selfFuncCall: открываем кадр под аргументы, finish вызывает
+     * найденный метод.
+     */
+    superMethodCallHandler(context: ContextInterpreter, token: ParseNode) {
+        if (context._currentMethodOwner === null) {
+            throw new InterpreterException("'super' is not available outside class method or constructor", token.cursorPos);
+        }
+
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntSuperMethodCallFinish;
+        finish.nValue = token;
+        finish.nValue2 = context._stackVars.length;
+        context._codeItems.push(finish);
+    }
+
+    superMethodCallFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        if (typeof token.nValue2 !== 'number') {
+            throw new InterpreterException('superMethodCallFinish: invalid stack length', token.cursorPos);
+        }
+        let paramCount = context._stackVars.length - token.nValue2;
+        const parameters: StackVariable[] = [];
+        while (paramCount > 0) {
+            parameters.unshift(context.popStackVar());
+            paramCount--;
+        }
+
+        context.popExecutionStack();
+
+        const owner = context._currentMethodOwner;
+        if (owner === null) {
+            throw new InterpreterException("'super' is not available outside class method or constructor", token.cursorPos);
+        }
+        const parent = owner.getParent(context);
+        if (parent === null) {
+            throw new InterpreterException(
+                "'super' call in class '" + owner.name + "' without extends",
+                token.cursorPos,
+            );
+        }
+
+        if (!(token.nValue instanceof ParseNode)) {
+            throw new InterpreterException('superMethodCallFinish: invalid token', token.cursorPos);
+        }
+        const methodName = String(token.nValue.nValue);
+
+        //Поиск метода по цепочке — найдём, КЕМ объявлен. methodOwner нужен,
+        //чтобы вложенные `super` внутри super-метода смотрели правильно.
+        let methodOwner: StackVariableClass | null = parent;
+        let method: StackVariableUserFunction | null = null;
+        while (methodOwner !== null) {
+            method = methodOwner.getOwnMethod(methodName);
+            if (method !== null) {
+                break;
+            }
+            methodOwner = methodOwner.getParent(context);
+        }
+        if (method === null || methodOwner === null) {
+            throw new InterpreterException(
+                "Method '" + methodName + "' not found in parents of '" + owner.name + "'",
+                token.cursorPos,
+            );
+        }
+
+        const thisValue = context._currentThis;
+        if (thisValue === null) {
+            throw new InterpreterException("'super." + methodName + "' requires 'this' which is not set", token.cursorPos);
+        }
+
+        //super.method берёт тело у родителя, но this = текущий instance, чтобы
+        //вложенный this.foo() резолвился через цепочку класса instance (JS-семантика).
+        this.invokeUserFunction(context, method, parameters, token, thisValue, methodOwner, false);
     }
 }
 
@@ -2547,6 +2788,8 @@ interface ExecutionStackItem {
     isFunctionScope?: boolean;
     capturedScope?: Record<string, StackVariable> | null;
     currentThis?: StackVariable | null;
+    currentMethodOwner?: StackVariableClass | null;
+    isCtorTDZ?: boolean;
 }
 
 export class ContextInterpreter {
@@ -2583,6 +2826,22 @@ export class ContextInterpreter {
      *   в null и снова выставляет только если функция вызвана как метод.
      */
     _currentThis: StackVariable | null = null;
+
+    /**
+     * Класс, в котором определён выполняемый сейчас метод/конструктор.
+     * Нужен для `super(...)` и `super.method(...)`: они должны искать
+     * родителя **класса-владельца кода**, а не класса instance (`this`).
+     * Иначе цепочка `super` из B застряла бы внутри B при вызове через
+     * экземпляр потомка C.
+     */
+    _currentMethodOwner: StackVariableClass | null = null;
+
+    /**
+     * Флаг TDZ для конструктора extends-класса. true означает, что мы внутри
+     * ctor класса с extends и `super(...)` ещё не вызван — любое обращение
+     * к `this` должно бросить ошибку. После первого `super(...)` сбрасывается.
+     */
+    _isCtorTDZ: boolean = false;
 
     // Ограничение количества инструкций выполнения. 0 — без ограничений.
     // Зеркало PHP limitExecInstruction + instructionCounter.
@@ -2647,10 +2906,13 @@ export class ContextInterpreter {
             stackVars: this._stackVars,
             contextVariable: this._contextVariable,
             currentThis: this._currentThis,
+            currentMethodOwner: this._currentMethodOwner,
+            isCtorTDZ: this._isCtorTDZ,
         });
 
-        //this наследуется в блок/цикл/sub-выражение — это нужно, чтобы
-        //внутри тела метода `if (cond) { this.x = 1; }` всё ещё видел тот же this.
+        //this и methodOwner наследуются в блок/цикл/sub-выражение — это нужно,
+        //чтобы внутри тела метода `if (cond) { super.foo(); }` ссылка на
+        //родителя класса-владельца была видна так же, как this.
 
         this._variables = Object.assign({}, this._variables);
         this._functions = Object.assign({}, this._functions);
@@ -2710,6 +2972,8 @@ export class ContextInterpreter {
         this._stackVars = data.stackVars;
         this._contextVariable = data.contextVariable;
         this._currentThis = data.currentThis ?? null;
+        this._currentMethodOwner = data.currentMethodOwner ?? null;
+        this._isCtorTDZ = data.isCtorTDZ ?? false;
     }
 
     /**
@@ -2731,6 +2995,8 @@ export class ContextInterpreter {
             isFunctionScope: true,
             capturedScope: this._currentCapturedScope,
             currentThis: this._currentThis,
+            currentMethodOwner: this._currentMethodOwner,
+            isCtorTDZ: this._isCtorTDZ,
         });
 
         //Внутри функции — пустое имя-пространство для локальных переменных и параметров.
@@ -2744,6 +3010,8 @@ export class ContextInterpreter {
         //По умолчанию свежий функциональный scope не имеет this — обычная функция,
         //вызванная не через new и не как obj.method, не должна видеть наружный this.
         this._currentThis = null;
+        this._currentMethodOwner = null;
+        this._isCtorTDZ = false;
     }
 
     /**
@@ -2768,6 +3036,8 @@ export class ContextInterpreter {
         this._contextVariable = data.contextVariable;
         this._currentCapturedScope = data.capturedScope ?? null;
         this._currentThis = data.currentThis ?? null;
+        this._currentMethodOwner = data.currentMethodOwner ?? null;
+        this._isCtorTDZ = data.isCtorTDZ ?? false;
     }
 
     addWarning(message: string): void {
