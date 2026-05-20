@@ -131,7 +131,7 @@ export class ParseNode
 
     get typeName()
     {
-        let k = Object.keys(NodeType),
+        const k = Object.keys(NodeType),
             v = Object.values(NodeType);
 
         return k[v.indexOf(this.nType)];
@@ -327,7 +327,7 @@ export class CodeParser {
                      */
 
                     SubNode = new ParseNode(this.lexer.tokenCursor);
-                    let saveToken = this.lexer.tokenValue;
+                    const saveToken = this.lexer.tokenValue;
 
                     if (this.reservedWords.indexOf(saveToken.toLowerCase())>=0)
                     {
@@ -439,7 +439,7 @@ export class CodeParser {
                             if (this.lexer.tokenSym === LexerType.ltBracketClose)
                                 break;
 
-                            let NodePush = new ParseNode(this.lexer.tokenCursor, NodeType.ntArrayPush);
+                            const NodePush = new ParseNode(this.lexer.tokenCursor, NodeType.ntArrayPush);
 
                             this.parseExpression(NodePush, false, new LexerTypeArray(LexerType.ltComma, LexerType.ltBracketClose));
 
@@ -462,7 +462,7 @@ export class CodeParser {
                         {
                             SubNode.nType = NodeType.ntBracketSetKey;
 
-                            let SubExpressionNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntBracketSetKey);
+                            const SubExpressionNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntBracketSetKey);
                             this.parseExpression(SubExpressionNode, true, StopLex);
 
                             if (SubNode.childItems === null)
@@ -583,7 +583,7 @@ export class CodeParser {
         if (!NodeList.length)
             throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
 
-        let lastNode = NodeList[NodeList.length - 1];
+        const lastNode = NodeList[NodeList.length - 1];
 
         if (lastNode.isMathNode() || lastNode.isCompareOrAndNode())
             throw new ParserException("Parse expression failed", this.lexer.tokenCursor);
@@ -609,7 +609,7 @@ export class CodeParser {
                 rightIdx = idx+1;
                 while (rightIdx<NodeList.length-1)
                 {
-                    let rightNode = NodeList[rightIdx+1];
+                    const rightNode = NodeList[rightIdx+1];
 
                     if (rightNode.nType !== NodeType.ntObjProp && (rightNode.isMathNode() || rightNode.isCompareOrAndNode()))
                         break;
@@ -617,7 +617,7 @@ export class CodeParser {
                     rightIdx++;
                 }
 
-                let SubNode = new ParseNode(NodeList[idx].cursorPos, NodeType.ntSubExpression);
+                const SubNode = new ParseNode(NodeList[idx].cursorPos, NodeType.ntSubExpression);
 
                 SubNode.childItems = NodeList.slice(leftIdx, rightIdx+1);
                 NodeList.splice(leftIdx, rightIdx-leftIdx+1, SubNode);
@@ -665,7 +665,7 @@ export class CodeParser {
             if (this.lexer.tokenSym === LexerType.ltRPar)
                 break;
 
-            let SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncParam);
+            const SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncParam);
             this.parseExpression(SubNode,false, new LexerTypeArray(LexerType.ltComma, LexerType.ltRPar));
             NodeList.push(SubNode);
 
@@ -681,7 +681,7 @@ export class CodeParser {
         if (!(Node instanceof ParseNode))
             throw new ParserException('Node must be instanceof ParseNode', this.lexer.tokenCursor);
 
-        let NodeList = [];
+        const NodeList = [];
 
         while (true)
         {
@@ -689,7 +689,7 @@ export class CodeParser {
             if (this.lexer.tokenSym === LexerType.ltRPar)
                 break;
 
-            let SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncParam);
+            const SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncParam);
             this.parseExpression(SubNode,false, new LexerTypeArray(LexerType.ltComma, LexerType.ltRPar));
             NodeList.push(SubNode);
 
@@ -705,7 +705,7 @@ export class CodeParser {
         if (!(Node instanceof ParseNode))
             throw new ParserException('Node must be instanceof ParseNode', this.lexer.tokenCursor);
 
-        let NodeList = [];
+        const NodeList = [];
 
         while (true)
         {

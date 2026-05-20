@@ -204,7 +204,7 @@ export class StackVariableDateTime extends StackVariable {
 
             if (m)
             {
-                let date = new Date(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]),
+                const date = new Date(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]),
                     m[4] ? parseInt(m[4]) : 0, m[5] ? parseInt(m[5]) : 0, m[6] ? parseInt(m[6]) : 0, 0);
                 if (date)
                     compareValue = Math.floor(date.getTime()/1000);

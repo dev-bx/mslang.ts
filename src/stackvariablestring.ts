@@ -200,7 +200,7 @@ export class StackVariableString extends StackVariable {
         const values: string[] = [];
 
         Object.values(arguments).forEach(value => {
-            let varString = value.castAs(VariableType.vtString);
+            const varString = value.castAs(VariableType.vtString);
 
             if (!varString)
                 throw new MSLangException('Failed convert ' + value.typeName + ' to string');

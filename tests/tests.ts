@@ -49,7 +49,7 @@ function createCodeContext(text: string) {
     const lexer = new CodeLexer(text);
     const parser = new CodeParser(lexer);
 
-    let nodeList: ParseNode[] = [];
+    const nodeList: ParseNode[] = [];
 
     parser.parseCode(nodeList, true, true, LexerTypeArray.one(LexerType.ltEof));
 
@@ -71,7 +71,7 @@ test('001', (t) => {
         const lexer = new CodeLexer('return true;');
         const parser = new CodeParser(lexer);
 
-        let nodeList: ParseNode[] = [];
+        const nodeList: ParseNode[] = [];
 
         parser.parseCode(nodeList, true, true, new LexerTypeArray());
 
@@ -234,7 +234,7 @@ test('019', (t) => {
 test('020', (t) => {
 
     try {
-        let returnVal = executeReturnCode('a = ""; b = a.Trim; return b();');
+        const returnVal = executeReturnCode('a = ""; b = a.Trim; return b();');
     } catch (e) {
         assert.strictEqual('Trim called on null or undefined', (e as Error).message);
     }
@@ -319,7 +319,7 @@ test('023', (t) => {
 test('024', (t) => {
     let context = createCodeContext('return DateTime.Now.AddDays(1).ToString();');
     let returnVal = context.exec(true);
-    let m = (returnVal as StackVariableString).value.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/)
+    const m = (returnVal as StackVariableString).value.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/)
     assert.strictEqual(true, !!m);
 
     context = createCodeContext('return DateTime.Now.AddDays(1).AddHours(1).AddMinutes(1).AddSeconds(1).ToString()');
@@ -474,7 +474,7 @@ test('025-2', (t) => {
         assert.strictEqual(true, returnVal.value.get('2') instanceof StackVariableNumber);
         assert.strictEqual(true, returnVal.value.get('3') instanceof StackVariableNumber);
 
-        let ar = returnVal.convertToNativeArray();
+        const ar = returnVal.convertToNativeArray();
 
         assert.strictEqual(ar[0] + '123', ar[1]);
         assert.strictEqual(4, ar[2]);
@@ -522,7 +522,7 @@ test('027', (t) => {
     `);
 
     if (returnVal instanceof StackVariableArray) {
-        let ar:unknown[][] = returnVal.convertToNativeArray() as typeof ar;
+        const ar:unknown[][] = returnVal.convertToNativeArray() as typeof ar;
 
         assert.strictEqual(9, ar[0][0]);
         assert.strictEqual(1, ar[1][0]);
@@ -622,7 +622,7 @@ test('029', (t) => {
         return [a.pUsH('a','b','c','d'), a, a.pop()];
     `);
 
-    let ar2:unknown[][] = (returnVal as StackVariableArray).convertToNativeArray() as typeof ar2;
+    const ar2:unknown[][] = (returnVal as StackVariableArray).convertToNativeArray() as typeof ar2;
 
     assert.strictEqual(8, ar2[0]);
     assert.strictEqual('d', ar2[1][7]);

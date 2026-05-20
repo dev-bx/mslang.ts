@@ -41,7 +41,7 @@ export class FunctionParameter {
 
     createVariableDefaultValue()
     {
-        let value = this.getDefaultValue();
+        const value = this.getDefaultValue();
 
         if (value === null)
             return ContextInterpreter.createVariable(VariableType.vtNull, null);

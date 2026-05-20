@@ -68,7 +68,7 @@ export class StackVariableArray extends StackVariable {
     set value(value: unknown) {
         this._nextNumKey = 0;
 
-        let msValue = new Map();
+        const msValue = new Map();
 
         if (Array.isArray(value)) {
             value.forEach((v, k) => {
@@ -154,7 +154,7 @@ export class StackVariableArray extends StackVariable {
                     return false;
                 }
             } else {
-                let castString = value.castAs(VariableType.vtString);
+                const castString = value.castAs(VariableType.vtString);
 
                 if (castString && castString.value === searchValue) {
                     result = true;
@@ -192,7 +192,7 @@ export class StackVariableArray extends StackVariable {
                     return false;
                 }
             } else {
-                let castString = value.castAs(VariableType.vtString);
+                const castString = value.castAs(VariableType.vtString);
 
                 if (castString && castString.value === searchValue) {
                     // Возвращаемый тип — vtInteger, ключи в Map всегда строки;
@@ -235,13 +235,13 @@ export class StackVariableArray extends StackVariable {
 
     funcInvoke_pop() {
         if (this.value.size) {
-            let lastKey = Array.from(this.value.keys()).pop() as string;
+            const lastKey = Array.from(this.value.keys()).pop() as string;
 
             if (lastKey.match(/^\d+$/) && this._nextNumKey - 1 === Number(lastKey)) {
                 this._nextNumKey = Number(lastKey);
             }
 
-            let value = this.value.get(lastKey);
+            const value = this.value.get(lastKey);
 
             if (!this.value.delete(lastKey))
                 throw new MSLangException('Failed delete key in StackVariableArray');
@@ -271,7 +271,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_concatReturn = () => VariableType.vtArray;
 
     funcInvoke_concat() {
-        let result = new StackVariableArray(false, this._value);
+        const result = new StackVariableArray(false, this._value);
 
         Array.from(arguments).forEach(param => {
             if (param instanceof StackVariableArray) {
@@ -319,10 +319,10 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_flipReturn = () => VariableType.vtArray;
 
     funcInvoke_flip() {
-        let result = new StackVariableArray(false, []);
+        const result = new StackVariableArray(false, []);
 
         Array.from(this.value.keys()).forEach(k => {
-            let value = this.value.get(k)?.castAs(VariableType.vtString);
+            const value = this.value.get(k)?.castAs(VariableType.vtString);
             if (!value)
                 return;
 
@@ -343,10 +343,10 @@ export class StackVariableArray extends StackVariable {
             return new StackVariableUndefined(false);
         }
 
-        let oldValue = this.value;
+        const oldValue = this.value;
 
-        let key = Array.from(oldValue.keys()).shift() as string;
-        let value = oldValue.get(key);
+        const key = Array.from(oldValue.keys()).shift() as string;
+        const value = oldValue.get(key);
         if (!oldValue.delete(key))
             throw new MSLangException('Failed delete key in StackVariableArray');
 
@@ -371,7 +371,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_unshiftReturn = () => VariableType.vtNumber;
 
     funcInvoke_unshift() {
-        let oldValue = this.value;
+        const oldValue = this.value;
 
         this._nextNumKey = 0;
         this._value = new Map();
@@ -446,7 +446,7 @@ export class StackVariableArray extends StackVariable {
     }
 
     convertToNativeArray() {
-        let result: unknown[] = [];
+        const result: unknown[] = [];
 
         this.value.forEach(value => {
             if (value instanceof StackVariable) {
@@ -464,10 +464,10 @@ export class StackVariableArray extends StackVariable {
     }
 
     convertToNativeMap() {
-        let result = new Map();
+        const result = new Map();
 
         Array.from(this.value.keys()).forEach(key => {
-            let value = this.value.get(key);
+            const value = this.value.get(key);
 
             if (value instanceof StackVariable) {
                 if (value instanceof StackVariableArray) {
@@ -485,10 +485,10 @@ export class StackVariableArray extends StackVariable {
 
     convertToNativeObject()
     {
-        let result: Record<string, unknown> = {};
+        const result: Record<string, unknown> = {};
 
         Array.from(this.value.keys()).forEach(key => {
-            let value = this.value.get(key);
+            const value = this.value.get(key);
 
             if (value instanceof StackVariable) {
                 if (value instanceof StackVariableArray) {

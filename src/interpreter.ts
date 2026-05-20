@@ -370,7 +370,7 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntExpressionAssignFinish;
         node.nValue = token.nValue;
         context._codeItems.push(node);
@@ -379,11 +379,11 @@ export class Interpreter {
     }
 
     expressionAssignFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         context.popExecutionStack(true);
 
-        let cloneVariable = context.cloneVariable(variable);
+        const cloneVariable = context.cloneVariable(variable);
 
         /*
         if (context.getVariable(token.nValue)) { //check for defined variable
@@ -400,19 +400,19 @@ export class Interpreter {
     }
 
     numericHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.createVariable(VariableType.vtInteger, token.nValue);
+        const variable = context.createVariable(VariableType.vtInteger, token.nValue);
 
         context.pushStackVar(variable);
     }
 
     floatHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.createVariable(VariableType.vtFloat, token.nValue);
+        const variable = context.createVariable(VariableType.vtFloat, token.nValue);
 
         context.pushStackVar(variable);
     }
 
     stringHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.createVariable(VariableType.vtString, token.nValue);
+        const variable = context.createVariable(VariableType.vtString, token.nValue);
 
         context.pushStackVar(variable);
     }
@@ -495,7 +495,7 @@ export class Interpreter {
             return;
         }
 
-        let leftVar = context.popStackVar(),
+        const leftVar = context.popStackVar(),
             leftVarTmp = leftVar.castAs(VariableType.vtNumber);
 
         if (!leftVarTmp)
@@ -521,7 +521,7 @@ export class Interpreter {
         if (!rightTmp)
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
-        let variable = context.createVariable(VariableType.vtNumber, leftTmp.value * rightTmp.value);
+        const variable = context.createVariable(VariableType.vtNumber, leftTmp.value * rightTmp.value);
 
         context.pushStackVar(variable);
     }
@@ -541,7 +541,7 @@ export class Interpreter {
         if (!rightTmp)
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
-        let variable = context.createVariable(VariableType.vtNumber, leftTmp.value / rightTmp.value);
+        const variable = context.createVariable(VariableType.vtNumber, leftTmp.value / rightTmp.value);
 
         context.pushStackVar(variable);
     }
@@ -549,18 +549,18 @@ export class Interpreter {
     modHandler(context: ContextInterpreter, token: ParseNode) {
         context.execGetVariable();
 
-        let rightVar = context.popStackVar(),
+        const rightVar = context.popStackVar(),
             leftVar = context.popStackVar();
 
-        let leftTmp = leftVar.castAs(VariableType.vtNumber);
+        const leftTmp = leftVar.castAs(VariableType.vtNumber);
         if (!leftTmp)
             throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
 
-        let rightTmp = rightVar.castAs(VariableType.vtNumber);
+        const rightTmp = rightVar.castAs(VariableType.vtNumber);
         if (!rightTmp)
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
-        let variable = context.createVariable(VariableType.vtNumber, (leftTmp.value as number) % (rightTmp.value as number));
+        const variable = context.createVariable(VariableType.vtNumber, (leftTmp.value as number) % (rightTmp.value as number));
 
         context.pushStackVar(variable);
     }
@@ -568,32 +568,32 @@ export class Interpreter {
     bitAndHandler(context: ContextInterpreter, token: ParseNode) {
         context.execGetVariable();
 
-        let rightVar = context.popStackVar(),
+        const rightVar = context.popStackVar(),
             leftVar = context.popStackVar();
 
-        let leftTmp = leftVar.castAs(VariableType.vtNumber);
+        const leftTmp = leftVar.castAs(VariableType.vtNumber);
         if (!leftTmp)
             throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
 
-        let rightTmp = rightVar.castAs(VariableType.vtNumber);
+        const rightTmp = rightVar.castAs(VariableType.vtNumber);
         if (!rightTmp)
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
-        let variable = context.createVariable(VariableType.vtNumber, (leftTmp.value as number) & (rightTmp.value as number));
+        const variable = context.createVariable(VariableType.vtNumber, (leftTmp.value as number) & (rightTmp.value as number));
 
         context.pushStackVar(variable);
     }
 
     shortIncrementHandler(context: ContextInterpreter, token: ParseNode) {
         if (context._stackVars.length) {
-            let variable = context.popStackVar(),
+            const variable = context.popStackVar(),
                 variableAsNumber = variable.castAs(VariableType.vtNumber);
 
             if (!variableAsNumber) {
                 throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
             }
 
-            let newVariable = context.createVariable(VariableType.vtNumber, variableAsNumber.value);
+            const newVariable = context.createVariable(VariableType.vtNumber, variableAsNumber.value);
             context.pushStackVar(newVariable);
 
             if (variable instanceof StackVariableRef) {
@@ -605,7 +605,7 @@ export class Interpreter {
         } else {
             context.execGetVariable();
 
-            let variable = context.popStackVar(),
+            const variable = context.popStackVar(),
                 variableAsNumber = variable.castAs(VariableType.vtNumber);
 
             if (!variableAsNumber) {
@@ -623,14 +623,14 @@ export class Interpreter {
 
     shortDecrementHandler(context: ContextInterpreter, token: ParseNode) {
         if (context._stackVars.length) {
-            let variable = context.popStackVar(),
+            const variable = context.popStackVar(),
                 variableAsNumber = variable.castAs(VariableType.vtNumber);
 
             if (!variableAsNumber) {
                 throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
             }
 
-            let newVariable = context.createVariable(VariableType.vtNumber, variableAsNumber.value);
+            const newVariable = context.createVariable(VariableType.vtNumber, variableAsNumber.value);
             context.pushStackVar(newVariable);
 
             if (variable instanceof StackVariableRef) {
@@ -642,7 +642,7 @@ export class Interpreter {
         } else {
             context.execGetVariable();
 
-            let variable = context.popStackVar(),
+            const variable = context.popStackVar(),
                 variableAsNumber = variable.castAs(VariableType.vtNumber);
 
             if (!variableAsNumber) {
@@ -666,13 +666,13 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntSubExpressionFinish;
         context._codeItems.push(node);
     }
 
     subExpressionFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         context.popExecutionStack();
 
@@ -687,7 +687,7 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntFuncCallFinish;
         node.nValue = token;
         node.nValue2 = context._stackVars.length; //stack position
@@ -703,13 +703,13 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntFuncParamFinish;
         context._codeItems.push(node);
     }
 
     funcParamFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         context.popExecutionStack();
 
@@ -722,7 +722,7 @@ export class Interpreter {
 
         let paramCount = context._stackVars.length - token.nValue2;
 
-        let parameters = [];
+        const parameters = [];
 
         while (paramCount > 0) {
             parameters.unshift(context.popStackVar());
@@ -768,7 +768,7 @@ export class Interpreter {
         //let paramCount = context._stackVars.length - token.nValue2;
         let paramCount = context._stackVars.length;
 
-        let parameters = [];
+        const parameters = [];
 
         while (paramCount > 0) {
             parameters.unshift(context.popStackVar());
@@ -914,7 +914,7 @@ export class Interpreter {
             throw new InterpreterException('variable name must be string');
         }
 
-        let variable = context.getVariableRef(token.nValue);
+        const variable = context.getVariableRef(token.nValue);
 
         if (!variable)
             throw new InterpreterException('variable not defined ' + token.nValue, token.cursorPos);
@@ -926,7 +926,7 @@ export class Interpreter {
         if (!token.childItems)
             throw new InterpreterException('if (...) is empty', token.cursorPos);
 
-        let variable = context.createVariable(VariableType.vtBoolean, false);
+        const variable = context.createVariable(VariableType.vtBoolean, false);
 
         context.pushStackVar(variable);
 
@@ -934,7 +934,7 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntIFFinish;
         context._codeItems.push(node);
         //console.log(util.inspect(token.childItems, { compact: true, depth: null, breakLength: 80, colors: true, getters: true, showHidden: true }));
@@ -948,7 +948,7 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntIFValueFinish;
         context._codeItems.push(node);
 
@@ -963,13 +963,13 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntIFValueBOOLFinish;
         context._codeItems.push(node);
     }
 
     ifValueFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         context.popExecutionStack();
 
@@ -977,11 +977,11 @@ export class Interpreter {
     }
 
     ifValueBOOLFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         context.popExecutionStack();
 
-        let compareVariable = context.createVariable(VariableType.vtBoolean, false);
+        const compareVariable = context.createVariable(VariableType.vtBoolean, false);
 
         if (variable.isNumeric) {
             compareVariable.value = variable.value !== 0;
@@ -1005,7 +1005,7 @@ export class Interpreter {
         //context.execStepOver();
         context.execGetVariable();
 
-        let rightCompare = context.popStackVar(),
+        const rightCompare = context.popStackVar(),
             leftCompare = context.popStackVar(),
             compareResult = context.createVariable(VariableType.vtBoolean, false);
 
@@ -1018,7 +1018,7 @@ export class Interpreter {
         //context.execStepOver();
         context.execGetVariable();
 
-        let rightCompare = context.popStackVar(),
+        const rightCompare = context.popStackVar(),
             leftCompare = context.popStackVar(),
             compareResult = context.createVariable(VariableType.vtBoolean, false);
 
@@ -1048,7 +1048,7 @@ export class Interpreter {
         if (rightCompare instanceof StackVariableRef)
             rightCompare = (rightCompare as unknown as { refValue: StackVariable }).refValue;
 
-        let leftPriority = leftCompare.comparePriority(rightCompare, compareType),
+        const leftPriority = leftCompare.comparePriority(rightCompare, compareType),
             rightPriority = rightCompare.comparePriority(leftCompare, compareType);
 
         if (leftPriority === false && rightPriority === false) {
@@ -1072,7 +1072,7 @@ export class Interpreter {
     }
 
     ifCompareOrHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         if (variable.type !== VariableType.vtBoolean)
             throw new InterpreterException('Invalid variable in IF Handler', token.cursorPos);
@@ -1088,7 +1088,7 @@ export class Interpreter {
     }
 
     ifCompareAndHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         if (variable.type !== VariableType.vtBoolean)
             throw new InterpreterException('Invalid variable in IF Handler', token.cursorPos);
@@ -1107,14 +1107,14 @@ export class Interpreter {
         //context.execStepOver();
         context.execGetVariable();
 
-        let variable = context.popStackVar(),
+        const variable = context.popStackVar(),
             varAsBoolean = variable.castAs(VariableType.vtBoolean);
 
         if (!varAsBoolean) {
             throw new InterpreterException('Failed cast ' + variable.typeName + ' as boolean', token.cursorPos);
         }
 
-        let newVariable = context.createVariable(VariableType.vtBoolean, !varAsBoolean.value);
+        const newVariable = context.createVariable(VariableType.vtBoolean, !varAsBoolean.value);
 
         context.pushStackVar(newVariable);
     }
@@ -1123,7 +1123,7 @@ export class Interpreter {
     }
 
     ifFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         if (variable.type !== VariableType.vtBoolean)
             throw new InterpreterException('Invalid variable in IF Handler', token.cursorPos);
@@ -1147,7 +1147,7 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntSubCodeFinish;
         context._codeItems.push(node);
     }
@@ -1190,7 +1190,7 @@ export class Interpreter {
 
         context._codeItems.push(token.childItems[2]); //increment condition
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntForLoop;
         node.nValue = 4;
         context._codeItems.push(node);
@@ -1200,14 +1200,14 @@ export class Interpreter {
         if (!token.childItems)
             throw new InterpreterException('forCompare is empty', token.cursorPos)
 
-        let variable = context.createVariable(VariableType.vtBoolean, false);
+        const variable = context.createVariable(VariableType.vtBoolean, false);
         context.pushStackVar(variable);
 
         context.pushExecutionStack();
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntForCompareFinish;
         context._codeItems.push(node);
     }
@@ -1215,7 +1215,7 @@ export class Interpreter {
     forCompareFinishHandler(context: ContextInterpreter, token: ParseNode) {
 
         if (context._stackVars.length) {
-            let variable = context.popStackVar();
+            const variable = context.popStackVar();
 
             if (variable.type !== VariableType.vtBoolean)
                 throw new InterpreterException('For compare invalid variable type', token.cursorPos);
@@ -1266,7 +1266,7 @@ export class Interpreter {
             throw new InterpreterException('return childItems not initialized', token.cursorPos);
 
         if (!token.childItems?.length) {
-            let variable = context.createVariable(VariableType.vtVoid, false);
+            const variable = context.createVariable(VariableType.vtVoid, false);
 
             while (context._executionStack.length)
                 context.popExecutionStack();
@@ -1278,14 +1278,14 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntReturnFinish;
         node.nValue = context._stackVars.length;
         context._codeItems.push(node);
     }
 
     returnFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         while (context._executionStack.length)
             context.popExecutionStack();
@@ -1322,7 +1322,7 @@ export class Interpreter {
 
     breakHandler(context: ContextInterpreter, token: ParseNode) {
         while (context._executionStack.length) {
-            let allowBreak = context._type === ContextType.ctAllowBreak;
+            const allowBreak = context._type === ContextType.ctAllowBreak;
 
             if (!allowBreak && context._type !== ContextType.ctNormal) {
                 throw new InterpreterException('Invalid context execution stack type', token.cursorPos);
@@ -1348,7 +1348,7 @@ export class Interpreter {
 
         context._contextVariable = new StackVariableArray(false, []);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayFinish;
         node.nValue = context._stackVars.length;
         context._codeItems.push(node);
@@ -1363,7 +1363,7 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushFinish;
         node.nValue = context._stackVars.length;
         context._codeItems.push(node);
@@ -1399,14 +1399,14 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntBracketGetKeyFinish;
         node.nValue = context._stackVars.length;
         context._codeItems.push(node);
     }
 
     BracketGetKeyFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         if (variable.type !== VariableType.vtNumber && variable.type !== VariableType.vtString) {
             throw new InterpreterException('You can access a property by string or numeric key, given ' + variable.typeName, token.cursorPos);
@@ -1414,7 +1414,7 @@ export class Interpreter {
 
         context.popExecutionStack();
 
-        let accessTo = context.popStackVar(),
+        const accessTo = context.popStackVar(),
             propertyValue = accessTo.getProperty(variable.value as string);
 
         if (!propertyValue) {
@@ -1443,14 +1443,14 @@ export class Interpreter {
         /** @see /src/parser.ts */
         /** @see CodeParser::parseExpression */
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntBracketSetKeyLeftFinish;
         node.nValue = token.nValue2;
         context._codeItems.push(node);
     }
 
     BracketSetKeyLeftFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         if (variable.type !== VariableType.vtNumber && variable.type !== VariableType.vtString) {
             throw new InterpreterException('You can access a property by string or numeric key, given ' + variable.typeName, token.cursorPos);
@@ -1471,18 +1471,18 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.nValue.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntBracketSetKeyRightFinish;
         node.nValue = variable;
         context._codeItems.push(node);
     }
 
     BracketSetKeyRightFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar();
+        const variable = context.popStackVar();
 
         context.popExecutionStack();
 
-        let accessTo = context.popStackVar();
+        const accessTo = context.popStackVar();
 
         if (!(token.nValue instanceof StackVariable))
             throw new InterpreterException('Invalid bracket key', token.cursorPos);
@@ -1501,13 +1501,13 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntFuncParamArrayUnpackFinish;
         context._codeItems.push(node);
     }
 
     FuncParamArrayUnpackFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let variable = context.popStackVar() as StackVariableArray;
+        const variable = context.popStackVar() as StackVariableArray;
 
         if (variable.type !== VariableType.vtArray) {
             throw new InterpreterException('variable must be array, given ' + variable.typeName, token.cursorPos);
@@ -1529,7 +1529,7 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(token.childItems[0]);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushSeparatorFinish;
         node.childItems = token.childItems.slice(1);
         context._codeItems.push(node);
@@ -1544,13 +1544,13 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushSeparatorKeyFinish;
         context._codeItems.push(node);
     }
 
     ArrayPushSeparatorKeyFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let arrayKey = context.popStackVar();
+        const arrayKey = context.popStackVar();
 
         context.popExecutionStack();
 
@@ -1561,7 +1561,7 @@ export class Interpreter {
         if (!token.childItems)
             throw new InterpreterException('Array Push Separator Finish, childItems not initialized', token.cursorPos);
 
-        let arrayKey = context.popStackVar();
+        const arrayKey = context.popStackVar();
 
         if (arrayKey.type !== VariableType.vtNumber && arrayKey.type !== VariableType.vtString) {
             throw new InterpreterException('array key must be number or string', token.cursorPos);
@@ -1575,17 +1575,17 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.childItems);
 
-        let node = new InterpreterNode(token.cursorPos);
+        const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayPushKeyValue;
         context._codeItems.push(node);
     }
 
     ArrayPushKeyValueHandler(context: ContextInterpreter, token: ParseNode) {
-        let arrayValue = context.popStackVar();
+        const arrayValue = context.popStackVar();
 
         context.popExecutionStack();
 
-        let arrayKey = context.popStackVar();
+        const arrayKey = context.popStackVar();
 
         if (!context._contextVariable)
             throw new InterpreterException('ArrayPushKeyValue contextVariable not initialized', token.cursorPos);
@@ -1708,7 +1708,7 @@ export class ContextInterpreter {
         }
 
         if (saveVariables !== true) {
-            let tmp = this._variables;
+            const tmp = this._variables;
 
             this._variables = data.variables;
 
@@ -1747,7 +1747,7 @@ export class ContextInterpreter {
     }
 
     popStackVar() {
-        let r = this._stackVars.pop();
+        const r = this._stackVars.pop();
 
         if (r === undefined)
             throw new MSLangException('Stack is empty');
@@ -1811,7 +1811,7 @@ export class ContextInterpreter {
 
         this.instructionCounter++;
 
-        let token = this.getNextInterToken(),
+        const token = this.getNextInterToken(),
             handler = this._interpreter.getCodeHandler(token.nType);
 
         if (!handler)
@@ -1822,7 +1822,7 @@ export class ContextInterpreter {
     }
 
     execStepOver() {
-        let executionPos = this._executionStack.length;
+        const executionPos = this._executionStack.length;
 
         do {
             this.execOne();
@@ -1833,7 +1833,7 @@ export class ContextInterpreter {
         while (true) {
             this.execStepOver();
 
-            let nextToken = this.currentToken;
+            const nextToken = this.currentToken;
             if (!nextToken)
                 break;
 
@@ -1849,7 +1849,7 @@ export class ContextInterpreter {
     }
 
     exec(returnVal?: boolean) {
-        let stackPosition = this._stackVars.length;
+        const stackPosition = this._stackVars.length;
 
         while (!this.eof) {
             this.execOne();
@@ -1877,7 +1877,7 @@ export class ContextInterpreter {
         if (!this.getVariable(name))
             return undefined;
 
-        let refValue = (new StackVariableRef({
+        const refValue = (new StackVariableRef({
             get:() => {
                 return this.getVariable(name) as object;
             },
@@ -1944,7 +1944,7 @@ export class ContextInterpreter {
     }
 
     callFunction(name: string, parameters: StackVariable[]) {
-        let variable = this.getVariable(name);
+        const variable = this.getVariable(name);
 
         if (!variable) {
             throw new MSLangException('global function "' + name + '" not defined');
@@ -1955,7 +1955,7 @@ export class ContextInterpreter {
         }
 
 
-        let funcEntry = variable.value;
+        const funcEntry = variable.value;
 
         if (!(funcEntry instanceof FunctionEntry)) {
             throw new MSLangException('variable type is function, value must be instance of "' + FunctionEntry.name + '"');
@@ -1965,11 +1965,11 @@ export class ContextInterpreter {
             throw new MSLangException('Invalid number of arguments for function "' + name + '"');
         }
 
-        let callFuncArgs: (StackVariable|null)[] = [null];
-        let index = 0;
+        const callFuncArgs: (StackVariable|null)[] = [null];
+        const index = 0;
 
-        let funcParameters = funcEntry.getParameters();
-        let paramCount = Math.max(parameters.length, funcParameters.length);
+        const funcParameters = funcEntry.getParameters();
+        const paramCount = Math.max(parameters.length, funcParameters.length);
 
         for (let index = 0; index < paramCount; index++) {
 
@@ -1992,7 +1992,7 @@ export class ContextInterpreter {
     selfCallFunction(self: StackVariable, name: string, parameters: StackVariable[]) {
         /** @var self StackVariable  */
 
-        let funcEntry = self.getFunctionEntry(name);
+        const funcEntry = self.getFunctionEntry(name);
 
         if (!funcEntry) {
             throw new MSLangException('Unknown function "' + name + '"');
@@ -2002,10 +2002,10 @@ export class ContextInterpreter {
             throw new MSLangException('Invalid number of arguments for function "' + name + '"');
         }
 
-        let callFuncArgs = [self];
+        const callFuncArgs = [self];
 
-        let funcParameters = funcEntry.getParameters();
-        let paramCount = Math.max(parameters.length, funcParameters.length);
+        const funcParameters = funcEntry.getParameters();
+        const paramCount = Math.max(parameters.length, funcParameters.length);
 
         for (let index = 0; index < paramCount; index++) {
             if (index < parameters.length) {

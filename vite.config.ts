@@ -1,21 +1,24 @@
-import { defineConfig } from 'vite';
+import {defineConfig} from 'vite';
 
+// Собираем оба формата:
+//   mslang.umd.js — для подключения <script src="..."> и глобального DevBX.MSLang;
+//   mslang.es.js  — для `import` в современных проектах через "exports" в package.json.
 export default defineConfig({
-  build: {
-    lib: {
-      entry: 'src/index.ts',  // Точка входа
-      name: 'DevBX.MSLang',
-      fileName: (format) => `mslang.${format}.js`,  // Имя выходных файлов
-      formats: ['umd'],       // Только UMD для браузера
+    build: {
+        lib: {
+            entry: 'src/index.ts',
+            name: 'DevBX.MSLang',
+            fileName: (format) => `mslang.${format}.js`,
+            formats: ['umd', 'es'],
+        },
+        rollupOptions: {
+            external: [],
+            output: {
+                globals: {},
+            },
+        },
+        target: 'es2015',
+        minify: false,
+        sourcemap: true,
     },
-    rollupOptions: {
-      external: [],  // Нет внешних зависимостей
-      output: {
-        globals: {},  // Пусто, т.к. нет externals
-      },
-    },
-    target: 'es2015',  // Цель для браузера
-    minify: false,     // Отключите минификацию для отладки (опционально)
-    sourcemap: true,   // Генерировать source maps
-  },
 });
