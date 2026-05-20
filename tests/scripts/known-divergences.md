@@ -1,30 +1,32 @@
-# Известные расхождения TS ↔ PHP
+# Расхождения TS ↔ PHP
 
-Фаззер `tests/fuzz.ts` + `tests/fuzz.php` (PHP-сторона в `devbx.core`) систематически находит, на каких комбинациях значений MSLang ведёт себя по-разному в двух интерпретаторах. Список ниже — то, что найдено и пока не починено. **PHP — эталон.**
+Найденные фаззером (`tests/fuzz.ts` + `tests/fuzz.php`) расхождения и их статус. **PHP — эталон.**
 
-Перед закрытием каждого пункта добавляй cross-runtime скрипт в `tests/scripts/`, чтобы регрессия больше не вернулась.
+## Закрытые
 
-## Из прогона `--count 200 --seed 42`
+Класс расхождений вокруг loose equality `==`:
 
-| # | Скрипт | TS | PHP | Группа |
-|---|--------|----|----|--------|
-| 1 | `return (false != null);` | `true` | `false` | `null != boolean` |
-| 2 | `return ("ab" == (true \|\| null)) \|\| (null - ("" == null));` | `0` | `true` | null-arithmetic |
-| 3 | `return ((true * null) == null) == ((-7 + "a") != (null == 7));` | `false` | `true` | null-arithmetic |
-| 4 | `return ((false * null) == (null == "")) \|\| (("b" != "b") * (false * "1"));` | `true` | `0` | null-arithmetic + bool*string |
-| 5 | `return ((false != null) \|\| (-4 - "ab")) * (("b" != "b") + (null * true));` | `0` | `"NaN"` | NaN propagation |
-| 6 | `return ((null * null) == "") + ((null * "b") != (false * true));` | `2` | `1` | null-arithmetic |
-| 7 | `return ("b" - "1") == true;` | `false` | `true` | string-to-number |
-| 8 | `return false \|\| (2 - ("" != null));` | `1` | `2` | empty string comparison |
-| 9 | `return null == ((10 * null) == -9);` | `false` | `true` | null-arithmetic |
+- `false != null` теперь `false` (как в PHP), было `true` в TS.
+- `null == 0`, `null == ""` теперь `true` (как в PHP).
+- `NaN == true` теперь `true` (PHP cast NaN→bool даёт true).
+- `("b" - "1") == true` теперь `true` (NaN == true → true).
+- `0 == ""` теперь `false` (PHP 8 поведение, было `true` в TS).
 
-## Как искать дальше
+Решено модулем `src/phpsemantics.ts`: функция `phpLooseEqual` повторяет PHP 8
+loose equality, используется в `StackVariable.compare` и `StackVariableNumber.compare`.
+
+Регрессии стерегут cross-runtime скрипты `tests/scripts/014..020`.
+
+## Как искать новые
 
 ```bash
-# в devbx.mslang
-npx tsx tests/fuzz.ts --count 500 --seed 1 > /tmp/fuzz.jsonl
-# в devbx.core
-php tests/fuzz.php /tmp/fuzz.jsonl
+# TS-сторона генерирует скрипты + свои результаты
+npx tsx tests/fuzz.ts --count 1000 --seed 1 > /tmp/fuzz.jsonl
+
+# PHP-сторона прогоняет тот же набор и сверяет с TS
+php ../devbx.core/tests/fuzz.php /tmp/fuzz.jsonl
 ```
 
-Меняй seed — найдёшь новые входы. После починки бага добавь конкретный сценарий в `tests/scripts/` как обычный `.msl` + `.expected`, чтобы он попал в обязательный набор.
+Меняй `--seed` — найдёшь новые входы. После починки бага добавь сценарий в
+`tests/scripts/` как `*.msl` + `*.expected`, чтобы он попал в обязательный набор
+и больше не вернулся.

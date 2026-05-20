@@ -4,6 +4,7 @@ import {FunctionEntry} from "./functionentry.js";
 import {ContextInterpreter} from "./interpreter.js";
 import {FunctionParameter} from "./functionparameter";
 import {MSLangException} from "./exceptions";
+import {phpLooseEqual} from "./phpsemantics";
 
 interface VariableProperty {
     get?: unknown;
@@ -125,9 +126,9 @@ export class StackVariable {
     compare(variable: StackVariable, compareType: CompareType) {
         switch (compareType) {
             case CompareType.ctEqual:
-                return this.value == variable.value;
+                return phpLooseEqual(this.value, variable.value);
             case CompareType.ctNotEqual:
-                return this.value != variable.value;
+                return !phpLooseEqual(this.value, variable.value);
         }
 
         throw new MSLangException('Invalid compare type');
