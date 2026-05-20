@@ -9,6 +9,7 @@ import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableNull} from "./stackvariablenull";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableFunction} from "./stackvariablefunction";
+import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
 import {StackVariableDateTime} from "./stackvariabledatetime";
@@ -41,6 +42,8 @@ const InterpreterNodeType = {
     'ntArrayPushArrayUnpackFinish': 1022,
     'ntObjSetPropValueFinish': 1023,
     'ntSwitchEvaluated': 1024,
+    /** Завершение вызова пользовательской функции: снимает её scope, оставляет результат. */
+    'ntUserFuncFinish': 1025,
 }
 
 export class InterpreterNode extends ParseNode {
@@ -275,6 +278,13 @@ export class Interpreter {
         });
         this.registerNodeHandler(InterpreterNodeType.ntSwitchEvaluated, (...args: Parameters<TNodeHandler>) => {
             this.switchEvaluatedHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntFunctionDef, (...args: Parameters<TNodeHandler>) => {
+            this.functionDefHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntUserFuncFinish, (...args: Parameters<TNodeHandler>) => {
+            this.userFuncFinishHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntArray, (...args: Parameters<TNodeHandler>) => {
@@ -754,6 +764,22 @@ export class Interpreter {
             funcName += '::' + token.nValue.nValue2;
         }
 
+        //Если функция объявлена пользователем в скрипте — идём по новому пути:
+        //открываем scope, биндим параметры, ставим тело в _codeItems.
+        //Иначе — стандартный синхронный вызов хост-функции через callFunction.
+        if (!token.nValue.nValue2) {
+            let userFunc: StackVariable | undefined = context.getVariable(funcName);
+            if (!(userFunc instanceof StackVariableUserFunction)) {
+                //Fallback на корневую область: top-level функции видны из любого
+                //вложенного scope (нужно для взаимной рекурсии).
+                userFunc = context.getGlobalVariable(funcName);
+            }
+            if (userFunc instanceof StackVariableUserFunction) {
+                this.invokeUserFunction(context, userFunc, parameters as StackVariable[], token);
+                return;
+            }
+        }
+
         context.pushStackVar(context.callFunction(funcName, parameters));
     }
 
@@ -1155,6 +1181,9 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.nodeChildren());
 
+        //Hoisting: все function-объявления этого блока поднимаются в его начало.
+        this.hoistFunctions(context, context._codeItems);
+
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntSubCodeFinish;
         context._codeItems.push(node);
@@ -1281,13 +1310,11 @@ export class Interpreter {
         if (!token.childItems)
             throw new InterpreterException('return childItems not initialized', token.cursorPos);
 
-        if (!token.childItems?.length) {
-            const variable = context.createVariable(VariableType.vtVoid, false);
-
-            while (context._executionStack.length)
-                context.popExecutionStack();
-
-            context.pushStackVar(variable);
+        if (!token.childItems.length) {
+            //`return;` без значения — отдаём undefined и сразу отматываем стек.
+            const variable = new StackVariableUndefined(false);
+            this.unwindReturn(context, variable);
+            return;
         }
 
         context.pushExecutionStack();
@@ -1301,13 +1328,37 @@ export class Interpreter {
     }
 
     returnFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        const variable = context.popStackVar();
+        let variable = context.popStackVar();
 
-        while (context._executionStack.length)
+        //Если выражение вернуло Ref на локальную переменную функции, развернём его
+        //сейчас, пока scope ещё активен. После popFunctionScope в unwindReturn
+        //эта локальная переменная исчезнет, и Ref начнёт выдавать undefined.
+        if (variable instanceof StackVariableRef) {
+            variable = variable.refValue as StackVariable;
+        }
+
+        //Выходим из push'а, сделанного returnHandler-ом для оценки выражения.
+        context.popExecutionStack();
+
+        this.unwindReturn(context, variable);
+    }
+
+    /**
+     * Отматывает стек, останавливаясь на ближайшей границе вызова функции
+     * (ctFunctionCall). Если такой границы нет — это глобальный return из скрипта.
+     */
+    protected unwindReturn(context: ContextInterpreter, value: StackVariable): void {
+        while (context._executionStack.length) {
+            if (context._type === ContextType.ctFunctionCall) {
+                context.popFunctionScope();
+                context.pushStackVar(value);
+                return;
+            }
             context.popExecutionStack();
+        }
 
-        context.pushStackVar(variable);
-
+        //Дошли до верхнего уровня — это return из скрипта.
+        context.pushStackVar(value);
         context._type = ContextType.ctReturn;
     }
 
@@ -1782,12 +1833,242 @@ export class Interpreter {
             errToken.cursorPos
         );
     }
+
+    /**
+     * Обработчик `function name(params) { body }`.
+     *
+     * Создаёт {@link StackVariableUserFunction} и регистрирует её в текущей
+     * области видимости под именем функции. Тело не выполняется до явного вызова.
+     *
+     * Зеркало PHP-эталона `Interpreter::functionDefHandler`.
+     */
+    functionDefHandler(context: ContextInterpreter, token: ParseNode) {
+        const name = String(token.nValue);
+        if (name === '') {
+            throw new InterpreterException('Function definition has empty name', token.cursorPos);
+        }
+
+        const func = this.buildUserFunction(context, token);
+        //Прямая запись минуя setVariable: функция const, повторный setVariable отказался бы.
+        context._variables[name] = func;
+    }
+
+    /**
+     * Регистрирует в текущей области видимости все определения функций (`ntFunctionDef`),
+     * лежащие в переданном списке узлов. Hoisting работает на уровне «своей области».
+     *
+     * Зеркало PHP-эталона `Interpreter::hoistFunctions`.
+     */
+    hoistFunctions(context: ContextInterpreter, nodes: Array<ParseNode | ParseNode[]>) {
+        for (const node of nodes) {
+            if (!(node instanceof ParseNode)) continue;
+            if (node.nType !== NodeType.ntFunctionDef) continue;
+
+            const name = String(node.nValue);
+            if (name === '') continue;
+
+            const func = this.buildUserFunction(context, node);
+            //Прямая запись, чтобы повторный functionDefHandler не упёрся в isConst.
+            context._variables[name] = func;
+        }
+    }
+
+    /**
+     * Собирает {@link StackVariableUserFunction} из узла `ntFunctionDef`,
+     * разделяя его childItems на параметры и тело. Захватывает снимок
+     * переменных текущей области для замыкания.
+     */
+    protected buildUserFunction(context: ContextInterpreter, defNode: ParseNode): StackVariableUserFunction {
+        const params: ParseNode[] = [];
+        const body: ParseNode[] = [];
+
+        for (const child of defNode.childItems ?? []) {
+            if (!(child instanceof ParseNode)) continue;
+            if (child.nType === NodeType.ntFuncDefParam) {
+                params.push(child);
+            } else {
+                body.push(child);
+            }
+        }
+
+        const func = new StackVariableUserFunction(String(defNode.nValue), params, body);
+
+        //Замыкание: запоминаем снимок переменных области, где функция объявлена.
+        //Обычное копирование (Object.assign) — мутации внешних переменных после
+        //объявления внутрь функции не пробрасываются.
+        func.setCapturedScope(Object.assign({}, context._variables));
+
+        return func;
+    }
+
+    /**
+     * Запускает выполнение тела пользовательской функции:
+     * биндит параметры, открывает функциональный scope и ставит тело в _codeItems.
+     */
+    protected invokeUserFunction(
+        context: ContextInterpreter,
+        func: StackVariableUserFunction,
+        parameters: StackVariable[],
+        callToken: ParseNode,
+    ): void {
+        const funcParams = func.params;
+        const body = func.body;
+
+        //Считаем обязательные параметры (те, у которых нет default-выражения).
+        let requiredCount = 0;
+        for (const p of funcParams) {
+            if (!p.childItems || p.childItems.length === 0) {
+                requiredCount++;
+            }
+        }
+
+        if (parameters.length < requiredCount) {
+            throw new InterpreterException(
+                'Function "' + func.name + '" requires at least ' + requiredCount
+                + ' argument(s), got ' + parameters.length,
+                callToken.cursorPos,
+            );
+        }
+
+        //Лишние аргументы — WARNING, но вызов продолжается.
+        if (parameters.length > funcParams.length) {
+            context.addWarning(
+                'Function "' + func.name + '" called with ' + parameters.length
+                + ' arguments, expected at most ' + funcParams.length
+            );
+        }
+
+        //Заранее разрешаем Ref-обёртки и копируем примитивы. Делается ДО pushFunctionScope,
+        //пока внешние переменные ещё видны — иначе Ref начнёт читать пустой scope функции.
+        const boundValues: Array<StackVariable | null> = [];
+        for (let i = 0; i < funcParams.length; i++) {
+            if (i < parameters.length) {
+                let arg = parameters[i];
+                if (arg instanceof StackVariableRef) {
+                    arg = arg.refValue as StackVariable;
+                }
+                //Объекты и массивы — по ссылке, остальное — копия (как в JavaScript).
+                if (arg.type === VariableType.vtObject || arg.type === VariableType.vtArray) {
+                    boundValues.push(arg);
+                } else {
+                    boundValues.push(context.createVariable(arg.type, arg.value));
+                }
+            } else {
+                //Заглушка — заполним значением по умолчанию уже внутри scope.
+                boundValues.push(null);
+            }
+        }
+
+        //Передаём в pushFunctionScope снимок переменных области, где функция была определена.
+        context.pushFunctionScope(func.capturedScope);
+
+        //Имя функции видно внутри её тела — позволяет прямую рекурсию.
+        context._variables[func.name] = func;
+
+        for (let i = 0; i < funcParams.length; i++) {
+            const paramNode = funcParams[i];
+            const paramName = String(paramNode.nValue);
+
+            const bound = boundValues[i] ?? this.evalDefaultValue(context, paramNode, callToken);
+            //Параметр пишем прямо в локальные переменные функции — иначе closure-walk
+            //в setVariable пробил бы его через enclosing scope и затёр параметр родительского
+            //рекурсивного вызова с тем же именем.
+            context._variables[paramName] = bound;
+        }
+
+        //Hoisting вложенных функций тела — после регистрации параметров, чтобы
+        //captured-snapshot у вложенных функций включал параметры внешней функции.
+        this.hoistFunctions(context, body);
+
+        //Ставим тело на выполнение, после него — финиш функции.
+        context._codeItems = [];
+        for (const stmt of body) {
+            if (stmt instanceof ParseNode) {
+                context._codeItems.push(stmt);
+            }
+        }
+
+        const finish = new InterpreterNode(callToken.cursorPos);
+        finish.nType = InterpreterNodeType.ntUserFuncFinish;
+        context._codeItems.push(finish);
+    }
+
+    /**
+     * Завершение функции без явного `return` — возвращаем undefined и снимаем scope.
+     */
+    userFuncFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const variable = new StackVariableUndefined(false);
+        context.popFunctionScope();
+        context.pushStackVar(variable);
+    }
+
+    /**
+     * Распознаёт литеральное значение default-параметра функции.
+     *
+     * На этапе 1 поддерживаем только литералы и контекстные переменные —
+     * как и в evalCaseLiteral для switch.
+     */
+    protected evalDefaultValue(
+        context: ContextInterpreter,
+        paramNode: ParseNode,
+        callToken: ParseNode,
+    ): StackVariable {
+        const children = paramNode.childItems ?? [];
+        if (children.length === 0) {
+            return new StackVariableUndefined(false);
+        }
+
+        const wrap = children[0];
+        if (!(wrap instanceof ParseNode) || wrap.nType !== NodeType.ntSubExpression) {
+            throw new InterpreterException(
+                'Invalid default value structure for parameter "' + paramNode.nValue + '"',
+                callToken.cursorPos,
+            );
+        }
+
+        const inner = wrap.childItems ?? [];
+        if (inner.length !== 1) {
+            throw new InterpreterException(
+                'Default value for parameter "' + paramNode.nValue + '" must be a single literal',
+                callToken.cursorPos,
+            );
+        }
+
+        const literal = inner[0];
+        if (!(literal instanceof ParseNode)) {
+            throw new InterpreterException('Invalid default literal for "' + paramNode.nValue + '"', callToken.cursorPos);
+        }
+
+        switch (literal.nType) {
+            case NodeType.ntNumeric:
+                return context.createVariable(VariableType.vtNumber, +(literal.nValue as number));
+            case NodeType.ntFloat:
+                return context.createVariable(VariableType.vtFloat, +(literal.nValue as number));
+            case NodeType.ntString:
+                return context.createVariable(VariableType.vtString, String(literal.nValue));
+            case NodeType.ntContextVariable: {
+                const varName = String(literal.nValue);
+                const variable = context.getVariable(varName);
+                if (!variable) {
+                    throw new InterpreterException('Unknown default variable "' + varName + '"', callToken.cursorPos);
+                }
+                return variable;
+            }
+        }
+
+        throw new InterpreterException(
+            'Default value for "' + paramNode.nValue + '" must be literal or const variable',
+            callToken.cursorPos,
+        );
+    }
 }
 
 export const ContextType = {
     'ctNormal': 0,
     'ctAllowBreak': 1,
     'ctReturn': 2,
+    /** Граница вызова пользовательской функции — на ней останавливается отмотка `return`. */
+    'ctFunctionCall': 3,
 }
 
 interface ExecutionStackItem {
@@ -1799,6 +2080,8 @@ interface ExecutionStackItem {
     pos: number;
     stackVars: StackVariable[];
     contextVariable?: StackVariableArray;
+    isFunctionScope?: boolean;
+    capturedScope?: Record<string, StackVariable> | null;
 }
 
 export class ContextInterpreter {
@@ -1814,6 +2097,17 @@ export class ContextInterpreter {
     _type
     _interpreter
     _contextVariable?: StackVariableArray; //используется для создания массивов "Array"
+
+    /** Накопленные предупреждения времени выполнения (лишние аргументы и т.п.). */
+    protected _warnings: string[] = [];
+
+    /**
+     * Снимок переменных «замкнутой» области текущей пользовательской функции.
+     * Через него тело видит переменные той области, где функция была определена,
+     * даже если её родительский scope уже завершился. Сохраняется в стеке при
+     * pushFunctionScope.
+     */
+    _currentCapturedScope: Record<string, StackVariable> | null = null;
 
     // Ограничение количества инструкций выполнения. 0 — без ограничений.
     // Зеркало PHP limitExecInstruction + instructionCounter.
@@ -1906,6 +2200,12 @@ export class ContextInterpreter {
                 if (this._variables[k].isConst)
                     return;
 
+                //Если внутри scope переменную не трогали (например, она была обновлена
+                //прямо в snapshot через closure-walk в setVariable) — пропускаем
+                //копирование, иначе попадём в установку value на undefined.
+                if (tmp[k] === undefined)
+                    return;
+
                 if (this._variables[k].type !== tmp[k].type) {
                     this._variables[k] = this.createVariable(tmp[k].type, tmp[k].value);
                 } else {
@@ -1929,6 +2229,83 @@ export class ContextInterpreter {
         this._contextVariable = data.contextVariable;
     }
 
+    /**
+     * Открывает изолированную область видимости для вызова пользовательской функции.
+     *
+     * Принимает captured snapshot — переменные области, где функция была объявлена.
+     * Через него внутри функции доступны замкнутые переменные.
+     */
+    pushFunctionScope(capturedScope: Record<string, StackVariable> | null = null) {
+        this._executionStack.push({
+            variables: this._variables,
+            functions: this._functions,
+            codeItems: this._codeItems,
+            codeData: this._codeData,
+            type: this._type,
+            pos: this._pos,
+            stackVars: this._stackVars,
+            contextVariable: this._contextVariable,
+            isFunctionScope: true,
+            capturedScope: this._currentCapturedScope,
+        });
+
+        //Внутри функции — пустое имя-пространство для локальных переменных и параметров.
+        this._variables = {};
+        this._stackVars = [];
+        this._codeItems = undefined;
+        this._codeData = {};
+        this._pos = 0;
+        this._type = ContextType.ctFunctionCall;
+        this._currentCapturedScope = capturedScope;
+    }
+
+    /**
+     * Закрывает scope функции — восстанавливает внешнее состояние полностью,
+     * без копирования внутренних переменных наружу.
+     */
+    popFunctionScope() {
+        if (!this._executionStack.length)
+            throw new MSLangException('Execution stack is empty');
+
+        const data = this._executionStack.pop();
+        if (!data)
+            throw new MSLangException('Failed to pop execution stack');
+
+        this._variables = data.variables;
+        this._functions = data.functions;
+        this._codeItems = data.codeItems;
+        this._codeData = data.codeData;
+        this._pos = data.pos;
+        this._type = data.type;
+        this._stackVars = data.stackVars;
+        this._contextVariable = data.contextVariable;
+        this._currentCapturedScope = data.capturedScope ?? null;
+    }
+
+    addWarning(message: string): void {
+        this._warnings.push(message);
+    }
+
+    getWarnings(): string[] {
+        return this._warnings;
+    }
+
+    clearWarnings(): void {
+        this._warnings = [];
+    }
+
+    /**
+     * Возвращает переменную из «верхней» (корневой) области.
+     * Для взаимной рекурсии: top-level функции видны из любого вложенного scope.
+     */
+    getGlobalVariable(name: string): StackVariable | undefined {
+        if (this._executionStack.length === 0) {
+            return this._variables[name];
+        }
+        const rootVars = this._executionStack[0].variables;
+        return rootVars[name];
+    }
+
     pushStackVar(data: unknown) {
         if (!(data instanceof StackVariable))
             throw Error('non StackVariable');
@@ -1950,6 +2327,11 @@ export class ContextInterpreter {
         // иначе createVariable не знает, как пересоздать конкретный подкласс,
         // и теряется состояние/поведение объекта. Это зеркало PHP-реализации.
         if (variable.type === VariableType.vtObject) {
+            return variable;
+        }
+        // Пользовательская функция — по ссылке, как объекты. Иначе createVariable
+        // завернёт её в StackVariableFunction без тела и параметров.
+        if (variable instanceof StackVariableUserFunction) {
             return variable;
         }
         return this.createVariable(variable.type, variable.value);
@@ -2041,6 +2423,12 @@ export class ContextInterpreter {
     exec(returnVal?: boolean) {
         const stackPosition = this._stackVars.length;
 
+        //Hoisting функций верхнего уровня: они должны быть видны до своих
+        //строк-объявлений (как в JavaScript).
+        if (Array.isArray(this._codeItems)) {
+            this._interpreter.hoistFunctions(this, this._codeItems);
+        }
+
         while (!this.eof) {
             this.execOne();
             if (this._type === ContextType.ctReturn)
@@ -2060,7 +2448,26 @@ export class ContextInterpreter {
     }
 
     getVariable(name: string): StackVariable|undefined {
-        return this._variables[name];
+        if (this._variables[name] !== undefined) {
+            return this._variables[name];
+        }
+
+        //Lookup по execution stack снизу вверх (только для чтения):
+        //позволяет внутри функции видеть глобальные константы (true/false/null/Math/...)
+        //и top-level пользовательские функции.
+        for (let i = this._executionStack.length - 1; i >= 0; i--) {
+            const vars = this._executionStack[i].variables;
+            if (vars && vars[name] !== undefined) {
+                return vars[name];
+            }
+        }
+
+        //Замыкание: переменные, «застывшие» в области, где функция была определена.
+        if (this._currentCapturedScope !== null && this._currentCapturedScope[name] !== undefined) {
+            return this._currentCapturedScope[name];
+        }
+
+        return undefined;
     }
 
     getVariableRef(name: string) {
@@ -2086,6 +2493,51 @@ export class ContextInterpreter {
     }
 
     setVariable(name:string, value: StackVariable) {
+        //Замыкание-by-reference включается только внутри пользовательской функции
+        //(текущий scope или любой scope вверх — типа ctFunctionCall). Старые блочные
+        //конструкции (if/while/for/switch) сохраняют семантику «локально в блоке».
+        let isInsideFunction = this._type === ContextType.ctFunctionCall;
+        if (!isInsideFunction) {
+            for (const frame of this._executionStack) {
+                if (frame.type === ContextType.ctFunctionCall) {
+                    isInsideFunction = true;
+                    break;
+                }
+            }
+        }
+
+        if (isInsideFunction && this._variables[name] === undefined) {
+            //Идём по execution stack: если переменная есть наверху — обновляем там.
+            for (let i = this._executionStack.length - 1; i >= 0; i--) {
+                const vars = this._executionStack[i].variables;
+                if (vars && vars[name] !== undefined) {
+                    if (vars[name].isConst)
+                        throw new MSLangException('Cannot override constant "' + name + '"');
+                    vars[name] = value;
+                    return;
+                }
+            }
+
+            //Захваченная область замыкания.
+            if (this._currentCapturedScope !== null && this._currentCapturedScope[name] !== undefined) {
+                const existing = this._currentCapturedScope[name];
+                if (existing.isConst)
+                    throw new MSLangException('Cannot override constant "' + name + '"');
+                if (existing.type === value.type) {
+                    existing.value = value.value;
+                } else {
+                    this._currentCapturedScope[name] = value;
+                }
+                return;
+            }
+
+            //Нигде нет — правило №1: создаём в корневой (глобальной) области.
+            if (this._executionStack.length > 0) {
+                this._executionStack[0].variables[name] = value;
+                return;
+            }
+        }
+
         if (!!this._variables[name] && this._variables[name].isConst)
             throw new MSLangException('Cannot override constant "' + name + '"');
 

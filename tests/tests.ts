@@ -1553,3 +1553,291 @@ test('068_SwitchDefaultMiddleNoFallback', (t) => {
     `);
     assert.strictEqual('D2', returnVal?.value);
 });
+
+test('069_UserFuncBasic', (t) => {
+    const returnVal = executeReturnCode(`
+        function sum(a, b) {
+            return a + b;
+        }
+        return sum(2, 3);
+    `);
+    assert.strictEqual(5, returnVal?.value);
+});
+
+test('069_UserFuncNoReturnGivesUndefined', (t) => {
+    const returnVal = executeReturnCode(`
+        function nothing(a) {
+            a = a + 1;
+        }
+        return nothing(10);
+    `);
+    assert.strictEqual(VariableType.vtUndefined, returnVal?.type);
+});
+
+test('069_UserFuncBareReturn', (t) => {
+    //\`return;\` без значения — undefined.
+    const returnVal = executeReturnCode(`
+        function f() {
+            return;
+        }
+        return f();
+    `);
+    assert.strictEqual(VariableType.vtUndefined, returnVal?.type);
+});
+
+test('069_UserFuncDirectRecursion', (t) => {
+    //Имя функции видно внутри её тела (пункт 2 договорённостей).
+    const returnVal = executeReturnCode(`
+        function fact(n) {
+            if (n == 0) { return 1; }
+            return n * fact(n - 1);
+        }
+        return fact(5);
+    `);
+    assert.strictEqual(120, returnVal?.value);
+});
+
+test('069_UserFuncDefaultValue', (t) => {
+    const returnVal = executeReturnCode(`
+        function greet(name, suffix = "!") {
+            return name + suffix;
+        }
+        return greet("Hi");
+    `);
+    assert.strictEqual('Hi!', returnVal?.value);
+});
+
+test('069_UserFuncDefaultValueOverride', (t) => {
+    const returnVal = executeReturnCode(`
+        function greet(name, suffix = "!") {
+            return name + suffix;
+        }
+        return greet("Hi", "?");
+    `);
+    assert.strictEqual('Hi?', returnVal?.value);
+});
+
+test('069_UserFuncMissingRequiredThrows', (t) => {
+    assert.throws(() => {
+        executeReturnCode(`
+            function f(a, b) {
+                return a + b;
+            }
+            return f(1);
+        `);
+    });
+});
+
+test('069_UserFuncExtraArgsWarning', (t) => {
+    const lexer = new CodeLexer(`
+        function f(a) {
+            return a;
+        }
+        return f(1, 2, 3);
+    `);
+    const parser = new CodeParser(lexer);
+    const nodeList: ParseNode[] = [];
+    parser.parseCode(nodeList, true, true, LexerTypeArray.one(LexerType.ltEof));
+
+    const interpreter = new Interpreter();
+    interpreter.registerHandlers();
+
+    const ctx = new ContextInterpreter(nodeList, interpreter);
+    ctx.registerConst();
+    const returnVal = ctx.exec(true);
+
+    assert.strictEqual(1, returnVal?.value);
+    const warnings = ctx.getWarnings();
+    assert.strictEqual(1, warnings.length);
+    assert.ok(warnings[0].indexOf('expected at most 1') !== -1);
+});
+
+test('069_UserFuncPrimitiveByCopy', (t) => {
+    //Параметр-число — копия. Изменение внутри функции не влияет на внешнее.
+    const returnVal = executeReturnCode(`
+        function bump(x) {
+            x = x + 100;
+            return x;
+        }
+        outer = 5;
+        inner = bump(outer);
+        return [outer, inner];
+    `) as StackVariableArray;
+
+    const items = returnVal.value;
+    assert.strictEqual(5, items.get('0')?.value);
+    assert.strictEqual(105, items.get('1')?.value);
+});
+
+test('069_UserFuncArrayByReference', (t) => {
+    //Параметр-массив — по ссылке: мутация изнутри видна снаружи.
+    const returnVal = executeReturnCode(`
+        function pushFive(arr) {
+            arr.push(5);
+        }
+        outer = [1, 2, 3];
+        pushFive(outer);
+        return outer;
+    `) as StackVariableArray;
+
+    assert.strictEqual(4, returnVal.value.size);
+    assert.strictEqual(5, returnVal.value.get('3')?.value);
+});
+
+test('069_UserFuncParamReassignDoesNotLeak', (t) => {
+    //\`arr = newArray()\` внутри функции — переназначение локального параметра.
+    //Внешний массив не трогается.
+    const returnVal = executeReturnCode(`
+        function rebind(arr) {
+            arr = [99];
+        }
+        outer = [1, 2, 3];
+        rebind(outer);
+        return outer;
+    `) as StackVariableArray;
+
+    assert.strictEqual(3, returnVal.value.size);
+    assert.strictEqual(1, returnVal.value.get('0')?.value);
+});
+
+test('070_HoistCallBeforeDefinition', (t) => {
+    //Hoisting: функция доступна выше своей строки-определения.
+    const returnVal = executeReturnCode(`
+        x = sum(2, 3);
+        function sum(a, b) {
+            return a + b;
+        }
+        return x;
+    `);
+    assert.strictEqual(5, returnVal?.value);
+});
+
+test('070_HoistMutualRecursion', (t) => {
+    //Взаимная рекурсия: isEven зовёт isOdd ниже определения isEven и наоборот.
+    const returnVal = executeReturnCode(`
+        function isEven(n) {
+            if (n == 0) { return true; }
+            return isOdd(n - 1);
+        }
+        function isOdd(n) {
+            if (n == 0) { return false; }
+            return isEven(n - 1);
+        }
+        return [isEven(4), isEven(5), isOdd(3), isOdd(0)];
+    `) as StackVariableArray;
+
+    assert.strictEqual(true, returnVal.value.get('0')?.value);
+    assert.strictEqual(false, returnVal.value.get('1')?.value);
+    assert.strictEqual(true, returnVal.value.get('2')?.value);
+    assert.strictEqual(false, returnVal.value.get('3')?.value);
+});
+
+test('070_HoistNestedFunction', (t) => {
+    //Внутри функции tools используется helper, объявленный ниже.
+    const returnVal = executeReturnCode(`
+        function tools() {
+            return helper() + 1;
+            function helper() {
+                return 10;
+            }
+        }
+        return tools();
+    `);
+    assert.strictEqual(11, returnVal?.value);
+});
+
+test('070_HoistInSubBlockLimitedToBlock', (t) => {
+    //Функция объявлена внутри блока if — она видна только внутри блока.
+    const returnVal = executeReturnCode(`
+        x = 0;
+        if (true) {
+            x = bonus(5);
+            function bonus(n) { return n + 100; }
+        }
+        return x;
+    `);
+    assert.strictEqual(105, returnVal?.value);
+});
+
+test('071_ClosureCounterPattern', (t) => {
+    //Counter-pattern: внутри функции изменение внешней переменной видно снаружи.
+    const returnVal = executeReturnCode(`
+        counter = 0;
+        function inc() {
+            counter = counter + 1;
+        }
+        inc();
+        inc();
+        inc();
+        return counter;
+    `);
+    assert.strictEqual(3, returnVal?.value);
+});
+
+test('071_ClosureReadOuter', (t) => {
+    //Чтение внешней переменной из функции.
+    const returnVal = executeReturnCode(`
+        base = 10;
+        function addBase(x) {
+            return x + base;
+        }
+        return addBase(5);
+    `);
+    assert.strictEqual(15, returnVal?.value);
+});
+
+test('071_NewVariableInsideFunctionGoesGlobal', (t) => {
+    //По правилу №1: \`x = 5\` внутри функции, где x нигде не объявлен,
+    //создаётся в глобальной области.
+    const returnVal = executeReturnCode(`
+        function leak() {
+            escapedVar = 42;
+        }
+        leak();
+        return escapedVar;
+    `);
+    assert.strictEqual(42, returnVal?.value);
+});
+
+test('071_ParameterShadowsOuter', (t) => {
+    //Параметр с тем же именем что и внешняя переменная — не затрагивает внешнюю.
+    const returnVal = executeReturnCode(`
+        x = 100;
+        function modify(x) {
+            x = x + 1;
+            return x;
+        }
+        inner = modify(5);
+        return [x, inner];
+    `) as StackVariableArray;
+
+    assert.strictEqual(100, returnVal.value.get('0')?.value);
+    assert.strictEqual(6, returnVal.value.get('1')?.value);
+});
+
+test('071_RecursiveParameterIsolated', (t) => {
+    //Рекурсивный вызов: параметр текущего call'а не должен затирать параметр родительского.
+    const returnVal = executeReturnCode(`
+        function fact(n) {
+            if (n == 0) { return 1; }
+            return n * fact(n - 1);
+        }
+        return fact(6);
+    `);
+    assert.strictEqual(720, returnVal?.value);
+});
+
+test('071_NestedFunctionCanReturnReference', (t) => {
+    //Внутренняя функция, сохранённая снаружи: GC удерживает её через captured snapshot.
+    const returnVal = executeReturnCode(`
+        function makeAdder(amount) {
+            function add(x) {
+                return x + amount;
+            }
+            return add;
+        }
+        adder = makeAdder(7);
+        return adder(3);
+    `);
+    assert.strictEqual(10, returnVal?.value);
+});
