@@ -391,6 +391,22 @@ export class CodeParser {
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntThis);
                     NodeList.push(SubNode);
                     break;
+                case LexerType.ltFunction: {
+                    //function-выражение: `this.greet = function() { ... };` —
+                    //анонимная функция как значение справа от `=`. Имя может
+                    //отсутствовать (anonymous) — тогда nValue = '', и узел
+                    //обработчик при выполнении не регистрирует UserFunction
+                    //в _variables, а кладёт её на стек как значение.
+                    const exprFuncList: Array<ParseNode | ParseNode[]> = [];
+                    this.parseFunctionDef(exprFuncList, true);
+                    //parseFunctionDef кладёт ровно один ParseNode (ntFunctionDef).
+                    const exprFunc = exprFuncList[0];
+                    if (!(exprFunc instanceof ParseNode)) {
+                        throw new ParserException("Function expression failed", this.lexer.tokenCursor);
+                    }
+                    NodeList.push(exprFunc);
+                    break;
+                }
                 case LexerType.ltSuper: {
                     //super должен идти строго в одной из двух форм:
                     //  super(args)         — вызов родительского ctor (ntSuperCall)
@@ -1310,23 +1326,40 @@ export class CodeParser {
      *     nValue = имя параметра
      *     childItems = [ntSubExpression(default)] или пусто
      *
+     * @param asExpression true — function-выражение: имя необязательно,
+     *        узел при выполнении кладёт UserFunction на стек, а не регистрирует
+     *        её в _variables (нужно для `x = function() { ... };`).
+     *
      * Зеркало PHP-эталона `CodeParser::parseFunctionDef`.
      */
-    protected parseFunctionDef(NodeList: Array<ParseNode | ParseNode[]>): void {
+    protected parseFunctionDef(NodeList: Array<ParseNode | ParseNode[]>, asExpression: boolean = false): void {
         const funcNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFunctionDef);
         funcNode.childItems = [];
-
-        this.lexer.getToken();
-        if (this.lexer.tokenSym !== LexerType.ltIDStr) {
-            throw new ParserException("Function: name expected", this.lexer.tokenCursor);
-        }
-        funcNode.nValue = this.lexer.tokenValue;
-
-        if (this.reservedWords.indexOf(String(funcNode.nValue).toLowerCase()) !== -1) {
-            throw new ParserException('Function name cannot be a reserved word "' + funcNode.nValue + '"', this.lexer.tokenCursor);
+        //Метка expression-формы — handler проверит через nValue2.
+        if (asExpression) {
+            funcNode.nValue2 = 'expr';
         }
 
         this.lexer.getToken();
+        if (this.lexer.tokenSym === LexerType.ltLPar) {
+            //Анонимная функция-выражение: function() { ... }. Имя пустое.
+            if (!asExpression) {
+                throw new ParserException("Function: name expected", this.lexer.tokenCursor);
+            }
+            funcNode.nValue = '';
+        } else {
+            if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                throw new ParserException("Function: name expected", this.lexer.tokenCursor);
+            }
+            funcNode.nValue = this.lexer.tokenValue;
+
+            if (this.reservedWords.indexOf(String(funcNode.nValue).toLowerCase()) !== -1) {
+                throw new ParserException('Function name cannot be a reserved word "' + funcNode.nValue + '"', this.lexer.tokenCursor);
+            }
+
+            this.lexer.getToken();
+        }
+
         if (this.lexer.tokenSym !== LexerType.ltLPar) {
             throw new ParserException("Function: '(' expected", this.lexer.tokenCursor);
         }
