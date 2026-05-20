@@ -60,6 +60,7 @@ export const NodeType =
         'ntArrayPushArrayUnpack': 47,
         'ntObjSetPropValue': 48,
         'ntContinue': 49,
+        'ntDefault': 50,
     }
 
 export class ParseNode
@@ -901,9 +902,9 @@ export class CodeParser {
                 switch (this.lexer.tokenSym)
                 {
                     case LexerType.ltSwitch:
-                        // switch/case зарезервированы в лексере, но не реализованы в парсере.
-                        // Если возьмёмся — добавить parseSwitch и убрать throw.
-                        throw new ParserException('Switch not implemented', this.lexer.tokenCursor);
+                        this.parseSwitch(NodeList);
+                        //parseSwitch потребил '}', getNextToken остаётся true
+                        break;
                     case LexerType.ltFor:
                         Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntFor);
                         Node.childItems = [];
@@ -1062,6 +1063,105 @@ export class CodeParser {
             if (inline && endLineType.indexOf(this.lexer.tokenSym) !== -1)
                 return;
         }
+    }
+
+    /**
+     * Парсит конструкцию `switch (expr) { case X: body; case Y: body; default: body; }`.
+     *
+     * На входе: текущий tokenSym = ltSwitch.
+     * На выходе: лексер стоит на закрывающей `}` (parseCode сам сделает getToken дальше).
+     *
+     * Зеркало PHP-эталона `CodeParser::parseSwitch`. Структура узла:
+     *   ntSwitch
+     *     childItems[0] = ntSubExpression — выражение, которое сравниваем
+     *     childItems[1..N] = ntCase / ntDefault
+     *
+     *   ntCase
+     *     childItems[0] = ntSubExpression — литерал case-значения (число/строка/const)
+     *     childItems[1..N] = тело case (statements до следующего case/default/})
+     *
+     *   ntDefault
+     *     childItems[0..N] = тело default
+     */
+    protected parseSwitch(NodeList: Array<ParseNode | ParseNode[]>): void
+    {
+        const switchNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSwitch);
+        switchNode.childItems = [];
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltLPar) {
+            throw new ParserException("Switch: '(' expected", this.lexer.tokenCursor);
+        }
+
+        const exprNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
+        this.parseExpression(exprNode, true, LexerTypeArray.one(LexerType.ltRPar));
+        switchNode.childItems.push(exprNode);
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym !== LexerType.ltStartCode) {
+            throw new ParserException("Switch: '{' expected", this.lexer.tokenCursor);
+        }
+
+        const endSet = LexerTypeArray.one(LexerType.ltCase)
+            .cloneAdd(LexerType.ltDefault)
+            .cloneAdd(LexerType.ltEndCode);
+
+        this.lexer.getToken();
+
+        let needNextToken = false;
+        while (true) {
+            if (needNextToken) {
+                this.lexer.getToken();
+            }
+            needNextToken = true;
+
+            if (this.lexer.tokenSym === LexerType.ltEndCode) {
+                break;
+            }
+
+            if (this.lexer.tokenSym === LexerType.ltCase) {
+                const caseNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCase);
+                caseNode.childItems = [];
+
+                const caseValueNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
+                this.parseExpression(caseValueNode, true, LexerTypeArray.one(LexerType.ltColon));
+                caseNode.childItems.push(caseValueNode);
+
+                const bodyList: Array<ParseNode | ParseNode[]> = [];
+                this.parseCode(bodyList, true, false, endSet);
+                for (const bodyItem of bodyList) {
+                    caseNode.childItems.push(bodyItem);
+                }
+
+                switchNode.childItems.push(caseNode);
+                needNextToken = false; //parseCode оставил нас на ltCase/ltDefault/ltEndCode
+                continue;
+            }
+
+            if (this.lexer.tokenSym === LexerType.ltDefault) {
+                this.lexer.getToken();
+                if (this.lexer.tokenSym !== LexerType.ltColon) {
+                    throw new ParserException("Switch: ':' expected after default", this.lexer.tokenCursor);
+                }
+
+                const defaultNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntDefault);
+                defaultNode.childItems = [];
+
+                const bodyList: Array<ParseNode | ParseNode[]> = [];
+                this.parseCode(bodyList, true, false, endSet);
+                for (const bodyItem of bodyList) {
+                    defaultNode.childItems.push(bodyItem);
+                }
+
+                switchNode.childItems.push(defaultNode);
+                needNextToken = false;
+                continue;
+            }
+
+            throw new ParserException("Switch: 'case' or 'default' expected", this.lexer.tokenCursor);
+        }
+
+        NodeList.push(switchNode);
     }
 
 }

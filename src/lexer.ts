@@ -46,6 +46,7 @@ export const LexerType = {
     'ltArrayUnpack': 37,
     'ltArraySeparator': 38,
     'ltContinue': 39,
+    'ltDefault': 40,
 }
 
 export class FullTokenInfo {
@@ -555,6 +556,11 @@ export class CodeLexer extends Lexer {
 
         if (this._tokenValue === "case") {
             this._tokenSym = LexerType.ltCase;
+            return;
+        }
+
+        if (this._tokenValue === "default") {
+            this._tokenSym = LexerType.ltDefault;
             return;
         }
 

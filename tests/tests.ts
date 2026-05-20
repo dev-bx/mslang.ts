@@ -1453,3 +1453,103 @@ test('067_SimpleFor', (t) => {
     const returnVal = executeReturnCode('for(i=0; true; i=i+1) {break;}');
     assert.strictEqual(VariableType.vtVoid, returnVal?.type);
 });
+
+test('068_SwitchBasic', (t) => {
+    const returnVal = executeReturnCode(`
+        x = 2;
+        r = "no";
+        switch (x) {
+            case 1: r = "one"; break;
+            case 2: r = "two"; break;
+            case 3: r = "three"; break;
+        }
+        return r;
+    `);
+    assert.strictEqual('two', returnVal?.value);
+});
+
+test('068_SwitchDefault', (t) => {
+    const returnVal = executeReturnCode(`
+        x = 99;
+        r = "none";
+        switch (x) {
+            case 1: r = "one"; break;
+            default: r = "other"; break;
+        }
+        return r;
+    `);
+    assert.strictEqual('other', returnVal?.value);
+});
+
+test('068_SwitchFallthrough', (t) => {
+    const returnVal = executeReturnCode(`
+        x = 2;
+        r = "";
+        switch (x) {
+            case 1: r = r + "1";
+            case 2: r = r + "2";
+            case 3: r = r + "3"; break;
+            case 4: r = r + "4";
+        }
+        return r;
+    `);
+    assert.strictEqual('23', returnVal?.value);
+});
+
+test('068_SwitchNoMatchNoDefault', (t) => {
+    const returnVal = executeReturnCode(`
+        x = 99;
+        r = "untouched";
+        switch (x) {
+            case 1: r = "one"; break;
+            case 2: r = "two"; break;
+        }
+        return r;
+    `);
+    assert.strictEqual('untouched', returnVal?.value);
+});
+
+test('068_SwitchStringValue', (t) => {
+    const returnVal = executeReturnCode(`
+        x = "b";
+        r = 0;
+        switch (x) {
+            case "a": r = 1; break;
+            case "b": r = 2; break;
+            case "c": r = 3; break;
+        }
+        return r;
+    `);
+    assert.strictEqual(2, returnVal?.value);
+});
+
+test('068_SwitchEmptyCaseFallsThrough', (t) => {
+    //case 1 без тела проваливается в case 2.
+    const returnVal = executeReturnCode(`
+        x = 1;
+        r = 0;
+        switch (x) {
+            case 1:
+            case 2: r = 12; break;
+            case 3: r = 3; break;
+        }
+        return r;
+    `);
+    assert.strictEqual(12, returnVal?.value);
+});
+
+test('068_SwitchDefaultMiddleNoFallback', (t) => {
+    //default посреди case'ов: если ни один case не сработал, прыгаем на default
+    //и идём вниз с fall-through.
+    const returnVal = executeReturnCode(`
+        x = 99;
+        r = "";
+        switch (x) {
+            case 1: r = r + "1"; break;
+            default: r = r + "D";
+            case 2: r = r + "2"; break;
+        }
+        return r;
+    `);
+    assert.strictEqual('D2', returnVal?.value);
+});
