@@ -68,7 +68,10 @@ export class ParseNode
     private _nType:number = NodeType.ntNotSet
     private _nValue: unknown
     private _nValue2: unknown
-    private _childItems: ParseNode[]|null = null
+    // Обычные узлы держат плоский ParseNode[]. Исключение — `ntBracketSetKey`,
+    // где childItems[0] и childItems[1] — сами массивы ParseNode (путь к ячейке
+    // и выражение присваивания). Эталон PHP, см. ParseNode.php и CodeParser.php.
+    private _childItems: Array<ParseNode|ParseNode[]>|null = null
 
     constructor(cursorPos: TokenCursor, nType?:number, nValue?: unknown) {
 
@@ -157,6 +160,34 @@ export class ParseNode
     isCompareOrAndNode()
     {
         return this.nType === NodeType.ntCompareOr || this.nType === NodeType.ntCompareAnd;
+    }
+
+    /**
+     * Возвращает плоский список потомков как `ParseNode[]`. Все обычные узлы
+     * хранят childItems именно так. Исключение — `ntBracketSetKey`, где
+     * childItems[0] и childItems[1] это уже массивы ParseNode (см. парсер).
+     * Для него такой узкий доступ невозможен — обращайся к индексам напрямую.
+     *
+     * Зеркало `ParseNode::nodeChildren()` из PHP.
+     */
+    nodeChildren(): ParseNode[]
+    {
+        if (this._childItems === null)
+            return [];
+
+        const result: ParseNode[] = [];
+        for (let i = 0; i < this._childItems.length; i++) {
+            const item = this._childItems[i];
+            if (item instanceof ParseNode) {
+                result.push(item);
+            } else {
+                throw new Error(
+                    'childItems[' + i + '] is not a ParseNode; this is the ntBracketSetKey tuple shape — '
+                    + 'access childItems[0]/[1] directly instead of iterating.'
+                );
+            }
+        }
+        return result;
     }
 
 }
@@ -472,10 +503,15 @@ export class CodeParser {
                                 throw new ParserException('SubExpressionNode.childItems === null', this.lexer.tokenCursor);
 
                             // a[1] = 5;
-                            // childItems — путь к ячейке (a, [, 1, ]),
-                            // nValue2 — ParseNode выражения присваивания (= 5).
-                            // PHP эталон зеркалит ту же схему (см. CodeParser.php).
-                            SubNode.nValue2 = SubExpressionNode;
+                            // Эталон PHP (см. CodeParser.php): childItems хранит две группы —
+                            //   [0] — путь к ячейке (a, [, 1, ]),
+                            //   [1] — выражение присваивания (= 5).
+                            // Это единственное место, где childItems держит не плоский
+                            // ParseNode[], а массив массивов.
+                            SubNode.childItems = [
+                                SubNode.nodeChildren(),
+                                SubExpressionNode.nodeChildren(),
+                            ];
 
                             ParentNode.childItems = NodeList; //выражение закончено, выходим из парсинга
                             return;
@@ -798,7 +834,10 @@ export class CodeParser {
         Node.childItems = NodeList;
     }
 
-    parseCode(NodeList: ParseNode[], getFirstToken: boolean, inline: boolean, endLineType: LexerTypeArray)
+    // Тип совпадает с ParseNode.childItems, чтобы по-ссылке передача
+    // `Node.childItems` была корректной. Парсер кладёт сюда только ParseNode;
+    // полиморфизм нужен из-за специальной структуры ntBracketSetKey.
+    parseCode(NodeList: Array<ParseNode|ParseNode[]>, getFirstToken: boolean, inline: boolean, endLineType: LexerTypeArray)
     {
         let getNextToken = false;
 
