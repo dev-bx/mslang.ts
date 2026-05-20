@@ -1,0 +1,2 @@
+e = new Error("oops");
+return e.message + "|" + e.name + "|" + (e instanceof Error);
