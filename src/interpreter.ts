@@ -40,6 +40,7 @@ const InterpreterNodeType = {
     'ntArrayPushKeyValue': 1021,
     'ntArrayPushArrayUnpackFinish': 1022,
     'ntObjSetPropValueFinish': 1023,
+    'ntSwitchEvaluated': 1024,
 }
 
 export class InterpreterNode extends ParseNode {
@@ -267,6 +268,13 @@ export class Interpreter {
 
         this.registerNodeHandler(NodeType.ntBreak, (...args: Parameters<TNodeHandler>) => {
             this.breakHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntSwitch, (...args: Parameters<TNodeHandler>) => {
+            this.switchHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntSwitchEvaluated, (...args: Parameters<TNodeHandler>) => {
+            this.switchEvaluatedHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntArray, (...args: Parameters<TNodeHandler>) => {
@@ -1605,6 +1613,174 @@ export class Interpreter {
             throw new InterpreterException('ArrayPushKeyValue contextVariable not initialized', token.cursorPos);
 
         context._contextVariable.setProperty(arrayKey.value as string, arrayValue);
+    }
+
+    /**
+     * Обработчик `switch (expr) { ... }`.
+     *
+     * Создаёт новую область выполнения с `ctAllowBreak`, ставит на выполнение
+     * switch-выражение, а финал передаёт в {@see switchEvaluatedHandler}.
+     *
+     * Зеркало PHP-эталона `Interpreter::switchHandler`.
+     */
+    switchHandler(context: ContextInterpreter, token: ParseNode) {
+        const children = token.childItems;
+        if (!children || children.length < 1) {
+            throw new InterpreterException('Switch: missing expression', token.cursorPos);
+        }
+
+        const exprNode = children[0];
+        if (!(exprNode instanceof ParseNode)) {
+            throw new InterpreterException('Switch: invalid expression node', token.cursorPos);
+        }
+
+        context.pushExecutionStack();
+        context._type = ContextType.ctAllowBreak;
+        context._codeItems = [];
+
+        context._codeItems.push(exprNode);
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntSwitchEvaluated;
+        const finishChildren: ParseNode[] = [];
+        for (let i = 1; i < children.length; i++) {
+            const item = children[i];
+            if (item instanceof ParseNode) {
+                finishChildren.push(item);
+            }
+        }
+        finish.childItems = finishChildren;
+        context._codeItems.push(finish);
+    }
+
+    /**
+     * Доработка `switch` после того, как выражение вычислено:
+     * сравнивает значение со списком `case`, поддерживает fall-through и `default`.
+     *
+     * Значение `case` обязано быть литералом (`ntNumeric`/`ntFloat`/`ntString`)
+     * или контекстной переменной — динамические выражения не поддерживаются.
+     *
+     * Важно: после переназначения `_codeItems` сбрасываем `_pos = 0`, иначе
+     * интерпретатор продолжит с позиции, где был, и пропустит начало body.
+     *
+     * Зеркало PHP-эталона `Interpreter::switchEvaluatedHandler`.
+     */
+    switchEvaluatedHandler(context: ContextInterpreter, token: ParseNode) {
+        let switchValue = context.popStackVar();
+        if (switchValue instanceof StackVariableRef) {
+            //На стеке лежит getProxy()-обёртка StackVariableRef, через Proxy метод
+            //getRefValue() не доступен напрямую (см. stackvariableref.ts get-trap).
+            //Геттер refValue — особый случай, его Proxy пробрасывает.
+            switchValue = (switchValue as StackVariableRef).refValue as StackVariable;
+        }
+
+        const caseNodes = token.childItems ?? [];
+        let matchIndex = -1;
+        let defaultIndex = -1;
+
+        for (let i = 0; i < caseNodes.length; i++) {
+            const caseNode = caseNodes[i];
+            if (!(caseNode instanceof ParseNode)) continue;
+
+            if (caseNode.nType === NodeType.ntCase) {
+                const caseLiteral = this.evalCaseLiteral(context, caseNode, token);
+
+                if (switchValue.compare(caseLiteral, CompareType.ctEqual)) {
+                    matchIndex = i;
+                    break;
+                }
+            } else if (caseNode.nType === NodeType.ntDefault) {
+                if (defaultIndex < 0) {
+                    defaultIndex = i;
+                }
+            }
+        }
+
+        if (matchIndex < 0) {
+            matchIndex = defaultIndex;
+        }
+
+        if (matchIndex < 0) {
+            //ни case не совпал, и default не задан — просто выходим.
+            context.popExecutionStack();
+            return;
+        }
+
+        //fall-through: ставим на выполнение тело найденного case'а и всех следующих,
+        //пока не встретим break (он сам отмотает наш execution-stack).
+        context._codeItems = [];
+        context._pos = 0;
+        for (let j = matchIndex; j < caseNodes.length; j++) {
+            const caseNode = caseNodes[j];
+            if (!(caseNode instanceof ParseNode)) continue;
+
+            const bodyStart = (caseNode.nType === NodeType.ntCase) ? 1 : 0;
+            const caseChildren = caseNode.childItems ?? [];
+            for (let k = bodyStart; k < caseChildren.length; k++) {
+                const bodyItem = caseChildren[k];
+                if (bodyItem instanceof ParseNode) {
+                    context._codeItems.push(bodyItem);
+                }
+            }
+        }
+
+        //Естественное завершение switch без break: снимаем execution-stack.
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntSubCodeFinish;
+        context._codeItems.push(finish);
+    }
+
+    /**
+     * Распознаёт литеральное значение `case` — для первой реализации мы
+     * сознательно ограничиваемся литералами и контекстными переменными.
+     *
+     * Зеркало PHP-эталона `Interpreter::evalCaseLiteral`.
+     */
+    protected evalCaseLiteral(context: ContextInterpreter, caseNode: ParseNode, errToken: ParseNode): StackVariable {
+        const caseChildren = caseNode.childItems ?? [];
+        if (caseChildren.length < 1) {
+            throw new InterpreterException('Switch: case is missing value', errToken.cursorPos);
+        }
+
+        const valueWrap = caseChildren[0];
+        if (!(valueWrap instanceof ParseNode) || valueWrap.nType !== NodeType.ntSubExpression) {
+            throw new InterpreterException('Switch: invalid case value structure', errToken.cursorPos);
+        }
+
+        const inner = valueWrap.childItems ?? [];
+        if (inner.length !== 1) {
+            throw new InterpreterException(
+                'Switch: case value must be a single literal (number, string or const variable)',
+                errToken.cursorPos
+            );
+        }
+
+        const literal = inner[0];
+        if (!(literal instanceof ParseNode)) {
+            throw new InterpreterException('Switch: invalid case literal', errToken.cursorPos);
+        }
+
+        switch (literal.nType) {
+            case NodeType.ntNumeric:
+                return context.createVariable(VariableType.vtNumber, +(literal.nValue as number));
+            case NodeType.ntFloat:
+                return context.createVariable(VariableType.vtFloat, +(literal.nValue as number));
+            case NodeType.ntString:
+                return context.createVariable(VariableType.vtString, String(literal.nValue));
+            case NodeType.ntContextVariable: {
+                const varName = String(literal.nValue);
+                const variable = context.getVariable(varName);
+                if (!variable) {
+                    throw new InterpreterException('Switch: unknown case variable "' + varName + '"', errToken.cursorPos);
+                }
+                return variable;
+            }
+        }
+
+        throw new InterpreterException(
+            'Switch: case value must be literal (number, float, string) or const variable',
+            errToken.cursorPos
+        );
     }
 }
 
