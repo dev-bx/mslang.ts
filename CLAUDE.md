@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## ⚠️ Правило №0: PHP — эталон проекта
 
-**Единственный эталон MSLang — PHP-реализация в `devbx.core` (`/work_space/Bitrix.DevBx/devbx.core/local/modules/devbx.core/lib/MSLang/`).** TypeScript в `devbx.mslang` — это **зеркало**, и больше ничего.
+**Единственный эталон MSLang — PHP-реализация в соседнем репозитории `mslang.php` (`/work_space/Bitrix.DevBx/devbx.mslang/php/src/`).** TypeScript в этом репозитории (`mslang.ts`) — это **зеркало**, и больше ничего.
 
 Это правило не обсуждается и не подменяется в рамках задачи. Оно действует ВСЕГДА.
 
@@ -54,10 +54,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 У MSLang есть **зеркальная PHP-реализация** в соседнем репозитории, такая же по структуре:
 
-- TypeScript: `/work_space/Bitrix.DevBx/devbx.mslang/src/`
-- PHP: `/work_space/Bitrix.DevBx/devbx.core/local/modules/devbx.core/lib/MSLang/`
+- TypeScript: `/work_space/Bitrix.DevBx/devbx.mslang/ts/src/`
+- PHP: `/work_space/Bitrix.DevBx/devbx.mslang/php/src/`
 
-**Оба репозитория приватные** (`dev-bx/devbx.core`, `dev-bx/mslang.ts`). Поэтому:
+**Оба репозитория приватные** (`dev-bx/mslang.php`, `dev-bx/mslang.ts`). Поэтому:
 - не предлагать публичные ссылки «зайди и посмотри» — это 404 для всех вне команды;
 - не закладывать в публичный GitHub Actions клонирование соседнего репо — токен по умолчанию не имеет доступа;
 - mirror-test (`npm run test:mirror`) на CI скипается без `MSLANG_PHP_ROOT`, и это нормальное поведение, локально он запускается;
@@ -95,7 +95,7 @@ npm run dev          # dev-сервер vite
 PHP-сторона запускается одной командой (нужны `composer install` и расширение `php8.5-xml`):
 
 ```bash
-cd /work_space/Bitrix.DevBx/devbx.core/tests && ../vendor/bin/phpunit
+cd /work_space/Bitrix.DevBx/devbx.mslang/php && composer test
 ```
 
 Тесты используют встроенный `node:test`. Запустить один тест можно по его имени (имена — это строки вроде `'011'`, см. вызовы `test(...)` в `tests/tests.ts`):

@@ -6,12 +6,12 @@
 
 | Часть              | TypeScript                            | PHP                                                                       |
 |--------------------|---------------------------------------|---------------------------------------------------------------------------|
-| Исходники          | `src/`                                | `../devbx.core/local/modules/devbx.core/lib/MSLang/`                      |
-| Тесты              | `tests/tests.ts`                      | `../devbx.core/tests/Test.php`                                            |
-| Тесты-ловушки      | `tests/bugs.ts`                       | `../devbx.core/tests/TestBugs.php`                                        |
-| Cross-runtime      | `tests/cross.ts` + `tests/scripts/`   | `../devbx.core/tests/CrossRuntimeTest.php` (использует те же `scripts/`)  |
+| Исходники          | `src/`                                | `../php/src/`                                                              |
+| Тесты              | `tests/tests.ts`                      | `../php/tests/Test.php`                                                    |
+| Тесты-ловушки      | `tests/bugs.ts`                       | `../php/tests/TestBugs.php`                                                |
+| Cross-runtime      | `tests/cross.ts` + `tests/scripts/`   | `../php/tests/CrossRuntimeTest.php` (использует те же `scripts/`)          |
 | Сторож констант    | `tests/mirror.ts`                     | —                                                                          |
-| Lint               | `eslint.config.mjs` → `npm run lint`  | `phpstan.neon` → `composer run lint`                                       |
+| Lint               | `eslint.config.mjs` → `npm run lint`  | `phpstan.neon` → `composer lint`                                           |
 
 ## Главное правило: PHP — эталон
 
@@ -44,11 +44,11 @@ npm run test:mirror
 npm run test:cross
 ```
 
-PHP:
+PHP (в соседнем репозитории [mslang.php](https://github.com/dev-bx/mslang.php)):
 ```bash
 composer install
-composer run lint   # phpstan
-cd tests && ../vendor/bin/phpunit
+composer lint   # phpstan
+composer test   # phpunit
 ```
 
 Всё это запускается автоматически в CI на каждом push/PR — см. `.github/workflows/ci.yml`.

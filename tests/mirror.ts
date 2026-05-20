@@ -14,7 +14,7 @@ import {fileURLToPath} from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TS_ROOT = path.resolve(__dirname, '../src');
 const PHP_ROOT = process.env.MSLANG_PHP_ROOT
-    ?? path.resolve(__dirname, '../../devbx.core/local/modules/devbx.core/lib/MSLang');
+    ?? path.resolve(__dirname, '../../php/src');
 
 // Если PHP-зеркала рядом нет (например, в CI без чекаута соседнего репо),
 // зеркальные тесты пропускаем — иначе они падают на ENOENT и красят всю
@@ -22,7 +22,7 @@ const PHP_ROOT = process.env.MSLANG_PHP_ROOT
 const PHP_AVAILABLE = fs.existsSync(PHP_ROOT);
 if (!PHP_AVAILABLE) {
     console.warn(`[mirror] PHP-зеркало не найдено в ${PHP_ROOT}, тесты пропущены.`);
-    console.warn('[mirror] Чтобы прогнать, склонируй devbx.core рядом или задай MSLANG_PHP_ROOT.');
+    console.warn('[mirror] Чтобы прогнать, склонируй mslang.php рядом или задай MSLANG_PHP_ROOT.');
 }
 
 // PHP: вытаскиваем константы вида `const Имя = число;`

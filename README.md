@@ -2,7 +2,7 @@
 
 Маленький встраиваемый язык скриптов на TypeScript, без внешних зависимостей. Собирается в одиночный UMD-файл (`dist/mslang.umd.js`, глобальное имя `DevBX.MSLang`) и в ESM (`dist/mslang.es.js`). Предназначен для запуска скриптов в браузере в рамках Bitrix DevBx, но работает и в Node.
 
-У MSLang есть **зеркальная PHP-реализация** в `devbx.core` (см. ниже). Один и тот же исходник выполняется в обоих интерпретаторах с одинаковым результатом — это часть контракта проекта и проверяется в CI.
+У MSLang есть **зеркальная PHP-реализация** в [mslang.php](https://github.com/dev-bx/mslang.php) (см. ниже). Один и тот же исходник выполняется в обоих интерпретаторах с одинаковым результатом — это часть контракта проекта и проверяется в CI.
 
 ## Установка
 
@@ -60,7 +60,7 @@ console.log(result?.value); // 3
 
 ## Зеркало с PHP
 
-PHP-реализация MSLang в `devbx.core` (`local/modules/devbx.core/lib/MSLang/`) — **эталон** проекта. TypeScript-проект зеркалит PHP бит-в-бит:
+PHP-реализация MSLang в [mslang.php](https://github.com/dev-bx/mslang.php) (`src/`) — **эталон** проекта. TypeScript-проект зеркалит PHP бит-в-бит:
 
 - Имена классов: `CodeLexer`, `CodeParser`, `Interpreter`, `ContextInterpreter`, все `StackVariable*`, `MathFunctions`, `FunctionEntry`, `FunctionParameter`.
 - Числовые значения констант (`VariableType`, `LexerType`, `NodeType`, `CompareType`, `InterpreterNodeType`, `ContextType`) — совпадают.
@@ -82,10 +82,10 @@ npm run test:fuzz      # фаззер
 npm run bench          # бенчмарки
 ```
 
-PHP-сторона:
+PHP-сторона (в соседнем репозитории [mslang.php](https://github.com/dev-bx/mslang.php)):
 
 ```bash
-cd /path/to/devbx.core/tests && ../vendor/bin/phpunit
+cd /path/to/mslang.php && composer test
 ```
 
 ## Сборка
