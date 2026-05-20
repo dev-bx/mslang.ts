@@ -57,6 +57,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - TypeScript: `/work_space/Bitrix.DevBx/devbx.mslang/src/`
 - PHP: `/work_space/Bitrix.DevBx/devbx.core/local/modules/devbx.core/lib/MSLang/`
 
+**Оба репозитория приватные** (`dev-bx/devbx.core`, `dev-bx/mslang.ts`). Поэтому:
+- не предлагать публичные ссылки «зайди и посмотри» — это 404 для всех вне команды;
+- не закладывать в публичный GitHub Actions клонирование соседнего репо — токен по умолчанию не имеет доступа;
+- mirror-test (`npm run test:mirror`) на CI скипается без `MSLANG_PHP_ROOT`, и это нормальное поведение, локально он запускается;
+- любые предложения про cross-repo CI/публичный NPM сначала обсуждать с пользователем — настройка приватных доступов это отдельный разговор.
+
 Имена классов (`CodeLexer`, `CodeParser`, `Interpreter`, `ContextInterpreter`, все `StackVariable*`, `MathFunctions`, `FunctionEntry`, `FunctionParameter`, типы `VariableType` / `NodeType` / `LexerType` / `CompareType` / `InterpreterNodeType` / `ContextType`) совпадают один-в-один.
 
 **Правила, обязательные для любых правок:**
