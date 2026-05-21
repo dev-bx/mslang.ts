@@ -646,3 +646,30 @@ test('Feat31_RestParameters', () => {
     assert.strictEqual('test:3', executeReturnCode('function info(name, ...rest) { return name + ":" + rest.length; } return info("test", 1, 2, 3);')?.value);
     assert.strictEqual(0, executeReturnCode('function f(...a) { return a.length; } return f();')?.value);
 });
+
+// Bug: funcEntryCache захватывал в closure Proxy (StackVariableRef.getProxy()),
+// созданный для первого вызывающего. Если этим вызывающим была short-lived
+// let-переменная внутри constructor класса, после выхода из constructor scope
+// её refValue становился undefined, и следующий любой вызов того же метода —
+// даже на совершенно другом объекте — крашился с
+// "Reflect.get called on non-object". Фикс: в _getFunctionEntry разворачиваем
+// Proxy через `this.refValue` и захватываем в closure живой объект.
+test('Bug_FuncEntryCache_ProxyOnDeadScope', () => {
+    // Минимальный repro: первый push в ctor через local let-array, потом push
+    // на внешнем массиве. Раньше падало на втором push.
+    const r = executeReturnCode(`
+        class A {
+            constructor() {
+                let p = [];
+                for (let i = 0; i < 5; i++) { p.push(0); }
+                this.p = p;
+            }
+        }
+        let a = new A();
+        let outer = [];
+        outer.push(1);
+        outer.push(2);
+        return outer.length + a.p.length;
+    `);
+    assert.strictEqual(7, r?.value);
+});
