@@ -406,3 +406,54 @@ test('Bug18c_AssignFromBlockLocalLet', () => {
     `);
     assert.strictEqual(19, r?.value);
 });
+
+// Лексер: полный JS-набор числовых литералов (Bug19).
+//
+// До правки лексер падал на hex (0xFF), binary (0b1010), octal (0o755),
+// научной нотации (1e3, 1.5e-3) и numeric separators (1_000_000).
+
+test('Bug19_HexLiteral', () => {
+    assert.strictEqual(255, executeReturnCode('return 0xFF;')?.value);
+    assert.strictEqual(66,  executeReturnCode('return 0x42;')?.value);
+    assert.strictEqual(3735928559, executeReturnCode('return 0XdeadBEEF;')?.value);
+});
+
+test('Bug19_BinaryLiteral', () => {
+    assert.strictEqual(10,  executeReturnCode('return 0b1010;')?.value);
+    assert.strictEqual(255, executeReturnCode('return 0B11111111;')?.value);
+});
+
+test('Bug19_OctalLiteral', () => {
+    assert.strictEqual(493, executeReturnCode('return 0o755;')?.value);
+    assert.strictEqual(511, executeReturnCode('return 0O777;')?.value);
+});
+
+test('Bug19_ScientificLiteral', () => {
+    assert.strictEqual(1000,         executeReturnCode('return 1e3;')?.value);
+    assert.strictEqual(0.0015,       executeReturnCode('return 1.5e-3;')?.value);
+    assert.strictEqual(25000000000,  executeReturnCode('return 2.5E+10;')?.value);
+});
+
+test('Bug19_NumericSeparators', () => {
+    assert.strictEqual(1000000,      executeReturnCode('return 1_000_000;')?.value);
+    assert.strictEqual(65451,        executeReturnCode('return 0xFF_AB;')?.value);
+    assert.strictEqual(165,          executeReturnCode('return 0b1010_0101;')?.value);
+    assert.strictEqual(125500000000, executeReturnCode('return 1_2.5_5e+1_0;')?.value);
+});
+
+test('Bug19_RejectsEmptyExponent', () => {
+    assert.throws(() => executeReturnCode('return 1e;'));
+});
+
+test('Bug19_RejectsEmptyHex', () => {
+    assert.throws(() => executeReturnCode('return 0x;'));
+});
+
+test('Bug19_RejectsTrailingSeparator', () => {
+    // '1_' — не разделитель: '_' допустим только МЕЖДУ цифрами.
+    assert.throws(() => executeReturnCode('return 1_;'));
+});
+
+test('Bug19_RejectsDoubleSeparator', () => {
+    assert.throws(() => executeReturnCode('return 1__2;'));
+});
