@@ -1,0 +1,1074 @@
+// =============================================================================
+// SaaS billing engine — серьёзный cross-runtime сценарий
+//
+// Покрывает почти все возможности языка: классы, extends, super(...),
+// super.method(), instanceof, try/catch + throw + new Error, let/const,
+// function-выражения, ассоциативные и обычные массивы, циклы.
+//
+// Доменные блоки:
+//   1. Money / Currency / FxRates  — мультивалюта
+//   2. Day                          — упрощённый календарь (счётчик дней)
+//   3. AuditLog                     — журнал событий
+//   4. Resource / Limit / UsageRecord / UsageLedger — учёт потребления
+//   5. Plan / AddOn / FeatureSet    — продуктовая модель
+//   6. Discount (Percent/Fixed/Tier) + Coupon
+//   7. TaxRule + TaxEngine          — много юрисдикций
+//   8. Subscription + статусная машина (trial/active/past_due/cancelled)
+//   9. InvoiceLine + Invoice + state machine (draft→issued→paid→overdue)
+//  10. Payment + Refund + PaymentGateway
+//  11. BillingEngine                — сводит всё вместе (prorate, renew, dunning)
+//  12. Симуляция-сценарий — три аккаунта, разные планы, разные события
+//
+// Возвращает строку-отчёт с заранее известными агрегатами (для cross-runtime).
+//
+// Все переменные циклов и локальные в методах названы уникально, чтобы
+// обойти legacy closure-walk (для несовпадающих имён let работает изолированно).
+// =============================================================================
+
+
+// ───────────────────────────── 1. Money / FX ─────────────────────────────────
+
+class Money {
+    constructor(amount, code) {
+        this.amount = amount;
+        this.code = code;
+    }
+    add(other) {
+        if (this.code != other.code) {
+            throw new Error("Money.add: currency mismatch " + this.code + " vs " + other.code);
+        }
+        return new Money(this.amount + other.amount, this.code);
+    }
+    sub(other) {
+        if (this.code != other.code) {
+            throw new Error("Money.sub: currency mismatch " + this.code + " vs " + other.code);
+        }
+        return new Money(this.amount - other.amount, this.code);
+    }
+    mul(k) {
+        return new Money(this.amount * k, this.code);
+    }
+    pct(p) {
+        return new Money(this.amount * p / 100, this.code);
+    }
+    isZero() {
+        return this.amount == 0;
+    }
+    isPositive() {
+        return this.amount > 0;
+    }
+    toString() {
+        return this.code + " " + this.amount;
+    }
+}
+
+class FxRates {
+    // rate = 1 USD равен rate <code>. Т.е. USD→EUR при rate=0.9 — 1 USD = 0.9 EUR.
+    constructor() {
+        this.rates = ["USD" => 1];
+    }
+    add(code, rateToUsd) {
+        this.rates[code] = rateToUsd;
+    }
+    rateOf(code) {
+        let r = this.rates[code];
+        if (r == undefined || r == null) {
+            throw new Error("FxRates.rateOf: unknown currency " + code);
+        }
+        return r;
+    }
+    convert(money, targetCode) {
+        if (money.code == targetCode) {
+            return new Money(money.amount, targetCode);
+        }
+        let srcRate = this.rateOf(money.code);     // money.code → USD
+        let dstRate = this.rateOf(targetCode);     // USD → targetCode
+        // money.amount * (USD / money.code) * (targetCode / USD)
+        let asUsd = money.amount / srcRate;
+        return new Money(asUsd * dstRate, targetCode);
+    }
+}
+
+
+// ───────────────────────────── 2. Day ────────────────────────────────────────
+
+class Day {
+    // Простейшее представление: count = сериализованный «номер дня от эпохи».
+    // 2026-01-01 — это count = 0 (для скрипта это удобно, JS-Date нам не нужен).
+    constructor(count) {
+        this.count = count;
+    }
+    addDays(n) {
+        return new Day(this.count + n);
+    }
+    daysUntil(other) {
+        return other.count - this.count;
+    }
+    isBefore(other) {
+        return this.count < other.count;
+    }
+    isAfter(other) {
+        return this.count > other.count;
+    }
+    equals(other) {
+        return this.count == other.count;
+    }
+    toString() {
+        return "Day#" + this.count;
+    }
+}
+
+function makeDay(count) {
+    return new Day(count);
+}
+
+
+// ───────────────────────────── 3. Audit log ──────────────────────────────────
+
+class AuditEntry {
+    constructor(day, actor, action, target, details) {
+        this.day = day;
+        this.actor = actor;
+        this.action = action;
+        this.target = target;
+        this.details = details;
+    }
+}
+
+class AuditLog {
+    constructor() {
+        this.entries = [];
+    }
+    add(entry) {
+        this.entries.push(entry);
+    }
+    count() {
+        return this.entries.length;
+    }
+    countByAction(action) {
+        let total = 0;
+        let alI = 0;
+        while (alI < this.entries.length) {
+            if (this.entries[alI].action == action) {
+                total = total + 1;
+            }
+            alI = alI + 1;
+        }
+        return total;
+    }
+}
+
+
+// ───────────────────────────── 4. Resource / Limit / Usage ───────────────────
+
+class Resource {
+    constructor(code, name, unit) {
+        this.code = code;
+        this.name = name;
+        this.unit = unit;
+    }
+}
+
+class Limit {
+    constructor(resourceCode, soft, hard) {
+        this.resourceCode = resourceCode;
+        this.soft = soft;     // мягкий — выдаём warning
+        this.hard = hard;     // жёсткий — отклоняем потребление
+    }
+}
+
+class LimitViolation {
+    constructor(resourceCode, kind, usage, threshold) {
+        this.resourceCode = resourceCode;
+        this.kind = kind;       // "soft" | "hard"
+        this.usage = usage;
+        this.threshold = threshold;
+    }
+}
+
+class UsageRecord {
+    constructor(accountId, resourceCode, qty, day) {
+        this.accountId = accountId;
+        this.resourceCode = resourceCode;
+        this.qty = qty;
+        this.day = day;
+    }
+}
+
+class UsageLedger {
+    constructor() {
+        this.records = [];
+    }
+    add(rec) {
+        this.records.push(rec);
+    }
+    sumFor(accountId, resourceCode, fromDay, toDay) {
+        let total = 0;
+        let ulI = 0;
+        while (ulI < this.records.length) {
+            let r = this.records[ulI];
+            if (r.accountId == accountId && r.resourceCode == resourceCode) {
+                let inFrom = (fromDay == null) || !r.day.isBefore(fromDay);
+                let inTo   = (toDay   == null) || !r.day.isAfter(toDay);
+                if (inFrom && inTo) {
+                    total = total + r.qty;
+                }
+            }
+            ulI = ulI + 1;
+        }
+        return total;
+    }
+    // Проверяет потребление аккаунта по лимитам плана за период;
+    // возвращает список нарушений (массив LimitViolation).
+    check(accountId, plan, fromDay, toDay) {
+        let result = [];
+        let limI = 0;
+        while (limI < plan.limits.length) {
+            let lim = plan.limits[limI];
+            let used = this.sumFor(accountId, lim.resourceCode, fromDay, toDay);
+            if (used > lim.hard) {
+                result.push(new LimitViolation(lim.resourceCode, "hard", used, lim.hard));
+            } else {
+                if (used > lim.soft) {
+                    result.push(new LimitViolation(lim.resourceCode, "soft", used, lim.soft));
+                }
+            }
+            limI = limI + 1;
+        }
+        return result;
+    }
+}
+
+
+// ───────────────────────────── 5. Plan / AddOn / Features ────────────────────
+
+class FeatureSet {
+    constructor() {
+        this.features = [];
+    }
+    add(name) {
+        this.features.push(name);
+    }
+    has(name) {
+        let fsI = 0;
+        while (fsI < this.features.length) {
+            if (this.features[fsI] == name) {
+                return true;
+            }
+            fsI = fsI + 1;
+        }
+        return false;
+    }
+}
+
+class Plan {
+    constructor(code, name, price, cycle) {
+        this.code = code;
+        this.name = name;
+        this.price = price;     // Money
+        this.cycle = cycle;     // "monthly" | "annual"
+        this.limits = [];
+        this.features = new FeatureSet();
+    }
+    addLimit(limit) {
+        this.limits.push(limit);
+    }
+    addFeature(name) {
+        this.features.add(name);
+    }
+    cycleDays() {
+        if (this.cycle == "annual") {
+            return 365;
+        }
+        return 30;
+    }
+}
+
+class AddOn {
+    constructor(code, name, price) {
+        this.code = code;
+        this.name = name;
+        this.price = price;     // Money за период подписки
+    }
+}
+
+
+// ───────────────────────────── 6. Discount + Coupon ──────────────────────────
+
+class Discount {
+    constructor(name) {
+        this.name = name;
+    }
+    apply(amount) {
+        return new Money(0, amount.code);
+    }
+}
+
+class PercentDiscount extends Discount {
+    constructor(name, percent) {
+        super(name);
+        this.percent = percent;
+    }
+    apply(amount) {
+        return amount.pct(this.percent);
+    }
+}
+
+class FixedDiscount extends Discount {
+    constructor(name, money) {
+        super(name);
+        this.money = money;
+    }
+    apply(amount) {
+        if (amount.code != this.money.code) {
+            throw new Error("FixedDiscount: currency mismatch");
+        }
+        let pdAmt = this.money.amount;
+        if (pdAmt > amount.amount) {
+            pdAmt = amount.amount;
+        }
+        return new Money(pdAmt, amount.code);
+    }
+}
+
+class TierDiscount extends Discount {
+    // Скидка по уровню клиента: silver=3, gold=7, vip=12.
+    constructor() {
+        super("Loyalty tier");
+    }
+    rateFor(tier) {
+        let r = 0;
+        if (tier == "silver") {
+            r = 3;
+        }
+        if (tier == "gold") {
+            r = 7;
+        }
+        if (tier == "vip") {
+            r = 12;
+        }
+        return r;
+    }
+    applyForTier(amount, tier) {
+        let r = this.rateFor(tier);
+        return amount.pct(r);
+    }
+}
+
+class Coupon {
+    constructor(code, discount, expiresOn, maxRedemptions) {
+        this.code = code;
+        this.discount = discount;     // Discount instance
+        this.expiresOn = expiresOn;   // Day | null
+        this.maxRedemptions = maxRedemptions;
+        this.redeemed = 0;
+    }
+    canRedeem(today) {
+        if (this.redeemed >= this.maxRedemptions) {
+            return false;
+        }
+        if (this.expiresOn != null && today.isAfter(this.expiresOn)) {
+            return false;
+        }
+        return true;
+    }
+    redeem(today) {
+        if (!this.canRedeem(today)) {
+            throw new Error("Coupon " + this.code + " is no longer valid");
+        }
+        this.redeemed = this.redeemed + 1;
+    }
+}
+
+
+// ───────────────────────────── 7. Tax ────────────────────────────────────────
+
+class TaxRule {
+    constructor(country, rate, exemptedCategories) {
+        this.country = country;
+        this.rate = rate;
+        this.exempted = exemptedCategories;   // массив строк
+    }
+    isExempt(category) {
+        let trI = 0;
+        while (trI < this.exempted.length) {
+            if (this.exempted[trI] == category) {
+                return true;
+            }
+            trI = trI + 1;
+        }
+        return false;
+    }
+    apply(amount, category) {
+        if (this.isExempt(category)) {
+            return new Money(0, amount.code);
+        }
+        return amount.pct(this.rate);
+    }
+}
+
+class TaxEngine {
+    constructor() {
+        this.rules = [];
+    }
+    add(rule) {
+        this.rules.push(rule);
+    }
+    ruleFor(country) {
+        let teI = 0;
+        while (teI < this.rules.length) {
+            if (this.rules[teI].country == country) {
+                return this.rules[teI];
+            }
+            teI = teI + 1;
+        }
+        return null;
+    }
+    // Возвращает суммарный налог по строкам счёта в его валюте.
+    computeFor(country, lines) {
+        let rule = this.ruleFor(country);
+        if (rule == null) {
+            // Нет правила — без налога.
+            return null;
+        }
+        let totalTax = null;
+        let teJ = 0;
+        while (teJ < lines.length) {
+            let line = lines[teJ];
+            if (line.taxable) {
+                let part = rule.apply(line.amount, line.category);
+                if (totalTax == null) {
+                    totalTax = part;
+                } else {
+                    totalTax = totalTax.add(part);
+                }
+            }
+            teJ = teJ + 1;
+        }
+        if (totalTax == null) {
+            return new Money(0, lines[0].amount.code);
+        }
+        return totalTax;
+    }
+}
+
+
+// ───────────────────────────── 8. Subscription ───────────────────────────────
+
+class SubscriptionAddOn {
+    constructor(addon, qty) {
+        this.addon = addon;
+        this.qty = qty;
+    }
+}
+
+class Subscription {
+    constructor(id, accountId, plan, startDay) {
+        this.id = id;
+        this.accountId = accountId;
+        this.plan = plan;
+        this.startDay = startDay;
+        this.cycleEnd = startDay.addDays(plan.cycleDays());
+        this.status = "active";   // active | trial | past_due | cancelled
+        this.addons = [];
+        this.coupon = null;       // Coupon | null
+        this.history = [];        // массив записей-апгрейдов
+    }
+    addAddon(addon, qty) {
+        this.addons.push(new SubscriptionAddOn(addon, qty));
+    }
+    applyCoupon(coupon, today) {
+        coupon.redeem(today);
+        this.coupon = coupon;
+    }
+    upgrade(newPlan, today) {
+        // prorate: возврат «неиспользованной» части за текущий цикл и
+        // начисление пропорционально за новый план.
+        let daysRemaining = today.daysUntil(this.cycleEnd);
+        let cycleLength = this.plan.cycleDays();
+        let oldRefund = this.plan.price.mul(daysRemaining / cycleLength);
+        let newCharge = newPlan.price.mul(daysRemaining / cycleLength);
+
+        let prorate = newCharge.sub(oldRefund);
+        this.history.push(["upgrade", today, this.plan.code, newPlan.code, prorate]);
+
+        this.plan = newPlan;
+        return prorate;
+    }
+    cancel(today) {
+        this.status = "cancelled";
+        this.cycleEnd = today;
+    }
+    markPastDue() {
+        this.status = "past_due";
+    }
+    markActive() {
+        this.status = "active";
+    }
+    isActiveOn(day) {
+        if (this.status == "cancelled") {
+            return !day.isAfter(this.cycleEnd);
+        }
+        return !day.isAfter(this.cycleEnd);
+    }
+    // Сумма за период до купона: план + аддоны.
+    grossAmount() {
+        let total = new Money(this.plan.price.amount, this.plan.price.code);
+        let sI = 0;
+        while (sI < this.addons.length) {
+            let sa = this.addons[sI];
+            total = total.add(sa.addon.price.mul(sa.qty));
+        }
+        return total;
+    }
+    // Применяет купон и tier-скидку: возвращает Money после скидки.
+    netAmount(tier) {
+        let gross = this.grossAmount();
+        let net = gross;
+        if (this.coupon != null) {
+            let cd = this.coupon.discount;
+            // cd — Discount instance: PercentDiscount/FixedDiscount/TierDiscount.
+            if (cd instanceof TierDiscount) {
+                net = net.sub(cd.applyForTier(net, tier));
+            } else {
+                net = net.sub(cd.apply(net));
+            }
+        }
+        return net;
+    }
+}
+
+
+// ───────────────────────────── 9. Invoice ────────────────────────────────────
+
+class InvoiceLine {
+    constructor(description, amount, category, taxable) {
+        this.description = description;
+        this.amount = amount;     // Money
+        this.category = category;
+        this.taxable = taxable;
+    }
+}
+
+class Invoice {
+    constructor(id, accountId, currency, issueDay, dueDay) {
+        this.id = id;
+        this.accountId = accountId;
+        this.currency = currency;
+        this.issueDay = issueDay;
+        this.dueDay = dueDay;
+        this.lines = [];
+        this.tax = new Money(0, currency);
+        this.state = "draft";
+        this.payments = [];     // массив Payment
+        this.refunds = [];
+    }
+    addLine(line) {
+        if (this.state != "draft") {
+            throw new Error("Invoice " + this.id + " is not draft, cannot add line");
+        }
+        if (line.amount.code != this.currency) {
+            throw new Error("Invoice line currency mismatch");
+        }
+        this.lines.push(line);
+    }
+    setTax(tax) {
+        this.tax = tax;
+    }
+    subtotal() {
+        let sub = new Money(0, this.currency);
+        let invI = 0;
+        while (invI < this.lines.length) {
+            sub = sub.add(this.lines[invI].amount);
+            invI = invI + 1;
+        }
+        return sub;
+    }
+    total() {
+        return this.subtotal().add(this.tax);
+    }
+    paid() {
+        let p = new Money(0, this.currency);
+        let pI = 0;
+        while (pI < this.payments.length) {
+            p = p.add(this.payments[pI].amount);
+            pI = pI + 1;
+        }
+        // Refund уменьшает оплаченное.
+        let rI = 0;
+        while (rI < this.refunds.length) {
+            p = p.sub(this.refunds[rI].amount);
+            rI = rI + 1;
+        }
+        return p;
+    }
+    balance() {
+        return this.total().sub(this.paid());
+    }
+    issue(today) {
+        if (this.state != "draft") {
+            throw new Error("Invoice " + this.id + " cannot be issued from state " + this.state);
+        }
+        this.state = "issued";
+    }
+    applyPayment(payment) {
+        if (this.state != "issued" && this.state != "overdue") {
+            throw new Error("Invoice " + this.id + " cannot accept payment in state " + this.state);
+        }
+        if (payment.amount.code != this.currency) {
+            throw new Error("Payment currency mismatch");
+        }
+        this.payments.push(payment);
+        if (!this.balance().isPositive()) {
+            this.state = "paid";
+        }
+    }
+    applyRefund(refund) {
+        if (this.state != "paid" && this.state != "issued" && this.state != "overdue") {
+            throw new Error("Invoice " + this.id + " cannot refund in state " + this.state);
+        }
+        this.refunds.push(refund);
+        if (this.balance().isPositive()) {
+            // После возврата баланс положительный → счёт снова к оплате.
+            this.state = "issued";
+        }
+    }
+    checkOverdue(today) {
+        if (this.state == "issued" && today.isAfter(this.dueDay)) {
+            this.state = "overdue";
+            return true;
+        }
+        return false;
+    }
+    cancel() {
+        if (this.state != "draft" && this.state != "issued") {
+            throw new Error("Invoice " + this.id + " cannot be cancelled in state " + this.state);
+        }
+        this.state = "cancelled";
+    }
+}
+
+
+// ───────────────────────────── 10. Payment ───────────────────────────────────
+
+class PaymentMethod {
+    constructor(kind, label) {
+        this.kind = kind;     // "card" | "bank" | "wire"
+        this.label = label;
+    }
+}
+
+class Payment {
+    constructor(id, invoiceId, amount, method, day) {
+        this.id = id;
+        this.invoiceId = invoiceId;
+        this.amount = amount;
+        this.method = method;
+        this.day = day;
+    }
+}
+
+class Refund {
+    constructor(id, invoiceId, amount, reason, day) {
+        this.id = id;
+        this.invoiceId = invoiceId;
+        this.amount = amount;
+        this.reason = reason;
+        this.day = day;
+    }
+}
+
+class PaymentGateway {
+    constructor(name, audit) {
+        this.name = name;
+        this.audit = audit;
+        this.sequence = 0;
+    }
+    nextId() {
+        this.sequence = this.sequence + 1;
+        return "PMT-" + this.sequence;
+    }
+    // method.kind "wire" — медленный, имитируем что не проходит сразу.
+    // amount.amount < 1 — отклоняется как «слишком мало».
+    process(invoiceId, amount, method, day) {
+        if (amount.amount < 1) {
+            this.audit.add(new AuditEntry(day, "gateway", "reject", invoiceId, "amount too small"));
+            throw new Error("Gateway: amount too small to charge");
+        }
+        if (method.kind == "wire") {
+            this.audit.add(new AuditEntry(day, "gateway", "pending", invoiceId, "wire transfer"));
+            throw new Error("Gateway: wire transfer not instant");
+        }
+        let pay = new Payment(this.nextId(), invoiceId, amount, method, day);
+        this.audit.add(new AuditEntry(day, "gateway", "charge", invoiceId, pay.id));
+        return pay;
+    }
+}
+
+
+// ───────────────────────────── 11. BillingEngine ─────────────────────────────
+
+class BillingEngine {
+    constructor(fx, taxEngine, gateway, audit) {
+        this.fx = fx;
+        this.taxEngine = taxEngine;
+        this.gateway = gateway;
+        this.audit = audit;
+        this.invoiceSequence = 0;
+        this.refundSequence = 0;
+    }
+    nextInvoiceId() {
+        this.invoiceSequence = this.invoiceSequence + 1;
+        return "INV-" + this.invoiceSequence;
+    }
+    nextRefundId() {
+        this.refundSequence = this.refundSequence + 1;
+        return "REF-" + this.refundSequence;
+    }
+    // Создаёт invoice по подписке: одна строка за план, по строке на addon,
+    // и налог по юрисдикции аккаунта.
+    generateInvoice(sub, account, today, dueAfterDays) {
+        let invId = this.nextInvoiceId();
+        let due = today.addDays(dueAfterDays);
+        let inv = new Invoice(invId, sub.accountId, sub.plan.price.code, today, due);
+
+        // Линия плана (с возможной скидкой купона).
+        let planAmount = sub.plan.price;
+        if (sub.coupon != null) {
+            let cd = sub.coupon.discount;
+            let off = null;
+            if (cd instanceof TierDiscount) {
+                off = cd.applyForTier(planAmount, account.tier);
+            } else {
+                off = cd.apply(planAmount);
+            }
+            planAmount = planAmount.sub(off);
+        }
+        inv.addLine(new InvoiceLine("Plan: " + sub.plan.name, planAmount, "saas", true));
+
+        // Линии аддонов (налог по их собственной категории).
+        let bI = 0;
+        while (bI < sub.addons.length) {
+            let sa = sub.addons[bI];
+            let aAmt = sa.addon.price.mul(sa.qty);
+            inv.addLine(new InvoiceLine("AddOn: " + sa.addon.name + " x" + sa.qty, aAmt, "saas", true));
+            bI = bI + 1;
+        }
+
+        // Налог.
+        let tax = this.taxEngine.computeFor(account.country, inv.lines);
+        if (tax != null) {
+            inv.setTax(tax);
+        }
+
+        this.audit.add(new AuditEntry(today, "billing", "invoice_draft", invId, sub.accountId));
+        return inv;
+    }
+    issueInvoice(inv, today) {
+        inv.issue(today);
+        this.audit.add(new AuditEntry(today, "billing", "invoice_issued", inv.id, inv.total().toString()));
+    }
+    chargeInvoice(inv, method, today) {
+        try {
+            let pay = this.gateway.process(inv.id, inv.balance(), method, today);
+            inv.applyPayment(pay);
+            this.audit.add(new AuditEntry(today, "billing", "payment_applied", inv.id, pay.id));
+            return pay;
+        } catch (e) {
+            this.audit.add(new AuditEntry(today, "billing", "charge_failed", inv.id, e.message));
+            return null;
+        }
+    }
+    refundInvoice(inv, amount, reason, today) {
+        let refId = this.nextRefundId();
+        let ref = new Refund(refId, inv.id, amount, reason, today);
+        inv.applyRefund(ref);
+        this.audit.add(new AuditEntry(today, "billing", "refund_applied", inv.id, refId));
+        return ref;
+    }
+    runDunning(invoices, today, gracePeriodDays) {
+        // Для каждой issued проверяет просрочку, помечает overdue;
+        // в grace-период возвращает аккаунты в past_due.
+        let pastDue = 0;
+        let ddI = 0;
+        while (ddI < invoices.length) {
+            let inv = invoices[ddI];
+            if (inv.state == "issued") {
+                if (inv.checkOverdue(today)) {
+                    this.audit.add(new AuditEntry(today, "dunning", "overdue", inv.id, ""));
+                }
+            }
+            if (inv.state == "overdue") {
+                let dueGracePassed = today.daysUntil(inv.dueDay.addDays(gracePeriodDays)) < 0;
+                if (dueGracePassed) {
+                    this.audit.add(new AuditEntry(today, "dunning", "past_grace", inv.id, ""));
+                    pastDue = pastDue + 1;
+                }
+            }
+            ddI = ddI + 1;
+        }
+        return pastDue;
+    }
+}
+
+
+// ───────────────────────────── 12. Учётные сущности ──────────────────────────
+
+class Organization {
+    constructor(id, name, country, currency, tier) {
+        this.id = id;
+        this.name = name;
+        this.country = country;
+        this.currency = currency;
+        this.tier = tier;       // "regular" | "silver" | "gold" | "vip"
+        this.members = [];
+    }
+}
+
+class User {
+    constructor(id, email, name) {
+        this.id = id;
+        this.email = email;
+        this.name = name;
+    }
+}
+
+
+// ═════════════════════════════ Симуляция ═════════════════════════════════════
+
+// --- Базовые объекты
+
+const fx = new FxRates();
+fx.add("EUR", 0.92);
+fx.add("RUB", 90);
+
+const audit = new AuditLog();
+
+const taxEngine = new TaxEngine();
+taxEngine.add(new TaxRule("US", 0, []));
+taxEngine.add(new TaxRule("DE", 19, ["education"]));
+taxEngine.add(new TaxRule("RU", 20, []));
+
+const gateway = new PaymentGateway("StripeMock", audit);
+const billing = new BillingEngine(fx, taxEngine, gateway, audit);
+
+const ledger = new UsageLedger();
+
+// --- Ресурсы и тарифы
+
+const apiCalls = new Resource("api_calls", "API calls", "calls");
+const storage  = new Resource("storage",   "Storage",   "GB");
+const seats    = new Resource("seats",     "Seats",     "users");
+
+const free = new Plan("free", "Free", new Money(0, "USD"), "monthly");
+free.addLimit(new Limit("api_calls", 10000, 15000));
+free.addLimit(new Limit("storage", 1, 2));
+free.addLimit(new Limit("seats", 1, 2));
+free.addFeature("community_support");
+
+const starter = new Plan("starter", "Starter", new Money(29, "USD"), "monthly");
+starter.addLimit(new Limit("api_calls", 100000, 150000));
+starter.addLimit(new Limit("storage", 50, 100));
+starter.addLimit(new Limit("seats", 5, 10));
+starter.addFeature("email_support");
+starter.addFeature("custom_domain");
+
+const pro = new Plan("pro", "Pro", new Money(99, "USD"), "monthly");
+pro.addLimit(new Limit("api_calls", 1000000, 1500000));
+pro.addLimit(new Limit("storage", 500, 1000));
+pro.addLimit(new Limit("seats", 25, 50));
+pro.addFeature("email_support");
+pro.addFeature("custom_domain");
+pro.addFeature("priority_support");
+pro.addFeature("sso");
+
+const enterprise = new Plan("enterprise", "Enterprise", new Money(999, "USD"), "annual");
+enterprise.addLimit(new Limit("api_calls", 100000000, 200000000));
+enterprise.addLimit(new Limit("storage", 50000, 100000));
+enterprise.addLimit(new Limit("seats", 1000, 2000));
+enterprise.addFeature("email_support");
+enterprise.addFeature("custom_domain");
+enterprise.addFeature("priority_support");
+enterprise.addFeature("sso");
+enterprise.addFeature("dedicated_account_manager");
+
+const extraSeats = new AddOn("extra_seats", "Extra seats x10", new Money(20, "USD"));
+const extraStorage = new AddOn("extra_storage", "Extra storage 100GB", new Money(15, "USD"));
+
+// --- Купоны
+
+const summer = new Coupon("SUMMER25", new PercentDiscount("Summer 25%", 25),
+                          makeDay(120), 100);
+const fiveOff = new Coupon("5USD-OFF", new FixedDiscount("$5 off", new Money(5, "USD")),
+                            null, 1000);
+const loyalty = new Coupon("LOYALTY", new TierDiscount(), null, 1000);
+
+// --- Организации
+
+const org1 = new Organization("ORG-1", "Acme Corp", "US", "USD", "regular");
+const org2 = new Organization("ORG-2", "Globex GmbH", "DE", "USD", "gold");
+const org3 = new Organization("ORG-3", "ВТР ООО", "RU", "USD", "vip");
+
+// --- Подписки
+
+const today0 = makeDay(0);
+
+const sub1 = new Subscription("SUB-1", org1.id, starter, today0);
+const sub2 = new Subscription("SUB-2", org2.id, pro, today0);
+sub2.addAddon(extraSeats, 2);            // +$40
+sub2.addAddon(extraStorage, 3);          // +$45
+sub2.applyCoupon(summer, today0);        // 25% off
+
+const sub3 = new Subscription("SUB-3", org3.id, pro, today0);
+sub3.applyCoupon(loyalty, today0);       // tier-скидка (vip = 12%)
+
+// --- Usage до конца цикла (день 30)
+
+// org1 (starter, soft=100k, hard=150k): 80k — ок
+ledger.add(new UsageRecord(org1.id, "api_calls", 80000, makeDay(5)));
+// org2 (pro, soft=1M, hard=1.5M): 1.2M — soft warning
+ledger.add(new UsageRecord(org2.id, "api_calls", 1200000, makeDay(10)));
+// org3 (pro, soft=1M, hard=1.5M): 1.6M — hard violation
+ledger.add(new UsageRecord(org3.id, "api_calls", 1600000, makeDay(12)));
+
+// --- Аккаунты-аналоги: добавим country/tier-агрегат для tax
+class Account {
+    constructor(orgId, country, tier) {
+        this.orgId = orgId;
+        this.country = country;
+        this.tier = tier;
+    }
+}
+
+const acc1 = new Account(org1.id, org1.country, org1.tier);
+const acc2 = new Account(org2.id, org2.country, org2.tier);
+const acc3 = new Account(org3.id, org3.country, org3.tier);
+
+// --- Цикл биллинга (день 30) — выпуск счетов
+
+const billingDay = makeDay(30);
+
+const inv1 = billing.generateInvoice(sub1, acc1, billingDay, 14);   // US, no tax
+const inv2 = billing.generateInvoice(sub2, acc2, billingDay, 14);   // DE, 19%
+const inv3 = billing.generateInvoice(sub3, acc3, billingDay, 14);   // RU, 20%
+
+billing.issueInvoice(inv1, billingDay);
+billing.issueInvoice(inv2, billingDay);
+billing.issueInvoice(inv3, billingDay);
+
+// --- Оплата
+
+const cardMethod = new PaymentMethod("card", "VISA •• 4242");
+const wireMethod = new PaymentMethod("wire", "SWIFT bank transfer");
+
+// inv1 платится сразу
+let pay1 = billing.chargeInvoice(inv1, cardMethod, billingDay.addDays(1));
+
+// inv2 платится частично (половина), оставляется к доплате
+let half2 = inv2.balance().mul(0.5);
+let pmt2partial = new Payment(gateway.nextId(), inv2.id, half2, cardMethod, billingDay.addDays(2));
+inv2.applyPayment(pmt2partial);
+audit.add(new AuditEntry(billingDay.addDays(2), "billing", "partial_payment", inv2.id, pmt2partial.id));
+
+// inv3 пытаемся оплатить wire — не пройдёт, нужно retry картой
+let pay3a = billing.chargeInvoice(inv3, wireMethod, billingDay.addDays(1));   // null
+let pay3b = billing.chargeInvoice(inv3, cardMethod, billingDay.addDays(3));   // успех
+
+// --- Dunning (день 50, после dueDay=44)
+
+const dunningDay = makeDay(50);
+const pastDueCount = billing.runDunning([inv1, inv2, inv3], dunningDay, 7);
+
+// --- Доплата inv2 + Refund inv3
+
+const lateDay = makeDay(55);
+let rest2 = inv2.balance();
+let pmt2rest = new Payment(gateway.nextId(), inv2.id, rest2, cardMethod, lateDay);
+inv2.applyPayment(pmt2rest);
+audit.add(new AuditEntry(lateDay, "billing", "rest_payment", inv2.id, pmt2rest.id));
+
+// Refund: возврат $20 на inv3 (клиент попросил)
+let refund3 = billing.refundInvoice(inv3, new Money(20, "USD"), "goodwill", lateDay);
+
+// --- Upgrade sub1 starter → pro в день 40 (через 10 дней после биллинга)
+
+const upgradeDay = makeDay(40);
+const upgradeProrate = sub1.upgrade(pro, upgradeDay);
+
+// --- Проверка лимитов на конец цикла
+
+const cycleStart = makeDay(0);
+const cycleEnd = makeDay(30);
+const violationsOrg2 = ledger.check(org2.id, sub2.plan, cycleStart, cycleEnd);
+const violationsOrg3 = ledger.check(org3.id, sub3.plan, cycleStart, cycleEnd);
+
+// --- Считаем итоги
+
+let totalRevenue = new Money(0, "USD");
+let totalTax     = new Money(0, "USD");
+let paidCount = 0;
+let overdueCount = 0;
+let cancelledCount = 0;
+let allInvoices = [inv1, inv2, inv3];
+
+let aggI = 0;
+while (aggI < allInvoices.length) {
+    let inv = allInvoices[aggI];
+    totalRevenue = totalRevenue.add(inv.paid());
+    totalTax = totalTax.add(inv.tax);
+    if (inv.state == "paid") {
+        paidCount = paidCount + 1;
+    }
+    if (inv.state == "overdue") {
+        overdueCount = overdueCount + 1;
+    }
+    if (inv.state == "cancelled") {
+        cancelledCount = cancelledCount + 1;
+    }
+    aggI = aggI + 1;
+}
+
+// FX-конверсия итога в EUR (для проверки FxRates)
+let revenueInEUR = fx.convert(totalRevenue, "EUR");
+
+// Округление до 4 знаков — чтобы доллар-центы и FX из PHP и JS совпадали
+// бит-в-бит, без хвостов вроде 104.54400000000001 у double.
+function round4(x) {
+    return Math.round(x * 10000) / 10000;
+}
+
+// Подсчёт всех гарантирующих параметров для отчёта.
+let report = "";
+report = report + "invoices=" + allInvoices.length;
+report = report + "|inv1.state=" + inv1.state;
+report = report + "|inv2.state=" + inv2.state;
+report = report + "|inv3.state=" + inv3.state;
+report = report + "|inv1.total=" + round4(inv1.total().amount);
+report = report + "|inv2.total=" + round4(inv2.total().amount);
+report = report + "|inv3.total=" + round4(inv3.total().amount);
+report = report + "|inv1.tax=" + round4(inv1.tax.amount);
+report = report + "|inv2.tax=" + round4(inv2.tax.amount);
+report = report + "|inv3.tax=" + round4(inv3.tax.amount);
+report = report + "|inv1.paid=" + round4(inv1.paid().amount);
+report = report + "|inv2.paid=" + round4(inv2.paid().amount);
+report = report + "|inv3.paid=" + round4(inv3.paid().amount);
+report = report + "|inv3.refunds=" + inv3.refunds.length;
+report = report + "|paidCount=" + paidCount;
+report = report + "|overdueCount=" + overdueCount;
+report = report + "|revenueUSD=" + round4(totalRevenue.amount);
+report = report + "|taxUSD=" + round4(totalTax.amount);
+report = report + "|revenueEUR=" + round4(revenueInEUR.amount);
+report = report + "|pastDueCount=" + pastDueCount;
+report = report + "|violationsOrg2=" + violationsOrg2.length;
+report = report + "|violationsOrg2[0].kind=" + violationsOrg2[0].kind;
+report = report + "|violationsOrg3=" + violationsOrg3.length;
+report = report + "|violationsOrg3[0].kind=" + violationsOrg3[0].kind;
+report = report + "|sub1.plan=" + sub1.plan.code;
+report = report + "|upgradeProrate=" + round4(upgradeProrate.amount);
+report = report + "|audit.count=" + audit.count();
+report = report + "|audit.charge=" + audit.countByAction("charge");
+report = report + "|audit.refund=" + audit.countByAction("refund_applied");
+report = report + "|audit.overdue=" + audit.countByAction("overdue");
+report = report + "|summer.redeemed=" + summer.redeemed;
+
+return report;
