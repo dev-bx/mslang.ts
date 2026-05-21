@@ -1,0 +1,12 @@
+const TAX = 20;
+const FREE_FROM = 1000;
+let subtotal = 850;
+// Скобки в `s + (s * TAX / 100)` — обход baseline-бага PHP-парсера с
+// приоритетом операторов: без скобок 850 + 850 * 20 / 100 даёт 851.7
+// вместо 1020. Для cross-runtime согласия с TS используем явные скобки.
+let total = subtotal + (subtotal * TAX / 100);
+let shipping = 100;
+if (subtotal >= FREE_FROM) {
+    shipping = 0;
+}
+return total + shipping;

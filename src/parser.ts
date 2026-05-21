@@ -94,6 +94,16 @@ export const NodeType =
          * Возвращает boolean.
          */
         'ntInstanceof': 62,
+        /**
+         * Объявление переменной: `let a [= expr];`, `var a [= expr];`, `const a = expr;`.
+         * Несколько объявлений в одной строке (`let a = 1, b = 2;`) парсер
+         * разворачивает в несколько узлов `ntVarDecl`.
+         *
+         * - nValue  = имя переменной;
+         * - nValue2 = вид: 'var' | 'let' | 'const';
+         * - childItems = инициализатор (одно поддерево-выражение) или пусто.
+         */
+        'ntVarDecl': 63,
     }
 
 export class ParseNode
@@ -1029,6 +1039,13 @@ export class CodeParser {
             }
 
 
+            if ([LexerType.ltLet, LexerType.ltVar, LexerType.ltConst].indexOf(this.lexer.tokenSym) >= 0)
+            {
+                this.parseVarDecl(NodeList, inline, endLineType);
+                parsedOne = true;
+                continue;
+            }
+
             if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement, LexerType.ltThis, LexerType.ltSuper].indexOf(this.lexer.tokenSym)>=0)
             {
                 let Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntNotSet);
@@ -1557,6 +1574,79 @@ export class CodeParser {
         }
 
         NodeList.push(classNode);
+    }
+
+    /**
+     * Парсит объявление переменных: `let name [= expr] [, name [= expr]]* ;`.
+     * `var` и `const` — аналогично с одной разницей: для `const` инициализатор
+     * обязателен, без него сразу даём ParserException.
+     *
+     * На входе: tokenSym = ltLet | ltVar | ltConst.
+     * На выходе: лексер стоит на `;` (если inline-форма) или на следующем
+     * за ним токене (parseCode сам ходит дальше).
+     *
+     * Зеркало PHP-эталона `CodeParser::parseVarDecl`.
+     */
+    protected parseVarDecl(NodeList: Array<ParseNode | ParseNode[]>, inline: boolean, endLineType: LexerTypeArray): void {
+        let kind: string;
+        switch (this.lexer.tokenSym) {
+            case LexerType.ltLet:   kind = 'let'; break;
+            case LexerType.ltVar:   kind = 'var'; break;
+            case LexerType.ltConst: kind = 'const'; break;
+            default:
+                throw new ParserException("Internal: parseVarDecl on unexpected token", this.lexer.tokenCursor);
+        }
+
+        //Список объявлений в одном statement: `let a = 1, b, c = 5;`.
+        //Инициализатор ограничен либо `,` (следующая декларация), либо `;`
+        //(конец statement). Для inline-формы (тело if без `{}`) `;` тоже
+        //конечный токен внешнего scope — мы это уважаем через cloneAdd.
+        const endInit = inline
+            ? endLineType.cloneAdd([LexerType.ltComma, LexerType.ltSemicolon])
+            : LexerTypeArray.one(LexerType.ltComma).cloneAdd(LexerType.ltSemicolon);
+
+        while (true) {
+            this.lexer.getToken();
+            if (this.lexer.tokenSym !== LexerType.ltIDStr) {
+                throw new ParserException(
+                    "'" + kind + "' expects variable name",
+                    this.lexer.tokenCursor,
+                );
+            }
+            const name = this.lexer.tokenValue;
+            if (this.reservedWords.indexOf(String(name).toLowerCase()) !== -1) {
+                throw new ParserException(
+                    "'" + kind + "' cannot declare reserved word \"" + name + "\"",
+                    this.lexer.tokenCursor,
+                );
+            }
+
+            const declNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntVarDecl, name);
+            declNode.nValue2 = kind;
+            declNode.childItems = [];
+
+            this.lexer.getToken();
+            if (this.lexer.tokenSym === LexerType.ltAssign) {
+                const initExpr = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
+                this.parseExpression(initExpr, true, endInit);
+                declNode.childItems.push(initExpr);
+            } else if (kind === 'const') {
+                throw new ParserException(
+                    "'const' declaration of \"" + name + "\" requires an initializer",
+                    this.lexer.tokenCursor,
+                );
+            }
+
+            NodeList.push(declNode);
+
+            //После parseExpression лексер стоит на разделителе (`,` или `;`)
+            //или, при необъявленном инициализаторе, на нём же. Если запятая —
+            //продолжаем список; иначе завершаем (терминатор `;`/endLineType
+            //обработает внешний parseCode).
+            if (this.lexer.tokenSym !== LexerType.ltComma) {
+                return;
+            }
+        }
     }
 
     /**
