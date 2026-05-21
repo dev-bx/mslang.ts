@@ -489,9 +489,18 @@ export class Interpreter {
     }
 
     expressionAssignFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        const variable = context.popStackVar();
+        let variable = context.popStackVar();
 
         context.popExecutionStack(true);
+
+        //Развёртка Ref: если value — Ref на let/const-локалку или параметр
+        //вложенного блока, после pop этой области переменная исчезнет и Ref
+        //начнёт выдавать undefined. cloneVariable для vtObject возвращает сам
+        //объект без разворота, поэтому Ref пропустился бы дальше и сидел в
+        //долгоживущей переменной до тех пор, пока кто-нибудь не прочитает.
+        if (variable instanceof StackVariableRef) {
+            variable = variable.refValue as StackVariable;
+        }
 
         const cloneVariable = context.cloneVariable(variable);
 
@@ -1707,14 +1716,25 @@ export class Interpreter {
     }
 
     BracketSetKeyRightFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        const variable = context.popStackVar();
+        let variable = context.popStackVar();
 
         context.popExecutionStack();
 
-        const accessTo = context.popStackVar();
+        let accessTo = context.popStackVar();
 
         if (!(token.nValue instanceof StackVariable))
             throw new InterpreterException('Invalid bracket key', token.cursorPos);
+
+        //Развёртка Ref: если value пришло как Ref на параметр функции или на
+        //локальную let-переменную, то после popFunctionScope/popExecutionStack
+        //эта переменная исчезнет и массив будет хранить «мёртвую» ссылку.
+        //Фиксируем StackVariable прямо сейчас.
+        if (variable instanceof StackVariableRef) {
+            variable = variable.refValue as StackVariable;
+        }
+        if (accessTo instanceof StackVariableRef) {
+            accessTo = accessTo.refValue as StackVariable;
+        }
 
         accessTo.setProperty(token.nValue.value as string, variable);
 
@@ -1813,7 +1833,7 @@ export class Interpreter {
     }
 
     ArrayPushKeyValueHandler(context: ContextInterpreter, token: ParseNode) {
-        const arrayValue = context.popStackVar();
+        let arrayValue = context.popStackVar();
 
         context.popExecutionStack();
 
@@ -1821,6 +1841,13 @@ export class Interpreter {
 
         if (!context._contextVariable)
             throw new InterpreterException('ArrayPushKeyValue contextVariable not initialized', token.cursorPos);
+
+        //Развёртка Ref: внутри литерала массива тоже могут быть параметры функций
+        //или let-переменные. Их Ref сохранять в массив нельзя — после возврата
+        //из функции мы получим undefined вместо значения.
+        if (arrayValue instanceof StackVariableRef) {
+            arrayValue = arrayValue.refValue as StackVariable;
+        }
 
         context._contextVariable.setProperty(arrayKey.value as string, arrayValue);
     }
@@ -3356,14 +3383,34 @@ export class ContextInterpreter {
                     return;
 
                 if (this._variables[k].type !== tmp[k].type) {
-                    this._variables[k] = this.createVariable(tmp[k].type, tmp[k].value);
+                    //createVariable не умеет vtObject (объекты, классы-экземпляры)
+                    //и vtFunction — для них нет понятного «скопировать значение»,
+                    //они всегда разделяются по ссылке. Если в блоке переменная
+                    //стала такого типа — пробрасываем сам объект из блока в parent,
+                    //минуя createVariable.
+                    const newType = tmp[k].type;
+                    if (newType === VariableType.vtObject || newType === VariableType.vtFunction) {
+                        this._variables[k] = tmp[k];
+                    } else {
+                        this._variables[k] = this.createVariable(newType, tmp[k].value);
+                    }
                 } else {
-                    // У null/undefined/void/object нет осмысленного «нового значения» —
-                    // setter у них read-only или сам объект и есть состояние.
-                    // Пропускаем, чтобы не натыкаться на «value is read only».
+                    //Один и тот же тип, но обновлённый в блоке через присваивание.
+                    //У null/undefined/void нет осмысленного «нового значения»:
+                    //setter read-only. Пропускаем — иначе «value is read only».
                     const t = this._variables[k].type;
-                    if (t === VariableType.vtNull || t === VariableType.vtUndefined || t === VariableType.vtVoid || t === VariableType.vtObject)
+                    if (t === VariableType.vtNull || t === VariableType.vtUndefined || t === VariableType.vtVoid)
                         return;
+                    if (t === VariableType.vtObject || t === VariableType.vtFunction) {
+                        //Если в блоке переменная стала ссылаться на другой объект,
+                        //переносим эту новую ссылку в parent. Если тот же объект
+                        //(мутировался через свой метод) — parent уже видит изменения
+                        //через общую ссылку, ничего делать не нужно.
+                        if (this._variables[k] !== tmp[k]) {
+                            this._variables[k] = tmp[k];
+                        }
+                        return;
+                    }
                     this._variables[k].value = tmp[k].value;
                 }
             });

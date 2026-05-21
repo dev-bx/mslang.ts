@@ -6,6 +6,7 @@ import {StackVariableString} from "./stackvariablestring.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableObject} from "./stackvariableobject.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
+import {StackVariableRef} from "./stackvariableref.js";
 import {MSLangException} from "./exceptions";
 
 export class StackVariableArray extends StackVariable {
@@ -213,9 +214,17 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_pushReturn = () => VariableType.vtNumber;
 
     funcInvoke_push(...args: unknown[]) {
-        Object.values(args).forEach(value => {
-            if (!(value instanceof StackVariable)) {
+        Object.values(args).forEach(rawValue => {
+            if (!(rawValue instanceof StackVariable)) {
                 throw new MSLangException('value must be instance of StackVariable');
+            }
+
+            //Ref-аргумент (например, параметр функции) указывает на ячейку scope-а,
+            //который умрёт вместе с frame. Кладём в массив сам объект StackVariable —
+            //тогда он переживёт возврат из функции, и значения не пропадут.
+            let value: StackVariable = rawValue;
+            if (value instanceof StackVariableRef) {
+                value = value.refValue as StackVariable;
             }
 
             let key;
