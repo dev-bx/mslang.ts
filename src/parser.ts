@@ -746,34 +746,74 @@ export class CodeParser {
             rightIdx,
             node;
 
+        //Пост-обработка приоритета операторов: `*` / `/` / `%` / `&` имеют
+        //более высокий приоритет, чем `+` / `-`, поэтому каждый блок таких
+        //высокоприоритетных операций мы оборачиваем в `ntSubExpression` —
+        //интерпретатор сначала вычислит вложенное подвыражение, потом
+        //применит низкоприоритетный `+`/`-` к его результату.
+        //
+        //Зеркало PHP-эталона parseExpression в CodeParser.php.
+        const isHighPri = (n: ParseNode) => (
+            n.nType === NodeType.ntMul
+            || n.nType === NodeType.ntDiv
+            || n.nType === NodeType.ntMod
+            || n.nType === NodeType.ntBitAnd
+        );
+
         while (idx<NodeList.length-1)
         {
             node = NodeList[idx];
             if (node.isMathNode())
             {
-                if (node.nType !== NodeType.ntMul && node.nType !== NodeType.ntDiv)
+                if (!isHighPri(node))
                 {
+                    //Низкоприоритетный оператор (+ или -) — leftIdx сдвигаем
+                    //на следующий операнд, дальше ищем высокоприоритетные справа.
                     idx++;
                     leftIdx = idx;
                     idx++;
                     continue;
                 }
 
+                //Высокоприоритетный оператор: расширяем правую границу.
                 rightIdx = idx+1;
-                while (rightIdx<NodeList.length-1)
+                while (rightIdx + 1 < NodeList.length)
                 {
-                    const rightNode = NodeList[rightIdx+1];
+                    const nextNode = NodeList[rightIdx+1];
 
-                    if (rightNode.nType !== NodeType.ntObjProp && (rightNode.isMathNode() || rightNode.isCompareOrAndNode()))
-                        break;
+                    //Продолжение того же значения через хвостовые операции:
+                    //  .prop                — ntObjProp, цепочка свойств a.b.c
+                    //  [idx]                — ntBracketGetKey, индексация a.m[0]
+                    //  obj.method(args)     — ntSelfFuncCall, метод объекта
+                    //  func(args)           — ntFuncCall
+                    //  Class::method(args)  — ntFuncNameSpaceCall
+                    if (
+                        nextNode.nType === NodeType.ntObjProp
+                        || nextNode.nType === NodeType.ntBracketGetKey
+                        || nextNode.nType === NodeType.ntSelfFuncCall
+                        || nextNode.nType === NodeType.ntFuncCall
+                        || nextNode.nType === NodeType.ntFuncNameSpaceCall
+                    ) {
+                        rightIdx++;
+                        continue;
+                    }
 
-                    rightIdx++;
+                    //Следующий — снова высокоприоритетный оператор:
+                    //объединяем в один SubExpression через шаг на 2
+                    //(оператор + его правый операнд).
+                    if (isHighPri(nextNode)) {
+                        rightIdx += 2;
+                        continue;
+                    }
+
+                    //Любой другой узел (+, -, &&, ||, конец) — стоп.
+                    break;
                 }
 
                 const SubNode = new ParseNode(NodeList[idx].cursorPos, NodeType.ntSubExpression);
-
-                SubNode.childItems = NodeList.slice(leftIdx, rightIdx+1);
-                NodeList.splice(leftIdx, rightIdx-leftIdx+1, SubNode);
+                const length = rightIdx - leftIdx + 1;
+                SubNode.childItems = NodeList.slice(leftIdx, leftIdx + length);
+                NodeList.splice(leftIdx, length, SubNode);
                 idx = leftIdx;
             }
             idx++;

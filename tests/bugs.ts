@@ -457,3 +457,111 @@ test('Bug19_RejectsTrailingSeparator', () => {
 test('Bug19_RejectsDoubleSeparator', () => {
     assert.throws(() => executeReturnCode('return 1__2;'));
 });
+
+// Баг 20: post-processing приоритета операторов в parseExpression не цеплял
+// к высокоприоритетному операнду «хвостовые» операции — [idx], .method(),
+// Class::fn(). Из-за этого `a.m[0] * b.m[0]` и `a.val() * b.val()` ломались.
+
+test('Bug20_FieldArrayIndexInMul', () => {
+    const r = executeReturnCode(`
+        class A { constructor(arr) { this.m = arr; } }
+        function dot(a, b) {
+            let s = 0;
+            let k = 0;
+            while (k < 4) { s = s + a.m[k] * b.m[k]; k = k + 1; }
+            return s;
+        }
+        let a = new A([1, 2, 3, 4]);
+        let b = new A([5, 6, 7, 8]);
+        return dot(a, b);
+    `);
+    // 1*5 + 2*6 + 3*7 + 4*8 = 70
+    assert.strictEqual(70, r?.value);
+});
+
+test('Bug20_MethodCallInMul', () => {
+    const r = executeReturnCode(`
+        class A { val() { return 5; } }
+        let a = new A();
+        let b = new A();
+        return a.val() * b.val();
+    `);
+    assert.strictEqual(25, r?.value);
+});
+
+test('Bug20_BracketAndMethodMixed', () => {
+    const r = executeReturnCode(`
+        class A {
+            constructor() { this.arr = []; this.arr.push(2); this.arr.push(3); }
+            val() { return 5; }
+        }
+        let a = new A();
+        let b = new A();
+        return a.arr[0] * b.val() + a.val() * b.arr[1];
+    `);
+    // 2*5 + 5*3 = 25
+    assert.strictEqual(25, r?.value);
+});
+
+// Баг 21: continue внутри while.
+// В TS это уже работало (whileHandler ставил _codeData['continue']), но в
+// PHP-эталоне не было — теперь синхронизировано. Регрессии остаются для
+// зеркальности и защиты от регрессии в обе стороны.
+
+test('Bug21_ContinueInsideWhile', () => {
+    const r = executeReturnCode(`
+        let s = 0;
+        let i = 0;
+        while (i < 10) {
+            i = i + 1;
+            if (i == 5) { continue; }
+            s = s + i;
+        }
+        return s;
+    `);
+    // 1+2+3+4+6+7+8+9+10 = 50
+    assert.strictEqual(50, r?.value);
+});
+
+test('Bug21_ContinueNestedInsideWhile', () => {
+    const r = executeReturnCode(`
+        let s = 0;
+        let i = 0;
+        while (i < 5) {
+            i = i + 1;
+            let j = 0;
+            while (j < 3) {
+                j = j + 1;
+                if (j == 2) { continue; }
+                s = s + 1;
+            }
+        }
+        return s;
+    `);
+    // 5 итераций i * 2 успешных тика j = 10
+    assert.strictEqual(10, r?.value);
+});
+
+// Баг 22: индексация массива целым double-числом.
+// В TS это работало благодаря тому, что Map-ключ приводится к строке
+// автоматически (JS-семантика). PHP-сторона была строже, и нужно было
+// явное приведение. Регрессии для зеркальности.
+
+test('Bug22_FloatIndexFromMathFloor', () => {
+    const r = executeReturnCode(`
+        let arr = [10, 20, 30, 40];
+        let i = Math.floor(2.7);
+        return arr[i];
+    `);
+    assert.strictEqual(30, r?.value);
+});
+
+test('Bug22_FloatIndexAssignWithMathFloor', () => {
+    const r = executeReturnCode(`
+        let arr = [0, 0, 0, 0];
+        let i = Math.floor(1.8);
+        arr[i] = 99;
+        return arr[1];
+    `);
+    assert.strictEqual(99, r?.value);
+});
