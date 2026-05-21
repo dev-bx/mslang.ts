@@ -205,6 +205,33 @@ export class Lexer {
 
         return (n >= 48 && n <= 57);
     }
+
+    isHexDigit(ch: unknown) {
+        if (typeof ch !== 'string')
+            return null;
+
+        const n = ch.charCodeAt(0);
+
+        return (n >= 48 && n <= 57)         //0-9
+            || (n >= 65 && n <= 70)         //A-F
+            || (n >= 97 && n <= 102);       //a-f
+    }
+
+    isOctalDigit(ch: unknown) {
+        if (typeof ch !== 'string')
+            return null;
+
+        const n = ch.charCodeAt(0);
+
+        return n >= 48 && n <= 55;          //0-7
+    }
+
+    isBinaryDigit(ch: unknown) {
+        if (typeof ch !== 'string')
+            return null;
+
+        return ch === '0' || ch === '1';
+    }
 }
 
 export class TokenCursor {
@@ -279,6 +306,64 @@ export class CodeLexer extends Lexer {
 
     getPCHValue(pch: unknown): string {
         throw new LexerException('Not applicable');
+    }
+
+    /**
+     * Читает «тело» не-десятичного литерала после уже потреблённого префикса
+     * (0x, 0b, 0o). Допускает '_' как разделитель между цифрами.
+     *
+     * После завершения _tokenValue хранит десятичную форму числа (например,
+     * '255' для исходного '0xFF_AB' → '65451'). Токен помечается как ltNumeric.
+     */
+    protected readNonDecimal(kind: 'hex' | 'bin' | 'oct') {
+        const isOk = (ch: unknown): boolean => {
+            switch (kind) {
+                case 'hex': return Boolean(this.isHexDigit(ch));
+                case 'oct': return Boolean(this.isOctalDigit(ch));
+                case 'bin': return Boolean(this.isBinaryDigit(ch));
+            }
+        };
+
+        let digits = '';
+        if (!isOk(this.whoNextCh())) {
+            throw new LexerException('Parse numeric failed: empty ' + kind + ' literal');
+        }
+
+        while (true) {
+            const next = this.whoNextCh();
+            if (isOk(next)) {
+                this._tokenValue += this.getCh();
+                digits += String(next);
+                continue;
+            }
+            if (
+                next === '_'
+                && digits !== ''
+                && isOk(this.whoNextCh(1))
+            ) {
+                this.getCh();    //проглатываем '_'
+                continue;
+            }
+            break;
+        }
+
+        //Конвертируем «исходник 0xFF_AB» в «65451 в десятичной». Базовый
+        //путь дальше будет parseFloat-ить _tokenValue.
+        const base = kind === 'hex' ? 16 : kind === 'oct' ? 8 : 2;
+        this._tokenValue = String(parseInt(digits, base));
+    }
+
+    /**
+     * После прочтения hex/bin/oct литерала допускает только обычные
+     * «стоп-символы» — иначе бросает ту же ошибку, что и десятичная ветка.
+     */
+    protected finalizeNumber(allowStopChars: string[]) {
+        const next = this.whoNextCh();
+        if (next === null || allowStopChars.indexOf(next) !== -1) {
+            this._tokenSym = LexerType.ltNumeric;
+            return;
+        }
+        throw new LexerException('Parse numeric failed ' + String(next));
     }
 
     getRealToken() {
@@ -465,7 +550,31 @@ export class CodeLexer extends Lexer {
         const allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']'];
 
         if (this.isDigit(this.lastChar) || this.lastChar === '-') {
+            //Префиксы для не-десятичных литералов: 0x.., 0b.., 0o..
+            //(только если перед нами '0' и за ним идёт буква-маркер).
+            //Numeric separators ('_') допускаются между цифрами в любом из видов.
+            const firstNext = this.whoNextCh();
+            if (this.lastChar === '0' && (firstNext === 'x' || firstNext === 'X')) {
+                this._tokenValue += this.getCh();            //'x' или 'X'
+                this.readNonDecimal('hex');
+                this.finalizeNumber(allowStopChars);
+                return;
+            }
+            if (this.lastChar === '0' && (firstNext === 'b' || firstNext === 'B')) {
+                this._tokenValue += this.getCh();            //'b' или 'B'
+                this.readNonDecimal('bin');
+                this.finalizeNumber(allowStopChars);
+                return;
+            }
+            if (this.lastChar === '0' && (firstNext === 'o' || firstNext === 'O')) {
+                this._tokenValue += this.getCh();            //'o' или 'O'
+                this.readNonDecimal('oct');
+                this.finalizeNumber(allowStopChars);
+                return;
+            }
+
             let isFloat = false;
+            let sawExp = false;
 
             while (true) {
                 const nextCh = this.whoNextCh();
@@ -475,11 +584,44 @@ export class CodeLexer extends Lexer {
                     continue;
                 }
 
+                //Numeric separator '_' между цифрами: '1_000_000'. По обе
+                //стороны должны быть цифры — иначе это не разделитель.
+                if (
+                    nextCh === '_'
+                    && this.isDigit(this._tokenValue.slice(-1))
+                    && this.isDigit(this.whoNextCh(1))
+                ) {
+                    this.getCh();    //проглатываем '_', в _tokenValue не пишем
+                    continue;
+                }
+
                 if (nextCh === '.') {
-                    if (isFloat)
+                    if (isFloat || sawExp)
                         throw new LexerException("Parse numeric failed");
                     this._tokenValue += this.getCh();
                     isFloat = true;
+                    continue;
+                }
+
+                //Научная нотация: 1e3, 1.5e-3, 2.5E+10.
+                if (!sawExp && (nextCh === 'e' || nextCh === 'E')) {
+                    //Перед 'e' должна быть цифра (или точка с цифрами слева).
+                    const prev = this._tokenValue.slice(-1);
+                    if (!this.isDigit(prev) && prev !== '.') {
+                        throw new LexerException("Parse numeric failed " + nextCh);
+                    }
+                    this._tokenValue += this.getCh();    //'e' или 'E'
+                    sawExp = true;
+                    isFloat = true;
+                    //Опциональный знак.
+                    const sign = this.whoNextCh();
+                    if (sign === '+' || sign === '-') {
+                        this._tokenValue += this.getCh();
+                    }
+                    //После 'e' (с возможным знаком) обязана быть хотя бы одна цифра.
+                    if (!this.isDigit(this.whoNextCh())) {
+                        throw new LexerException("Parse numeric failed: empty exponent");
+                    }
                     continue;
                 }
 
