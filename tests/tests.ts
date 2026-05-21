@@ -2875,3 +2875,45 @@ test('077_DeepNestedLetIsolation', () => {
     // (i=0): 0+10+20=30; (i=1): 1+11+21=33. Итого 63.
     assert.strictEqual(63, r?.value);
 });
+
+
+// ===== new Array(...) — нативный конструктор массива =====
+
+test('078_NewArrayEmpty', () => {
+    // `new Array()` без аргументов даёт пустой массив. Длина 0.
+    const r = executeReturnCode('let a = new Array(); return a.length;');
+    assert.strictEqual(0, r?.value);
+});
+
+test('078_NewArrayWithLength', () => {
+    // `new Array(N)` с целым неотрицательным N — массив длиной N,
+    // ячейки undefined. Это и есть JS-семантика.
+    const r = executeReturnCode('let a = new Array(5); return a.length;');
+    assert.strictEqual(5, r?.value);
+});
+
+test('078_NewArrayFillZero', () => {
+    // Типичная связка: `new Array(N).fill(0)` — массив нулей длины N.
+    // Используется как замена `let a = []; for (...) a.push(0);`.
+    const r = executeReturnCode(`
+        let a = new Array(4).fill(0);
+        return a[0] + a[1] + a[2] + a[3] + "/" + a.length;
+    `);
+    assert.strictEqual('0/4', r?.value);
+});
+
+test('078_NewArrayFromArgs', () => {
+    // `new Array(a, b, c)` где аргументов больше одного — это литерал [a, b, c].
+    const r = executeReturnCode(`
+        let a = new Array(7, 8, 9);
+        return a[0] + a[1] + a[2] + "/" + a.length;
+    `);
+    assert.strictEqual('24/3', r?.value);
+});
+
+test('078_NewArrayNegativeLengthFails', () => {
+    // Отрицательная длина — ошибка (как в JS: RangeError).
+    assert.throws(() => {
+        executeReturnCode('let a = new Array(-1); return a.length;');
+    }, /Invalid array length/);
+});

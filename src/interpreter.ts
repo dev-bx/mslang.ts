@@ -15,6 +15,7 @@ import {StackVariableTDZ} from "./stackvariabletdz";
 import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
 import {StringStaticFunctions} from "./stringstaticfunctions";
+import {ArrayConstructor} from "./arrayconstructor";
 import {StackVariableDateTime} from "./stackvariabledatetime";
 import {InterpreterException, MSLangException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
@@ -2905,6 +2906,13 @@ export class Interpreter {
             throw new InterpreterException('Unknown class "' + className + '"', token.cursorPos);
         }
 
+        //Нативные «классы» (Array, ...): передаём параметры самому объекту,
+        //он сам строит результат. Без push кадра.
+        if (constructor instanceof ArrayConstructor) {
+            context.pushStackVar(constructor.construct(parameters));
+            return;
+        }
+
         //Пользовательский класс: создаём instance, привязываем к классу, выполняем
         //тело конструктора (если есть) с this = instance, иначе сразу кладём
         //пустой instance на стек.
@@ -3573,6 +3581,7 @@ export class ContextInterpreter {
         this.setVariable('Infinity', new StackVariableNumber(true, Infinity));
         this.setVariable('Math', new MathFunctions());
         this.setVariable('String', new StringStaticFunctions());
+        this.setVariable('Array', new ArrayConstructor());
         this.setVariable('DateTime', new StackVariableDateTime(undefined));
         this.setVariable('debug', new StackVariableFunction(new FunctionEntry('debug', undefined, (...args: unknown[]) => {
             //Это намеренно: встроенная функция debug() из скриптов выводит в консоль.
