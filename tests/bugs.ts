@@ -267,3 +267,142 @@ test('Bug15_InlineIfChainKeepsLocals', () => {
     `);
     assert.strictEqual(7, returnVal?.value);
 });
+
+// Баг 18: значения объектов и параметров «утекали» из вложенных блоков.
+//
+// Три тесно связанных под-бага:
+//
+//   а) popExecutionStack не умел пробрасывать новую ссылку на объект
+//      от блока к parent. Для vtObject createVariable выкидывал
+//      «Unknown variable type 7», а в else-ветке (одинаковый тип)
+//      vtObject стоял в skip-листе. В результате `s = s.add(part)`
+//      в цикле не доходил до выхода из функции.
+//
+//   б) `arr.push(param)` сохранял в массив сам StackVariableRef-параметр
+//      функции, а не значение под ним. После возврата из функции
+//      Ref становился stale (получали undefined). То же для index-assign
+//      и для array literal.
+//
+//   в) `t = part;` где part — let-локалка вложенного блока сохранял в
+//      долгоживущую t сам Ref на part. cloneVariable для vtObject
+//      возвращает сам объект без разворота — потому Ref пробрасывался
+//      дальше и умирал вместе со scope блока.
+
+test('Bug18a_ReassignObjectInsideLoop', () => {
+    const r = executeReturnCode(`
+        class Money {
+            constructor(a) { this.a = a; }
+            add(o) { return new Money(this.a + o.a); }
+        }
+        class C {
+            constructor() { this.items = []; }
+            addItem(v) { this.items.push(v); }
+            sum() {
+                let s = new Money(0);
+                let i = 0;
+                while (i < this.items.length) {
+                    s = s.add(this.items[i]);
+                    i = i + 1;
+                }
+                return s;
+            }
+        }
+        let c = new C();
+        c.addItem(new Money(10));
+        c.addItem(new Money(20));
+        return c.sum().a;
+    `);
+    assert.strictEqual(30, r?.value);
+});
+
+test('Bug18a_LetNullThenObjectAcrossLoop', () => {
+    const r = executeReturnCode(`
+        class M { constructor(a) { this.a = a; } pct(p) { return new M(this.a * p / 100); } }
+        function f(arr) {
+            let total = null;
+            let j = 0;
+            while (j < arr.length) {
+                let line = arr[j];
+                let part = line.pct(19);
+                if (total == null) { total = part; } else { total = total.add(part); }
+                j = j + 1;
+            }
+            return total;
+        }
+        let arr = [];
+        arr.push(new M(100));
+        let r = f(arr);
+        if (r == null) { return "NULL"; }
+        return r.a;
+    `);
+    assert.strictEqual(19, r?.value);
+});
+
+test('Bug18b_PushParameterToGlobalArray', () => {
+    const r = executeReturnCode(`
+        let arr = [];
+        function add(x) { arr.push(x); }
+        add(7);
+        add(8);
+        return arr.length + "/" + arr[0] + "/" + arr[1];
+    `);
+    assert.strictEqual('2/7/8', r?.value);
+});
+
+test('Bug18b_PushParameterToFieldArrayInsideMethod', () => {
+    const r = executeReturnCode(`
+        class A {
+            constructor() { this.arr = []; }
+            add(x) { this.arr.push(x); }
+        }
+        let a = new A();
+        a.add(7);
+        a.add(8);
+        return a.arr[0] + "/" + a.arr[1];
+    `);
+    assert.strictEqual('7/8', r?.value);
+});
+
+test('Bug18b_IndexAssignParameterInMethod', () => {
+    const r = executeReturnCode(`
+        class A {
+            constructor() { this.arr = [0, 0]; }
+            setIdx(i, x) { this.arr[i] = x; }
+        }
+        let a = new A();
+        a.setIdx(0, 7);
+        a.setIdx(1, 8);
+        return a.arr[0] + "/" + a.arr[1];
+    `);
+    assert.strictEqual('7/8', r?.value);
+});
+
+test('Bug18b_ArrayLiteralWithParameters', () => {
+    const r = executeReturnCode(`
+        function makeArr(x, y) { return [x, y]; }
+        let a = makeArr(7, 8);
+        return a.length + "/" + a[0] + "/" + a[1];
+    `);
+    assert.strictEqual('2/7/8', r?.value);
+});
+
+test('Bug18c_AssignFromBlockLocalLet', () => {
+    const r = executeReturnCode(`
+        class M { constructor(a) { this.a = a; } pct(p) { return new M(this.a * p / 100); } }
+        function f(arr) {
+            let t = null;
+            let i = 0;
+            while (i < arr.length) {
+                let line = arr[i];
+                let part = line.pct(19);
+                t = part;
+                i = i + 1;
+            }
+            return t;
+        }
+        let arr = [new M(100)];
+        let r = f(arr);
+        return r.a;
+    `);
+    assert.strictEqual(19, r?.value);
+});
