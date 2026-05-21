@@ -400,6 +400,47 @@ export class StackVariableArray extends StackVariable {
         return this.value.size;
     }
 
+    /** fill */
+    funcInvoke_fillReturn = () => VariableType.vtArray;
+
+    funcInvoke_fill(...args: unknown[]): unknown {
+        const rawValue = args[0];
+        let value: StackVariable;
+        if (rawValue instanceof StackVariable) {
+            value = rawValue;
+        } else {
+            value = new StackVariableNumber(false, Number(rawValue));
+        }
+        const fromArg = args[1];
+        const toArg = args[2];
+        const keys = Array.from(this.value.keys());
+        const n = keys.length;
+        let from = fromArg !== undefined ? Number(fromArg instanceof StackVariable ? fromArg.value : fromArg) : 0;
+        let to = toArg !== undefined ? Number(toArg instanceof StackVariable ? toArg.value : toArg) : n;
+        if (from < 0) from = Math.max(0, n + from);
+        if (to < 0) to = Math.max(0, n + to);
+        if (from > n) from = n;
+        if (to > n) to = n;
+        for (let i = from; i < to; i++) {
+            this.value.set(keys[i], value);
+        }
+        return this;
+    }
+
+    /** includes */
+    funcInvoke_includesReturn = () => VariableType.vtBoolean;
+
+    funcInvoke_includes(...args: unknown[]): boolean {
+        const needle = args[0];
+        if (!(needle instanceof StackVariable)) return false;
+        for (const v of this.value.values()) {
+            if (v.type === needle.type && v.value === needle.value) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     castAs(variableType: VariableType): StackVariable|null {
         switch (variableType) {
             case VariableType.vtArray:

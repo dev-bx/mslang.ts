@@ -486,4 +486,30 @@ export class MathFunctions extends StackVariable {
         return Math.random();
     }
 
+    //trunc
+
+    funcInvoke_truncReturn = () => VariableType.vtNumber;
+
+    funcInvoke_truncArgs() {
+        return [new FunctionParameter('x', VariableType.vtNumber, true)];
+    }
+
+    funcInvoke_trunc(x: number)
+    {
+        return Math.trunc(x);
+    }
+
+    //sign
+
+    funcInvoke_signReturn = () => VariableType.vtNumber;
+
+    funcInvoke_signArgs() {
+        return [new FunctionParameter('x', VariableType.vtNumber, true)];
+    }
+
+    funcInvoke_sign(x: number)
+    {
+        return Math.sign(x);
+    }
+
 }

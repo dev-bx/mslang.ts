@@ -44,6 +44,31 @@ export class StackVariableString extends StackVariable {
         return this.value.indexOf(String(searchString), position ?? 0);
     }
 
+    /** charCodeAt */
+    funcInvokeCharCodeAtReturn = () => VariableType.vtNumber;
+
+    funcInvokeCharCodeAtArgs = () => [
+        new FunctionParameter('index', VariableType.vtNumber, true),
+    ];
+
+    funcInvokeCharCodeAt(index: number): number {
+        if (typeof this.value !== 'string') return NaN;
+        if (index < 0 || index >= this.value.length) return NaN;
+        return this.value.charCodeAt(index);
+    }
+
+    /** charAt */
+    funcInvokeCharAtReturn = () => VariableType.vtString;
+
+    funcInvokeCharAtArgs = () => [
+        new FunctionParameter('index', VariableType.vtNumber, true),
+    ];
+
+    funcInvokeCharAt(index: number): string {
+        if (typeof this.value !== 'string') return '';
+        return this.value.charAt(index);
+    }
+
     castAs(variableType: VariableType): StackVariable|null {
 
         if (typeof this.value === 'string')

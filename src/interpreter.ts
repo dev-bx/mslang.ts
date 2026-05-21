@@ -14,6 +14,7 @@ import {StackVariableClass} from "./stackvariableclass";
 import {StackVariableTDZ} from "./stackvariabletdz";
 import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
+import {StringStaticFunctions} from "./stringstaticfunctions";
 import {StackVariableDateTime} from "./stackvariabledatetime";
 import {InterpreterException, MSLangException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
@@ -80,6 +81,13 @@ const InterpreterNodeType = {
      * функциональный для var), заменяя TDZ-sentinel.
      */
     'ntVarDeclFinish': 1033,
+    //Финиш compound-assign x += expr и т.п.
+    'ntCompoundAssignFinish': 1034,
+    //Финиш тернарного оператора cond ? a : b.
+    'ntTernaryFinish': 1035,
+    //for (X of iterable) — старт и tick.
+    'ntForOfStart': 1036,
+    'ntForOfTick': 1037,
 }
 
 export class InterpreterNode extends ParseNode {
@@ -136,6 +144,27 @@ export class Interpreter {
         this.registerNodeHandler(InterpreterNodeType.ntExpressionAssignFinish, (...args: Parameters<TNodeHandler>) => {
             this.expressionAssignFinishHandler(...args)
         });
+        this.registerNodeHandler(NodeType.ntCompoundAssign, (...args: Parameters<TNodeHandler>) => {
+            this.compoundAssignHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntCompoundAssignFinish, (...args: Parameters<TNodeHandler>) => {
+            this.compoundAssignFinishHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntTernary, (...args: Parameters<TNodeHandler>) => {
+            this.ternaryHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntTernaryFinish, (...args: Parameters<TNodeHandler>) => {
+            this.ternaryFinishHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntForOf, (...args: Parameters<TNodeHandler>) => {
+            this.forOfHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntForOfStart, (...args: Parameters<TNodeHandler>) => {
+            this.forOfStartHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntForOfTick, (...args: Parameters<TNodeHandler>) => {
+            this.forOfTickHandler(...args)
+        });
 
         this.registerNodeHandler(NodeType.ntNumeric, (...args: Parameters<TNodeHandler>) => {
             this.numericHandler(...args)
@@ -164,6 +193,21 @@ export class Interpreter {
         });
         this.registerNodeHandler(NodeType.ntBitAnd, (...args: Parameters<TNodeHandler>) => {
             this.bitAndHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntBitOr, (...args: Parameters<TNodeHandler>) => {
+            this.bitOrHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntBitXor, (...args: Parameters<TNodeHandler>) => {
+            this.bitXorHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntShiftLeft, (...args: Parameters<TNodeHandler>) => {
+            this.shiftLeftHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntShiftRight, (...args: Parameters<TNodeHandler>) => {
+            this.shiftRightHandler(...args)
+        });
+        this.registerNodeHandler(NodeType.ntUShiftRight, (...args: Parameters<TNodeHandler>) => {
+            this.uShiftRightHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntShortIncrement, (...args: Parameters<TNodeHandler>) => {
@@ -488,6 +532,184 @@ export class Interpreter {
         //console.log(util.inspect(token, { compact: true, depth: null, breakLength: 80, colors: true, getters: true, showHidden: true }));
     }
 
+    compoundAssignHandler(context: ContextInterpreter, token: ParseNode) {
+        if (!token.childItems || token.childItems.length === 0)
+            throw new InterpreterException('compound-assign is empty', token.cursorPos);
+
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const node = new InterpreterNode(token.cursorPos);
+        node.nType = InterpreterNodeType.ntCompoundAssignFinish;
+        node.nValue = token.nValue;
+        node.nValue2 = token.nValue2;
+        context._codeItems.push(node);
+    }
+
+    compoundAssignFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        let rightVar: StackVariable = context.popStackVar();
+        context.popExecutionStack(true);
+
+        if (rightVar instanceof StackVariableRef) {
+            rightVar = rightVar.refValue as StackVariable;
+        }
+
+        const name = String(token.nValue);
+        const op = String(token.nValue2);
+
+        let current = context.getVariable(name);
+        if (current === null || current === undefined) {
+            throw new InterpreterException('Compound-assign on undefined variable "' + name + '"', token.cursorPos);
+        }
+        if (current instanceof StackVariableRef) {
+            current = current.refValue as StackVariable;
+        }
+
+        let newVar: StackVariable;
+        if (op === '+'
+            && (current.type === VariableType.vtString || rightVar.type === VariableType.vtString)
+        ) {
+            const lt = current.castAs(VariableType.vtString);
+            const rt = rightVar.castAs(VariableType.vtString);
+            if (!lt || !rt) throw new InterpreterException('Failed cast to string in +=', token.cursorPos);
+            newVar = context.createVariable(VariableType.vtString, String(lt.value) + String(rt.value));
+        } else {
+            const lt = current.castAs(VariableType.vtNumber);
+            if (!lt) throw new InterpreterException('Failed ' + current.typeName + ' cast as number', token.cursorPos);
+            const rt = rightVar.castAs(VariableType.vtNumber);
+            if (!rt) throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
+
+            const l = lt.value as number;
+            const r = rt.value as number;
+            let value: number;
+            switch (op) {
+                case '+': value = l + r; break;
+                case '-': value = l - r; break;
+                case '*': value = l * r; break;
+                case '/':
+                    if (r === 0) throw new InterpreterException('Division by zero', token.cursorPos);
+                    value = l / r; break;
+                case '%':
+                    if (r === 0) throw new InterpreterException('Modulo by zero', token.cursorPos);
+                    value = l % r; break;
+                default: throw new InterpreterException('Unknown compound-assign op ' + op, token.cursorPos);
+            }
+            newVar = context.createVariable(VariableType.vtNumber, value);
+        }
+
+        context.setVariable(name, newVar);
+        context.pushStackVar(newVar);
+    }
+
+    ternaryHandler(context: ContextInterpreter, token: ParseNode) {
+        if (!token.childItems || token.childItems.length !== 3)
+            throw new InterpreterException('ternary must have 3 children', token.cursorPos);
+
+        context.pushExecutionStack();
+        context._codeItems = [];
+        const cond = token.childItems[0];
+        if (!(cond instanceof ParseNode))
+            throw new InterpreterException('ternary cond invalid', token.cursorPos);
+        context._codeItems.push(cond);
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntTernaryFinish;
+        finish.childItems = [token.childItems[1] as ParseNode, token.childItems[2] as ParseNode];
+        context._codeItems.push(finish);
+    }
+
+    ternaryFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        let cond: StackVariable = context.popStackVar();
+        if (cond instanceof StackVariableRef) cond = cond.refValue as StackVariable;
+        const boolCast = cond.castAs(VariableType.vtBoolean);
+        if (!boolCast) throw new InterpreterException('ternary cond cast failed', token.cursorPos);
+
+        const branches = token.childItems!;
+        const chosen = boolCast.value ? branches[0] : branches[1];
+        if (!(chosen instanceof ParseNode))
+            throw new InterpreterException('ternary branch invalid', token.cursorPos);
+
+        context.popExecutionStack(true);
+
+        //Запускаем выбранную ветку в новом подкадре, чтобы её результат
+        //единым значением попал в parent через popStackVar.
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...chosen.nodeChildren());
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntSubExpressionFinish;
+        context._codeItems.push(finish);
+    }
+
+    forOfHandler(context: ContextInterpreter, token: ParseNode) {
+        if (!token.childItems || token.childItems.length !== 2)
+            throw new InterpreterException('for-of must have iterable and body', token.cursorPos);
+
+        context.pushExecutionStack();
+        context._type = ContextType.ctAllowBreak;
+        context._codeItems = [];
+
+        const iterable = token.childItems[0];
+        if (!(iterable instanceof ParseNode))
+            throw new InterpreterException('for-of: invalid iterable node', token.cursorPos);
+        context._codeItems.push(iterable);
+
+        const start = new InterpreterNode(token.cursorPos);
+        start.nType = InterpreterNodeType.ntForOfStart;
+        start.nValue = token.nValue;
+        start.nValue2 = token.nValue2;
+        start.childItems = [token.childItems[1] as ParseNode];
+        context._codeItems.push(start);
+    }
+
+    forOfStartHandler(context: ContextInterpreter, token: ParseNode) {
+        let iter: StackVariable = context.popStackVar();
+        if (iter instanceof StackVariableRef) iter = iter.refValue as StackVariable;
+        if (iter.type !== VariableType.vtArray)
+            throw new InterpreterException('for-of: iterable must be an array', token.cursorPos);
+
+        context._codeData['__forof_iter'] = iter;
+        context._codeData['__forof_idx'] = 0;
+        context._codeData['__forof_var'] = String(token.nValue);
+        context._codeData['__forof_kind'] = String(token.nValue2);
+        context._codeData['__forof_body'] = (token.childItems as ParseNode[])[0];
+
+        const tick = new InterpreterNode(token.cursorPos);
+        tick.nType = InterpreterNodeType.ntForOfTick;
+        context._codeItems!.push(tick);
+    }
+
+    forOfTickHandler(context: ContextInterpreter, token: ParseNode) {
+        const iter = context._codeData['__forof_iter'] as StackVariable;
+        const idx  = context._codeData['__forof_idx'] as number;
+        const vName = context._codeData['__forof_var'] as string;
+        const body = context._codeData['__forof_body'] as ParseNode;
+
+        const arr = Array.from((iter.value as Map<string, StackVariable>).values());
+        if (idx >= arr.length) {
+            context.popExecutionStack();
+            return;
+        }
+
+        const elem = arr[idx];
+        if (!(elem instanceof StackVariable))
+            throw new InterpreterException('for-of: element is not a StackVariable', token.cursorPos);
+
+        context._variables[vName] = elem;
+        context._letNames[vName] = true;
+
+        context._codeData['__forof_idx'] = idx + 1;
+
+        context._codeItems!.push(body);
+        const tickIdx = context._codeItems!.length;
+        const tickNext = new InterpreterNode(token.cursorPos);
+        tickNext.nType = InterpreterNodeType.ntForOfTick;
+        context._codeItems!.push(tickNext);
+        context._codeData['continue'] = tickIdx;
+    }
+
     expressionAssignFinishHandler(context: ContextInterpreter, token: ParseNode) {
         let variable = context.popStackVar();
 
@@ -683,6 +905,35 @@ export class Interpreter {
     }
 
     bitAndHandler(context: ContextInterpreter, token: ParseNode) {
+        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) & (b | 0));
+    }
+
+    bitOrHandler(context: ContextInterpreter, token: ParseNode) {
+        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) | (b | 0));
+    }
+
+    bitXorHandler(context: ContextInterpreter, token: ParseNode) {
+        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) ^ (b | 0));
+    }
+
+    shiftLeftHandler(context: ContextInterpreter, token: ParseNode) {
+        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) << (b & 31));
+    }
+
+    shiftRightHandler(context: ContextInterpreter, token: ParseNode) {
+        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) >> (b & 31));
+    }
+
+    uShiftRightHandler(context: ContextInterpreter, token: ParseNode) {
+        this.bitwiseBinaryHandler(context, token, (a, b) => (a >>> (b & 31)));
+    }
+
+    /**
+     * Общий шаблон битовых бинарных операторов: достаёт два операнда со
+     * стека, кастит их к числу, проверяет тип, применяет op и возвращает
+     * результат. Точечный фикс операции делается в передаваемом замыкании.
+     */
+    private bitwiseBinaryHandler(context: ContextInterpreter, token: ParseNode, op: (a: number, b: number) => number) {
         context.execGetVariable();
 
         const rightVar = context.popStackVar(),
@@ -696,7 +947,8 @@ export class Interpreter {
         if (!rightTmp)
             throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
 
-        const variable = context.createVariable(VariableType.vtNumber, (leftTmp.value as number) & (rightTmp.value as number));
+        const result = op(leftTmp.value as number, rightTmp.value as number);
+        const variable = context.createVariable(VariableType.vtNumber, result);
 
         context.pushStackVar(variable);
     }
@@ -2210,9 +2462,21 @@ export class Interpreter {
         const funcParams = func.params;
         const body = func.body;
 
-        //Считаем обязательные параметры (те, у которых нет default-выражения).
+        //Rest-параметр (`function f(...args)`) допустим только как последний.
+        //Сам он не обязателен — пустой массив тоже валиден.
+        let restIndex: number | null = null;
+        for (let i = 0; i < funcParams.length; i++) {
+            if ((funcParams[i].nValue2 ?? null) === 'rest') {
+                restIndex = i;
+                break;
+            }
+        }
+
+        //Считаем обязательные параметры (без default-выражения, не rest).
         let requiredCount = 0;
-        for (const p of funcParams) {
+        for (let i = 0; i < funcParams.length; i++) {
+            if (i === restIndex) continue;
+            const p = funcParams[i];
             if (!p.childItems || p.childItems.length === 0) {
                 requiredCount++;
             }
@@ -2226,8 +2490,9 @@ export class Interpreter {
             );
         }
 
-        //Лишние аргументы — WARNING, но вызов продолжается.
-        if (parameters.length > funcParams.length) {
+        //Лишние аргументы — WARNING, но вызов продолжается. С rest-param они
+        //собираются в массив без предупреждения.
+        if (restIndex === null && parameters.length > funcParams.length) {
             context.addWarning(
                 'Function "' + func.name + '" called with ' + parameters.length
                 + ' arguments, expected at most ' + funcParams.length
@@ -2238,6 +2503,29 @@ export class Interpreter {
         //пока внешние переменные ещё видны — иначе Ref начнёт читать пустой scope функции.
         const boundValues: Array<StackVariable | null> = [];
         for (let i = 0; i < funcParams.length; i++) {
+            if (i === restIndex) {
+                //Собираем оставшиеся args в StackVariableArray.
+                const restItems: StackVariable[] = [];
+                for (let j = i; j < parameters.length; j++) {
+                    let arg = parameters[j];
+                    if (arg instanceof StackVariableRef) {
+                        arg = arg.refValue as StackVariable;
+                    }
+                    if (arg.type === VariableType.vtObject || arg.type === VariableType.vtArray) {
+                        restItems.push(arg);
+                    } else {
+                        restItems.push(context.createVariable(arg.type, arg.value));
+                    }
+                }
+                //Создаём пустой StackVariableArray и заполняем через push.
+                const restArray = new StackVariableArray(false, []);
+                for (const item of restItems) {
+                    restArray.funcInvoke_push(item);
+                }
+                boundValues.push(restArray);
+                continue;
+            }
+
             if (i < parameters.length) {
                 let arg = parameters[i];
                 if (arg instanceof StackVariableRef) {
@@ -3284,6 +3572,7 @@ export class ContextInterpreter {
         this.setVariable('NaN', new StackVariableNumber(true, NaN));
         this.setVariable('Infinity', new StackVariableNumber(true, Infinity));
         this.setVariable('Math', new MathFunctions());
+        this.setVariable('String', new StringStaticFunctions());
         this.setVariable('DateTime', new StackVariableDateTime(undefined));
         this.setVariable('debug', new StackVariableFunction(new FunctionEntry('debug', undefined, (...args: unknown[]) => {
             //Это намеренно: встроенная функция debug() из скриптов выводит в консоль.
