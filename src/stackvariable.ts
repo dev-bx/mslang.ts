@@ -161,8 +161,20 @@ export class StackVariable {
             funcReturnType = (this as any)[methodName + 'Return'];
         }
 
+        //Если this — это Proxy от StackVariableRef (см. stackvariableref.getProxy),
+        //захватывать его в closure нельзя: ref завязан на запись в текущем scope
+        //(_variables / let-кадр). Когда первый вызов прошёл через Proxy на
+        //короткоживущей let-переменной (например, `let p = []; p.push(0); this.p = p;`
+        //в конструкторе класса), scope умирает, refValue становится undefined,
+        //и следующий вызов того же метода — даже на совсем другом объекте —
+        //падает с "Reflect.get called on non-object". Свойство `refValue`
+        //через Proxy специально отдаёт реальный объект (см. getProxy.get),
+        //у обычных StackVariable его нет — берём this как есть.
+        const refValueNow = (this as any).refValue;
+        const captured: StackVariable = (refValueNow instanceof StackVariable) ? refValueNow : (this as unknown as StackVariable);
+
         const entry = new FunctionEntry(name, funcReturnType, (...args: InvokeArguments[]) => {
-            return this.invokeMethod(entry, methodName, args);
+            return captured.invokeMethod(entry, methodName, args);
         });
 
         funcArguments.forEach(funcArgument => {
