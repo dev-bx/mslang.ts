@@ -1,0 +1,203 @@
+// === Реальный сценарий: расчёт корзины интернет-магазина ===
+//
+// Покрывает: классы, extends, super(...), instanceof неявно через
+// привязку instance, try/catch + throw, циклы, массивы, методы, this.
+// Логика осмысленная: иерархия скидок, налог, доставка, защита от
+// невалидного купона.
+//
+// Переменные циклов внутри методов и функций намеренно названы по-разному
+// (cartI / pdI / bdI / ctIdx) — это обход известной особенности MSLang:
+// присваивание переменной внутри функции ищет её во внешних scope
+// (closure-walk для замыканий), и одноимённое `i` в двух уровнях ломает
+// изоляцию.
+
+class Product {
+    constructor(sku, name, price, category) {
+        this.sku = sku;
+        this.name = name;
+        this.price = price;
+        this.category = category;
+    }
+}
+
+class CartItem {
+    constructor(product, qty) {
+        this.product = product;
+        this.qty = qty;
+    }
+    subtotal() {
+        return this.product.price * this.qty;
+    }
+}
+
+class Cart {
+    constructor() {
+        this.items = [];
+    }
+    add(product, qty) {
+        this.items.push(new CartItem(product, qty));
+    }
+    subtotal() {
+        cartSum = 0;
+        cartI = 0;
+        while (cartI < this.items.length) {
+            cartSum = cartSum + this.items[cartI].subtotal();
+            cartI = cartI + 1;
+        }
+        return cartSum;
+    }
+}
+
+class Customer {
+    constructor(name, tier) {
+        this.name = name;
+        this.tier = tier;
+    }
+}
+
+// --- Иерархия скидок ---
+
+class Discount {
+    constructor(name) { this.name = name; }
+    apply(cart, customer) { return 0; }
+}
+
+class PercentDiscount extends Discount {
+    constructor(name, percent, category) {
+        super(name);
+        this.percent = percent;
+        this.category = category;
+    }
+    apply(cart, customer) {
+        pdSum = 0;
+        pdI = 0;
+        while (pdI < cart.items.length) {
+            pdIt = cart.items[pdI];
+            if (this.category == null || pdIt.product.category == this.category) {
+                pdSum = pdSum + pdIt.subtotal();
+            }
+            pdI = pdI + 1;
+        }
+        return pdSum * this.percent / 100;
+    }
+}
+
+class FixedDiscount extends Discount {
+    constructor(name, amount, minTotal) {
+        super(name);
+        this.amount = amount;
+        this.minTotal = minTotal;
+    }
+    apply(cart, customer) {
+        if (cart.subtotal() >= this.minTotal) return this.amount;
+        return 0;
+    }
+}
+
+class BogoDiscount extends Discount {
+    // Купи N, получи M дешевле в подарок — в рамках одной категории.
+    constructor(name, category, buyN, getM) {
+        super(name);
+        this.category = category;
+        this.buyN = buyN;
+        this.getM = getM;
+    }
+    apply(cart, customer) {
+        bdQty = 0;
+        bdMin = -1;
+        bdI = 0;
+        while (bdI < cart.items.length) {
+            bdIt = cart.items[bdI];
+            if (bdIt.product.category == this.category) {
+                bdQty = bdQty + bdIt.qty;
+                if (bdMin < 0 || bdIt.product.price < bdMin) {
+                    bdMin = bdIt.product.price;
+                }
+            }
+            bdI = bdI + 1;
+        }
+        if (bdMin < 0) return 0;
+        bdSize = this.buyN + this.getM;
+        bdSets = (bdQty - (bdQty % bdSize)) / bdSize;
+        return bdSets * this.getM * bdMin;
+    }
+}
+
+class TierDiscount extends Discount {
+    constructor() { super("Loyalty tier"); }
+    apply(cart, customer) {
+        tdRate = 0;
+        if (customer.tier == "silver") tdRate = 3;
+        if (customer.tier == "gold")   tdRate = 7;
+        if (customer.tier == "vip")    tdRate = 12;
+        return cart.subtotal() * tdRate / 100;
+    }
+}
+
+class CouponDiscount extends Discount {
+    constructor(code, expected, percent) {
+        super("Coupon " + code);
+        this.code = code;
+        this.expected = expected;
+        this.percent = percent;
+    }
+    apply(cart, customer) {
+        if (this.code != this.expected) {
+            throw new Error("Invalid coupon: " + this.code);
+        }
+        return cart.subtotal() * this.percent / 100;
+    }
+}
+
+// --- Движок расчёта ---
+
+function computeTotal(cart, customer, discounts, taxRate, shippingFlat, freeShippingFrom) {
+    ctSub = cart.subtotal();
+    ctTotal = 0;
+    ctIdx = 0;
+    while (ctIdx < discounts.length) {
+        ctD = discounts[ctIdx];
+        try {
+            ctTotal = ctTotal + ctD.apply(cart, customer);
+        } catch (e) {
+            ctTotal = ctTotal + 0;   // невалидный купон — пропускаем
+        }
+        ctIdx = ctIdx + 1;
+    }
+
+    ctAfter = ctSub - ctTotal;
+    if (ctAfter < 0) ctAfter = 0;
+
+    ctTax = ctAfter * taxRate / 100;
+
+    ctShip = shippingFlat;
+    if (ctAfter >= freeShippingFrom) ctShip = 0;
+
+    return ctAfter + ctTax + ctShip;
+}
+
+// --- Запуск ---
+
+laptop  = new Product("LAP01", "Laptop X1",          89990, "laptop");
+appCase = new Product("APL01", "iPhone case",         4990, "accessory");
+mouse   = new Product("MOU01", "Wireless mouse",      2990, "accessory");
+charger = new Product("CHG01", "USB-C charger",       1990, "accessory");
+
+cart = new Cart();
+cart.add(laptop,  1);
+cart.add(appCase, 2);
+cart.add(mouse,   1);
+cart.add(charger, 1);
+
+cust = new Customer("Anna", "gold");
+
+discounts = [
+    new PercentDiscount("10% accessories", 10, "accessory"),
+    new FixedDiscount("500 off when over 50000",   500, 50000),
+    new BogoDiscount("BOGO accessories", "accessory", 3, 1),
+    new TierDiscount(),
+    new CouponDiscount("SUMMER25", "SUMMER25", 5),
+    new CouponDiscount("FAKE",     "REAL",    50)
+];
+
+return computeTotal(cart, cust, discounts, 20, 990, 100000);
