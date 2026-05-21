@@ -58,6 +58,9 @@ export const LexerType = {
     'ltExtends': 49,
     'ltSuper': 50,
     'ltInstanceof': 51,
+    'ltLet': 52,
+    'ltVar': 53,
+    'ltConst': 54,
 }
 
 export class FullTokenInfo {
@@ -627,6 +630,21 @@ export class CodeLexer extends Lexer {
 
         if (this._tokenValue === "instanceof") {
             this._tokenSym = LexerType.ltInstanceof;
+            return;
+        }
+
+        if (this._tokenValue === "let") {
+            this._tokenSym = LexerType.ltLet;
+            return;
+        }
+
+        if (this._tokenValue === "var") {
+            this._tokenSym = LexerType.ltVar;
+            return;
+        }
+
+        if (this._tokenValue === "const") {
+            this._tokenSym = LexerType.ltConst;
             return;
         }
 

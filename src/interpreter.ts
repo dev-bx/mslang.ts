@@ -11,6 +11,7 @@ import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableFunction} from "./stackvariablefunction";
 import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableClass} from "./stackvariableclass";
+import {StackVariableTDZ} from "./stackvariabletdz";
 import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
 import {StackVariableDateTime} from "./stackvariabledatetime";
@@ -73,6 +74,12 @@ const InterpreterNodeType = {
      * значение, возвращённое методом, идёт наверх как обычно.
      */
     'ntSuperMethodCallFinish': 1032,
+    /**
+     * Финиш `let|var|const name = expr;` — после вычисления инициализатора
+     * снимает его со стека и записывает в нужный scope (блочный для let/const,
+     * функциональный для var), заменяя TDZ-sentinel.
+     */
+    'ntVarDeclFinish': 1033,
 }
 
 export class InterpreterNode extends ParseNode {
@@ -363,6 +370,13 @@ export class Interpreter {
 
         this.registerNodeHandler(NodeType.ntInstanceof, (...args: Parameters<TNodeHandler>) => {
             this.instanceofHandler(...args)
+        });
+
+        this.registerNodeHandler(NodeType.ntVarDecl, (...args: Parameters<TNodeHandler>) => {
+            this.varDeclHandler(...args)
+        });
+        this.registerNodeHandler(InterpreterNodeType.ntVarDeclFinish, (...args: Parameters<TNodeHandler>) => {
+            this.varDeclFinishHandler(...args)
         });
 
         this.registerNodeHandler(NodeType.ntArray, (...args: Parameters<TNodeHandler>) => {
@@ -1080,6 +1094,17 @@ export class Interpreter {
         if (typeof token.nValue !== 'string')
         {
             throw new InterpreterException('variable name must be string');
+        }
+
+        //TDZ для let/const: переменная объявлена в текущем блоке, но строка
+        //декларации ещё не выполнена — sentinel лежит в _variables. Чтение
+        //должно сразу падать с понятным сообщением, не создавая Ref.
+        const direct = context.getVariable(token.nValue);
+        if (direct instanceof StackVariableTDZ) {
+            throw new InterpreterException(
+                "Cannot access '" + token.nValue + "' before initialization",
+                token.cursorPos,
+            );
         }
 
         const variable = context.getVariableRef(token.nValue);
@@ -2029,6 +2054,80 @@ export class Interpreter {
                 continue;
             }
         }
+
+        //Hoisting var-объявлений: рекурсивно по всем вложенным блокам внутри
+        //текущей функции, без захода в вложенные функции/методы. Каждая
+        //переменная создаётся в _variables со значением undefined.
+        this.hoistVars(context, nodes);
+
+        //Hoisting let/const-объявлений: только текущий блок (без захода во
+        //вложенные blocks/if/for/while/try). Создаём TDZ-sentinel и помечаем
+        //имя в letNames — чтобы при popExecutionStack переменная не утекла.
+        this.hoistLetConst(context, nodes);
+    }
+
+    /**
+     * Hoisting var-объявлений (JS-семантика): рекурсивно обходим текущий блок
+     * и все вложенные блочные конструкции (if/else/for/while/switch/try/catch/
+     * finally) — НО НЕ заходим внутрь вложенных функций/классов, у них свой
+     * function scope.
+     *
+     * Для каждой найденной `ntVarDecl` с kind='var' создаём переменную с
+     * undefined в текущем функциональном scope.
+     */
+    hoistVars(context: ContextInterpreter, nodes: Array<ParseNode | ParseNode[]>) {
+        for (const node of nodes) {
+            if (!(node instanceof ParseNode)) continue;
+            //Вложенные функции/классы пропускаем — у них свой scope для var.
+            if (node.nType === NodeType.ntFunctionDef) continue;
+            if (node.nType === NodeType.ntClassDecl) continue;
+
+            if (node.nType === NodeType.ntVarDecl && node.nValue2 === 'var') {
+                const name = String(node.nValue);
+                if (name === '') continue;
+                //Уже объявлена (let/const до или сам var повторно) — пропускаем,
+                //runtime varDeclHandler сам перезапишет значение при выполнении.
+                if (!(name in context._variables)) {
+                    context._variables[name] = new StackVariableUndefined(false);
+                }
+                continue;
+            }
+
+            //Рекурсивный спуск по childItems всех блочных узлов.
+            //childItems может содержать как ParseNode, так и вложенные
+            //list<ParseNode> (см. ntBracketSetKey); hoistVars игнорирует
+            //не-ParseNode на верхнем уровне рекурсии.
+            if (node.childItems) {
+                this.hoistVars(context, node.childItems);
+            }
+        }
+    }
+
+    /**
+     * Hoisting let/const-объявлений в текущем блоке. В отличие от var,
+     * НЕ заходит внутрь вложенных блочных узлов (subCode/if/while/for/try/...)
+     * — у них свой block scope, и там этим займётся `pushExecutionStack`
+     * со своим вызовом `hoistFunctions` → `hoistLetConst`.
+     */
+    hoistLetConst(context: ContextInterpreter, nodes: Array<ParseNode | ParseNode[]>) {
+        for (const node of nodes) {
+            if (!(node instanceof ParseNode)) continue;
+            if (node.nType !== NodeType.ntVarDecl) continue;
+            const kind = String(node.nValue2);
+            if (kind !== 'let' && kind !== 'const') continue;
+            const name = String(node.nValue);
+            if (name === '') continue;
+            //Запрет переобъявления: let/const с тем же именем в том же блоке.
+            if (context._letNames[name] === true) {
+                throw new InterpreterException(
+                    "Identifier '" + name + "' has already been declared in this block",
+                    node.cursorPos,
+                );
+            }
+            const sentinel = new StackVariableTDZ(name);
+            context._variables[name] = sentinel;
+            context._letNames[name] = true;
+        }
     }
 
     /**
@@ -2875,6 +2974,156 @@ export class Interpreter {
 
         context.pushStackVar(new StackVariableBoolean(false, false));
     }
+
+    /**
+     * Обработчик `let|var|const name [= expr];`. Если инициализатора нет,
+     * сразу записываем значение по умолчанию (undefined для var/let, для
+     * const парсер этот случай отверг). Иначе открываем sub-кадр, ставим
+     * выражение на выполнение, после него `ntVarDeclFinish` снимает значение
+     * со стека и записывает его в переменную.
+     */
+    varDeclHandler(context: ContextInterpreter, token: ParseNode) {
+        const kind = String(token.nValue2);
+        const name = String(token.nValue);
+
+        if (!token.childItems || token.childItems.length === 0) {
+            //Без инициализатора. Для const парсер уже бросил раньше — страховка.
+            if (kind === 'const') {
+                throw new InterpreterException(
+                    "'const' declaration of \"" + name + "\" requires an initializer",
+                    token.cursorPos,
+                );
+            }
+            const value = new StackVariableUndefined(false);
+            this.writeVarDecl(context, name, kind, value, token);
+            return;
+        }
+
+        //Есть инициализатор. Открываем sub-кадр для выражения.
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntVarDeclFinish;
+        finish.nValue = name;
+        finish.nValue2 = kind;
+        context._codeItems.push(finish);
+    }
+
+    varDeclFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        let value: StackVariable = context.popStackVar();
+        if (value instanceof StackVariableRef) {
+            value = value.refValue as StackVariable;
+        }
+
+        context.popExecutionStack();
+
+        const name = String(token.nValue);
+        const kind = String(token.nValue2);
+
+        //Для примитивов — копия (как для параметров функций), чтобы потом
+        //присваивание исходной переменной не утащило за собой нашу.
+        const type = value.type;
+        if (type !== VariableType.vtObject && type !== VariableType.vtArray) {
+            value = context.createVariable(type, value.value);
+        }
+
+        this.writeVarDecl(context, name, kind, value, token);
+    }
+
+    /**
+     * Общая запись результата var/let/const-декларации в нужный scope.
+     * - var: пишет в ближайший функциональный кадр (`_executionStack` где
+     *   `isFunctionScope === true`), либо, если такого нет, в текущий
+     *   (top-level) scope.
+     * - let/const: пишет в текущий блок, заменяет TDZ-sentinel. Регистрирует
+     *   имя в `_letNames` — чтобы при popExecutionStack значение не утекло.
+     * - const: пересоздаётся как isConst=true — повторное присваивание через
+     *   `name = x` падает с 'Cannot override constant'.
+     */
+    protected writeVarDecl(
+        context: ContextInterpreter,
+        name: string,
+        kind: string,
+        value: StackVariable,
+        _token: ParseNode,
+    ): void {
+        if (kind === 'var') {
+            //Var всегда живёт в функциональном scope. Если мы внутри блока
+            //(if/while/for/try) уровня функции, нам нужно записать в кадр
+            //функции, а не в текущий блок.
+            const functionVars = this.locateFunctionScopeVars(context);
+            if (functionVars === null) {
+                //Top-level: текущий _variables и есть глобальный scope.
+                context._variables[name] = value;
+            } else {
+                //Записываем в нужный кадр _executionStack.
+                functionVars[name] = value;
+                //Текущий блочный _variables тоже обновляем — иначе getVariable
+                //увидит «hoisted undefined» из родителя.
+                context._variables[name] = value;
+            }
+            return;
+        }
+
+        let stored: StackVariable;
+        if (kind === 'const') {
+            stored = this.makeConstCopy(value);
+        } else {
+            stored = value;
+        }
+
+        context._variables[name] = stored;
+        //Регистрируем как блочную переменную: не утечёт в parent при pop.
+        context._letNames[name] = true;
+    }
+
+    /**
+     * Ищет в `_executionStack` ближайший вверх кадр функции (isFunctionScope).
+     * Возвращает ссылку на его словарь `variables` или null, если такого
+     * кадра нет (мы на top-level, нет вложенной функции).
+     */
+    protected locateFunctionScopeVars(context: ContextInterpreter): Record<string, StackVariable> | null {
+        for (let i = context._executionStack.length - 1; i >= 0; i--) {
+            if (context._executionStack[i].isFunctionScope === true) {
+                return context._executionStack[i].variables;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Делает const-копию: тот же тип/значение, но isConst=true.
+     * Объекты/массивы/функции остаются по ссылке — const-объект значит
+     * запрет на переприсваивание самой переменной, поля можно менять (как в JS).
+     */
+    protected makeConstCopy(value: StackVariable): StackVariable {
+        const type = value.type;
+        if (type === VariableType.vtObject || type === VariableType.vtArray || type === VariableType.vtFunction) {
+            //Ставим флаг через прямое присваивание приватного _isConst —
+            //это наш собственный класс, безопасно.
+            (value as unknown as {_isConst: boolean})._isConst = true;
+            return value;
+        }
+        //vtNumber/vtInteger/vtFloat все равны 3 — match по ним даёт алиасы,
+        //сравниваем по vtNumber.
+        if (type === VariableType.vtNumber) {
+            return new StackVariableNumber(true, Number(value.value));
+        }
+        switch (type) {
+            case VariableType.vtString:
+                return new StackVariableString(true, String(value.value));
+            case VariableType.vtBoolean:
+                return new StackVariableBoolean(true, Boolean(value.value));
+            case VariableType.vtNull:
+                return new StackVariableNull(true);
+            case VariableType.vtUndefined:
+                return new StackVariableUndefined(true);
+            default:
+                return value;
+        }
+    }
 }
 
 export const ContextType = {
@@ -2901,6 +3150,7 @@ interface ExecutionStackItem {
     currentThis?: StackVariable | null;
     currentMethodOwner?: StackVariableClass | null;
     isCtorTDZ?: boolean;
+    letNames?: Record<string, boolean>;
 }
 
 export class ContextInterpreter {
@@ -2953,6 +3203,16 @@ export class ContextInterpreter {
      * к `this` должно бросить ошибку. После первого `super(...)` сбрасывается.
      */
     _isCtorTDZ: boolean = false;
+
+    /**
+     * Имена переменных, объявленных в текущем блоке через `let` или `const`.
+     * Используется в двух местах:
+     * 1) popExecutionStack — эти имена не копируются обратно в parent scope
+     *    (block scope: `let x` внутри `{ ... }` не утекает наружу).
+     * 2) setVariable / varDecl — позволяет различать «локальная let-переменная
+     *    того же scope» от «совпадение имени с переменной родителя».
+     */
+    _letNames: Record<string, boolean> = {};
 
     // Ограничение количества инструкций выполнения. 0 — без ограничений.
     // Зеркало PHP limitExecInstruction + instructionCounter.
@@ -3039,11 +3299,14 @@ export class ContextInterpreter {
             currentThis: this._currentThis,
             currentMethodOwner: this._currentMethodOwner,
             isCtorTDZ: this._isCtorTDZ,
+            letNames: this._letNames,
         });
 
         //this и methodOwner наследуются в блок/цикл/sub-выражение — это нужно,
         //чтобы внутри тела метода `if (cond) { super.foo(); }` ссылка на
         //родителя класса-владельца была видна так же, как this.
+        //letNames сбрасывается: новый блок начинает свой block scope для let/const.
+        this._letNames = {};
 
         this._variables = Object.assign({}, this._variables);
         this._functions = Object.assign({}, this._functions);
@@ -3066,6 +3329,12 @@ export class ContextInterpreter {
             throw new MSLangException('Failed to pop execution stack');
         }
 
+        //Имена, которые этот блок объявил как let/const. Их значения в parent
+        //копировать НЕЛЬЗЯ: block scope требует, чтобы переменная не утекала
+        //наружу, а если в parent уже было поле с таким же именем, оно должно
+        //сохранить своё значение (let лишь временно перекрыл его).
+        const blockLetNames = this._letNames;
+
         if (saveVariables !== true) {
             const tmp = this._variables;
 
@@ -3073,6 +3342,11 @@ export class ContextInterpreter {
 
             Object.keys(this._variables).forEach(k => {
                 if (this._variables[k].isConst)
+                    return;
+
+                //let/const блока: значение из tmp в parent не копируем.
+                //Внешняя переменная с тем же именем (если была) сохраняется.
+                if (blockLetNames[k] === true)
                     return;
 
                 //Если внутри scope переменную не трогали (например, она была обновлена
@@ -3105,6 +3379,7 @@ export class ContextInterpreter {
         this._currentThis = data.currentThis ?? null;
         this._currentMethodOwner = data.currentMethodOwner ?? null;
         this._isCtorTDZ = data.isCtorTDZ ?? false;
+        this._letNames = data.letNames ?? {};
     }
 
     /**
@@ -3128,6 +3403,7 @@ export class ContextInterpreter {
             currentThis: this._currentThis,
             currentMethodOwner: this._currentMethodOwner,
             isCtorTDZ: this._isCtorTDZ,
+            letNames: this._letNames,
         });
 
         //Внутри функции — пустое имя-пространство для локальных переменных и параметров.
@@ -3143,6 +3419,8 @@ export class ContextInterpreter {
         this._currentThis = null;
         this._currentMethodOwner = null;
         this._isCtorTDZ = false;
+        //Каждый функциональный scope начинает свой block scope для let/const.
+        this._letNames = {};
     }
 
     /**
@@ -3169,6 +3447,7 @@ export class ContextInterpreter {
         this._currentThis = data.currentThis ?? null;
         this._currentMethodOwner = data.currentMethodOwner ?? null;
         this._isCtorTDZ = data.isCtorTDZ ?? false;
+        this._letNames = data.letNames ?? {};
     }
 
     addWarning(message: string): void {

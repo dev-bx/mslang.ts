@@ -2558,3 +2558,320 @@ test('076_FunctionCtorReturnsInstance', (t) => {
     `);
     assert.strictEqual(42, returnVal?.value);
 });
+
+// ===== 077: let / var / const =====
+
+test('077_LetSimple', () => {
+    const r = executeReturnCode('let x = 5; return x;');
+    assert.strictEqual(5, r?.value);
+});
+
+test('077_LetWithoutInitIsUndefined', () => {
+    const r = executeReturnCode('let x; return x;');
+    assert.strictEqual(VariableType.vtUndefined, r?.type);
+});
+
+test('077_LetMultipleInOneStatement', () => {
+    const r = executeReturnCode('let a = 1, b = 2, c = 3; return a + b + c;');
+    assert.strictEqual(6, r?.value);
+});
+
+test('077_LetBlockScopeInsideIf', () => {
+    const r = executeReturnCode('let x = 1; if (true) { let x = 99; } return x;');
+    assert.strictEqual(1, r?.value);
+});
+
+test('077_LetBlockScopeStandalone', () => {
+    assert.throws(() => {
+        executeReturnCode('if (true) { let z = 5; } return z;');
+    }, /variable not defined z/);
+});
+
+test('077_LetInWhile', () => {
+    const r = executeReturnCode(`
+        let sum = 0;
+        let i = 0;
+        while (i < 5) {
+            let step = i + 1;
+            sum = sum + step;
+            i = i + 1;
+        }
+        return sum;
+    `);
+    assert.strictEqual(15, r?.value);
+});
+
+test('077_LetTDZRead', () => {
+    assert.throws(() => {
+        executeReturnCode('return x; let x = 5;');
+    }, /Cannot access 'x' before initialization/);
+});
+
+test('077_LetTDZReadInFunction', () => {
+    assert.throws(() => {
+        executeReturnCode('function f() { return x; let x = 42; } return f();');
+    }, /Cannot access 'x' before initialization/);
+});
+
+test('077_LetRedeclarationInSameBlockFails', () => {
+    assert.throws(() => {
+        executeReturnCode('let x = 1; let x = 2; return x;');
+    }, /Identifier 'x' has already been declared/);
+});
+
+test('077_LetRedeclarationAcrossBlocksOK', () => {
+    const r = executeReturnCode(`
+        let r = 0;
+        if (true) {
+            let r = 10;
+        }
+        if (true) {
+            let r = 20;
+        }
+        return r;
+    `);
+    assert.strictEqual(0, r?.value);
+});
+
+// ===== const =====
+
+test('077_ConstSimple', () => {
+    const r = executeReturnCode('const x = 7; return x;');
+    assert.strictEqual(7, r?.value);
+});
+
+test('077_ConstAssignmentFails', () => {
+    assert.throws(() => {
+        executeReturnCode('const x = 7; x = 8; return x;');
+    }, /Cannot override constant/);
+});
+
+test('077_ConstRequiresInitializer', () => {
+    assert.throws(() => {
+        executeReturnCode('const x; return 0;');
+    }, /'const' declaration of "x" requires an initializer/);
+});
+
+test('077_ConstObjectFieldsCanChange', () => {
+    const r = executeReturnCode(`
+        class C { constructor() { this.v = 0; } }
+        const c = new C();
+        c.v = 42;
+        return c.v;
+    `);
+    assert.strictEqual(42, r?.value);
+});
+
+test('077_ConstRedeclarationInSameBlockFails', () => {
+    assert.throws(() => {
+        executeReturnCode('const x = 1; const x = 2; return x;');
+    }, /Identifier 'x' has already been declared/);
+});
+
+test('077_LetThenConstSameNameFails', () => {
+    assert.throws(() => {
+        executeReturnCode('let x = 1; const x = 2; return x;');
+    }, /Identifier 'x' has already been declared/);
+});
+
+// ===== var =====
+
+test('077_VarSimple', () => {
+    const r = executeReturnCode('var x = 5; return x;');
+    assert.strictEqual(5, r?.value);
+});
+
+test('077_VarHoistingReturnsUndefined', () => {
+    const r = executeReturnCode('function f() { return x; var x = 42; } return f();');
+    assert.strictEqual(VariableType.vtUndefined, r?.type);
+});
+
+test('077_VarInsideIfLeaksOut', () => {
+    const r = executeReturnCode(`
+        function f() {
+            if (true) {
+                var y = 99;
+            }
+            return y;
+        }
+        return f();
+    `);
+    assert.strictEqual(99, r?.value);
+});
+
+test('077_VarRedeclarationOK', () => {
+    const r = executeReturnCode('var x = 1; var x = 2; return x;');
+    assert.strictEqual(2, r?.value);
+});
+
+test('077_VarInLoop', () => {
+    const r = executeReturnCode(`
+        function f() {
+            var sum = 0;
+            var i = 0;
+            while (i < 4) {
+                sum = sum + i;
+                i = i + 1;
+            }
+            return sum;
+        }
+        return f();
+    `);
+    assert.strictEqual(6, r?.value);
+});
+
+test('077_VarHoistedThroughNestedBlocks', () => {
+    const r = executeReturnCode(`
+        function f() {
+            if (true) {
+                if (true) {
+                    if (true) {
+                        var deep = 7;
+                    }
+                }
+            }
+            return deep;
+        }
+        return f();
+    `);
+    assert.strictEqual(7, r?.value);
+});
+
+test('077_VarStaysInsideFunction', () => {
+    const r = executeReturnCode(`
+        function outer() {
+            function inner() {
+                var inside = 100;
+            }
+            inner();
+            return 0;
+        }
+        return outer();
+    `);
+    assert.strictEqual(0, r?.value);
+});
+
+// ===== Совместимость со старым кодом =====
+
+test('077_LegacyImplicitAssignmentStillWorks', () => {
+    const r = executeReturnCode('x = 1; y = 2; return x + y;');
+    assert.strictEqual(3, r?.value);
+});
+
+test('077_LegacyClosureWalkStillWorks', () => {
+    const r = executeReturnCode(`
+        function outer() {
+            n = 100;
+            function bump() { n = n + 1; return n; }
+            return bump();
+        }
+        return outer();
+    `);
+    assert.strictEqual(101, r?.value);
+});
+
+test('077_LetFixesClosureWalkBug', () => {
+    const r = executeReturnCode(`
+        function inner(n) {
+            let i = 0;
+            while (i < n) i = i + 1;
+            return i;
+        }
+        function outer() {
+            let i = 0;
+            let count = 0;
+            while (i < 3) {
+                inner(10);
+                count = count + 1;
+                i = i + 1;
+            }
+            return count;
+        }
+        return outer();
+    `);
+    assert.strictEqual(3, r?.value);
+});
+
+// ===== Вложенность и комбинации =====
+
+test('077_LetInsideClassMethod', () => {
+    const r = executeReturnCode(`
+        class C {
+            run() {
+                let a = 10;
+                let b = 20;
+                return a + b;
+            }
+        }
+        return new C().run();
+    `);
+    assert.strictEqual(30, r?.value);
+});
+
+test('077_ConstWithExpressionInit', () => {
+    const r = executeReturnCode(`
+        const a = 1;
+        const b = 2;
+        const c = a + b + 10;
+        return c;
+    `);
+    assert.strictEqual(13, r?.value);
+});
+
+test('077_LetInForBody', () => {
+    const r = executeReturnCode(`
+        sum = 0;
+        for (i = 0; i < 5; i++) {
+            let step = i + 1;
+            sum = sum + step;
+        }
+        return sum;
+    `);
+    assert.strictEqual(15, r?.value);
+});
+
+test('077_TryCatchLetVisibility', () => {
+    const r = executeReturnCode(`
+        let result = "before";
+        try {
+            let x = 1;
+            throw "oops";
+        } catch (e) {
+            result = "caught";
+        }
+        return result;
+    `);
+    assert.strictEqual('caught', r?.value);
+});
+
+test('077_LetInsideCatchBlock', () => {
+    assert.throws(() => {
+        executeReturnCode(`
+            try {
+                throw "x";
+            } catch (e) {
+                let inside = 42;
+            }
+            return inside;
+        `);
+    }, /variable not defined inside/);
+});
+
+test('077_DeepNestedLetIsolation', () => {
+    const r = executeReturnCode(`
+        let acc = 0;
+        let i = 0;
+        while (i < 2) {
+            let j = 0;
+            while (j < 3) {
+                let k = j * 10 + i;
+                acc = acc + k;
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        return acc;
+    `);
+    // (i=0): 0+10+20=30; (i=1): 1+11+21=33. Итого 63.
+    assert.strictEqual(63, r?.value);
+});
