@@ -565,3 +565,84 @@ test('Bug22_FloatIndexAssignWithMathFloor', () => {
     `);
     assert.strictEqual(99, r?.value);
 });
+
+// === Расширение языка для BMP/3D (Feat23-31) ===
+//
+// Девять связанных фич, добавленных одним пакетом: битовые `|`/`^`/`<<`/`>>`/`>>>`,
+// compound-assign `+=`/`-=`/`*=`/`/=`/`%=`, тернарный `?:`, стандартный
+// `for(init;cond;incr)`, `for-of`, `charCodeAt`/`String.fromCharCode`,
+// `Math.trunc`/`Math.sign`, `Array.fill`/`Array.includes`, rest-параметры
+// `function f(...args)`.
+
+test('Feat23_BitwiseOps', () => {
+    assert.strictEqual(5,   executeReturnCode('return 1 | 4;')?.value);
+    assert.strictEqual(240, executeReturnCode('return 0xFF ^ 0x0F;')?.value);
+    assert.strictEqual(256, executeReturnCode('return 1 << 8;')?.value);
+    assert.strictEqual(4,   executeReturnCode('return 16 >> 2;')?.value);
+    assert.strictEqual(4294967295, executeReturnCode('let x = -1; return x >>> 0;')?.value);
+    //Упаковка 24-bit RGB как в BMP.
+    assert.strictEqual(0x123456, executeReturnCode('let r = 0x12; let g = 0x34; let b = 0x56; return (r << 16) | (g << 8) | b;')?.value);
+});
+
+test('Feat24_CompoundAssign', () => {
+    assert.strictEqual(8,  executeReturnCode('let a = 5;  a += 3; return a;')?.value);
+    assert.strictEqual(7,  executeReturnCode('let a = 10; a -= 3; return a;')?.value);
+    assert.strictEqual(20, executeReturnCode('let a = 5;  a *= 4; return a;')?.value);
+    assert.strictEqual(5,  executeReturnCode('let a = 20; a /= 4; return a;')?.value);
+    assert.strictEqual(2,  executeReturnCode('let a = 17; a %= 5; return a;')?.value);
+    assert.strictEqual('abcd', executeReturnCode('let s = "ab"; s += "cd"; return s;')?.value);
+    assert.strictEqual('x5',   executeReturnCode('let s = "x";  s += 5;    return s;')?.value);
+});
+
+test('Feat25_Ternary', () => {
+    assert.strictEqual('y',  executeReturnCode('return true ? "y" : "n";')?.value);
+    assert.strictEqual('n',  executeReturnCode('return false ? "y" : "n";')?.value);
+    assert.strictEqual(20,   executeReturnCode('let n = 10; return n > 5 ? n * 2 : -n;')?.value);
+    assert.strictEqual(3,    executeReturnCode('let x = -3; return x < 0 ? -x : x;')?.value);
+    assert.strictEqual('ok', executeReturnCode('let n = 5; return n > 0 && n < 10 ? "ok" : "no";')?.value);
+});
+
+test('Feat26_ForStandardWithLet', () => {
+    assert.strictEqual(10, executeReturnCode('let s = 0; for (let i = 0; i < 5; i++) { s = s + i; } return s;')?.value);
+    assert.strictEqual(6,  executeReturnCode('let t = 0; for (var j = 0; j < 4; j++) { t += j; } return t;')?.value);
+});
+
+test('Feat27_ForOf', () => {
+    assert.strictEqual(10, executeReturnCode('let s = 0; for (let x of [1, 2, 3, 4]) { s = s + x; } return s;')?.value);
+    assert.strictEqual(60, executeReturnCode('let arr = [10, 20, 30]; let t = 0; for (let v of arr) { t += v; } return t;')?.value);
+    assert.strictEqual(9,  executeReturnCode('let s = 0; for (let x of [1, 2, 3, 4, 5]) { if (x % 2 == 0) continue; s = s + x; } return s;')?.value);
+    assert.strictEqual(3,  executeReturnCode('let s = 0; for (let x of [1, 2, 3, 4, 5]) { if (x == 3) break; s += x; } return s;')?.value);
+    assert.strictEqual('abc', executeReturnCode('let s = ""; for (let c of ["a", "b", "c"]) { s += c; } return s;')?.value);
+});
+
+test('Feat28_StringCharCodeAt', () => {
+    assert.strictEqual(65,  executeReturnCode('return "ABC".charCodeAt(0);')?.value);
+    assert.strictEqual(101, executeReturnCode('return "hello".charCodeAt(1);')?.value);
+    assert.strictEqual('A', executeReturnCode('return "ABC".charAt(0);')?.value);
+});
+
+test('Feat28_StringFromCharCode', () => {
+    assert.strictEqual('ABC', executeReturnCode('return String.fromCharCode(65, 66, 67);')?.value);
+    assert.strictEqual('hi',  executeReturnCode('return String.fromCharCode(104, 105);')?.value);
+});
+
+test('Feat29_MathTruncSign', () => {
+    assert.strictEqual(2,  executeReturnCode('return Math.trunc(2.7);')?.value);
+    assert.strictEqual(-2, executeReturnCode('return Math.trunc(-2.7);')?.value);
+    assert.strictEqual(1,  executeReturnCode('return Math.sign(5);')?.value);
+    assert.strictEqual(-1, executeReturnCode('return Math.sign(-3.5);')?.value);
+    assert.strictEqual(0,  executeReturnCode('return Math.sign(0);')?.value);
+});
+
+test('Feat30_ArrayFillIncludes', () => {
+    assert.strictEqual('7,7,7,7', executeReturnCode('let a = [0,0,0,0]; a.fill(7); return a.join(",");')?.value);
+    assert.strictEqual('0,9,9,0', executeReturnCode('let a = [0,0,0,0]; a.fill(9, 1, 3); return a.join(",");')?.value);
+    assert.strictEqual(true,  executeReturnCode('return [1, 2, 3].includes(2);')?.value);
+    assert.strictEqual(false, executeReturnCode('return [1, 2, 3].includes(99);')?.value);
+});
+
+test('Feat31_RestParameters', () => {
+    assert.strictEqual(15, executeReturnCode('function sum(...args) { let s = 0; for (let v of args) { s += v; } return s; } return sum(1, 2, 3, 4, 5);')?.value);
+    assert.strictEqual('test:3', executeReturnCode('function info(name, ...rest) { return name + ":" + rest.length; } return info("test", 1, 2, 3);')?.value);
+    assert.strictEqual(0, executeReturnCode('function f(...a) { return a.length; } return f();')?.value);
+});

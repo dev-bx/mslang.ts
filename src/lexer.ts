@@ -61,6 +61,22 @@ export const LexerType = {
     'ltLet': 52,
     'ltVar': 53,
     'ltConst': 54,
+    //Битовые операции (расширение базового ltBitAnd).
+    'ltBitOr': 55,
+    'ltBitXor': 56,
+    'ltShiftLeft': 57,
+    'ltShiftRight': 58,
+    'ltUShiftRight': 59,
+    //Compound-assignment.
+    'ltPlusAssign': 60,
+    'ltMinusAssign': 61,
+    'ltMulAssign': 62,
+    'ltDivAssign': 63,
+    'ltModAssign': 64,
+    //Тернарный.
+    'ltQuestion': 65,
+    //Контекстное ключевое слово `of` для for (X of iterable).
+    'ltOf': 66,
 }
 
 export class FullTokenInfo {
@@ -232,6 +248,32 @@ export class Lexer {
 
         return ch === '0' || ch === '1';
     }
+
+    /**
+     * Сохраняет состояние лексера для lookahead-парсинга. Используется в
+     * parseFor для различения стандартного for и for-of.
+     *
+     * Зеркало PHP-эталона Lexer::saveState.
+     */
+    saveState(): Record<string, unknown> {
+        return {
+            textPos: this._textPos,
+            lastChar: this._lastChar,
+            lastCursorLine: this._lastCursorLine,
+            lastCursorCol: this._lastCursorCol,
+            cursorLine: this._cursorLine,
+            cursorCol: this._cursorCol,
+        };
+    }
+
+    restoreState(state: Record<string, unknown>): void {
+        this._textPos = state.textPos as number;
+        this._lastChar = state.lastChar as (string | null);
+        this._lastCursorLine = state.lastCursorLine as number;
+        this._lastCursorCol = state.lastCursorCol as number;
+        this._cursorLine = state.cursorLine as number;
+        this._cursorCol = state.cursorCol as number;
+    }
 }
 
 export class TokenCursor {
@@ -306,6 +348,23 @@ export class CodeLexer extends Lexer {
 
     getPCHValue(pch: unknown): string {
         throw new LexerException('Not applicable');
+    }
+
+    /**
+     * Расширение Lexer.saveState — добавляет токен-state (символ + значение).
+     * Зеркало PHP CodeLexer::saveState.
+     */
+    saveState(): Record<string, unknown> {
+        const state = super.saveState();
+        state.tokenSym = this._tokenSym;
+        state.tokenValue = this._tokenValue;
+        return state;
+    }
+
+    restoreState(state: Record<string, unknown>): void {
+        super.restoreState(state);
+        if ('tokenSym' in state) this._tokenSym = state.tokenSym as number;
+        if ('tokenValue' in state) this._tokenValue = state.tokenValue as string;
     }
 
     /**
@@ -393,36 +452,78 @@ export class CodeLexer extends Lexer {
                 if (this.whoNextCh() === '+') {
                     this.getCh();
                     this._tokenSym = LexerType.ltShortIncrement;
+                } else if (this.whoNextCh() === '=') {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltPlusAssign;
                 } else {
                     this._tokenSym = LexerType.ltPlus;
                 }
-
                 return;
             case '-':
                 if (this.whoNextCh() === '-') {
                     this.getCh();
                     this._tokenSym = LexerType.ltShortDecrement;
                     return;
+                } else if (this.whoNextCh() === '=') {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltMinusAssign;
+                    return;
                 } else {
                     this._tokenSym = LexerType.ltMinus;
                     return;
                 }
             case '/':
-                this._tokenSym = LexerType.ltDiv;
+                if (this.whoNextCh() === '=') {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltDivAssign;
+                } else {
+                    this._tokenSym = LexerType.ltDiv;
+                }
                 return;
             case '*':
-                this._tokenSym = LexerType.ltMul;
+                if (this.whoNextCh() === '=') {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltMulAssign;
+                } else {
+                    this._tokenSym = LexerType.ltMul;
+                }
                 return;
             case '%':
-                this._tokenSym = LexerType.ltMod;
+                if (this.whoNextCh() === '=') {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltModAssign;
+                } else {
+                    this._tokenSym = LexerType.ltMod;
+                }
                 return;
             case ',':
                 this._tokenSym = LexerType.ltComma;
                 return;
+            case '^':
+                this._tokenSym = LexerType.ltBitXor;
+                return;
+            case '?':
+                this._tokenSym = LexerType.ltQuestion;
+                return;
         }
 
         if (this._lastChar === '<' || this._lastChar === '>') {
-            this._tokenValue += this._lastChar;
+            const opChar = this._lastChar;
+            this._tokenValue += opChar;
+
+            //Битовые сдвиги: '<<', '>>', '>>>'.
+            if (this.whoNextCh() === opChar) {
+                this._tokenValue += this.getCh();
+                if (opChar === '>' && this.whoNextCh() === '>') {
+                    this._tokenValue += this.getCh();
+                    this._tokenSym = LexerType.ltUShiftRight;
+                    return;
+                }
+                this._tokenSym = (opChar === '<')
+                    ? LexerType.ltShiftLeft
+                    : LexerType.ltShiftRight;
+                return;
+            }
 
             if (this.whoNextCh() === '=')
                 this._tokenValue += this.getCh();
@@ -488,10 +589,16 @@ export class CodeLexer extends Lexer {
             return;
         }
 
-        if (this.lastChar === '|' && this.whoNextCh() === '|') {
-            this.getCh();
+        if (this.lastChar === '|') {
+            if (this.whoNextCh() === '|') {
+                this.getCh();
+                this._tokenValue = "";
+                this._tokenSym = LexerType.ltCompareOr;
+                return;
+            }
+            //Одиночный '|' — побитовое ИЛИ.
             this._tokenValue = "";
-            this._tokenSym = LexerType.ltCompareOr;
+            this._tokenSym = LexerType.ltBitOr;
             return;
         }
 
@@ -807,6 +914,12 @@ export class CodeLexer extends Lexer {
 
         if (this._tokenValue === "while") {
             this._tokenSym = LexerType.ltWhile;
+            return;
+        }
+
+        //Контекстное ключевое слово для `for (X of iterable)`.
+        if (this._tokenValue === "of") {
+            this._tokenSym = LexerType.ltOf;
             return;
         }
 
