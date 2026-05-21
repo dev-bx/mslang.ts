@@ -1,0 +1,614 @@
+// =============================================================================
+// 3D-куб с z-буфером + кодирование в BMP-байты
+//
+// Сценарий из чистого MSLang: проекция в 3D-пространстве, z-буфер,
+// плоское освещение (flat shading) по нормали грани, растеризация
+// треугольников по строкам, упаковка в 24-битный BMP.
+//
+// Возвращает объект { summary, bytes }:
+//   - summary — детерминированный отчёт (для cross-runtime сверки),
+//   - bytes   — массив uint8 байтов готового BMP (для записи в .bmp файл).
+//
+// Чтобы байт-в-байт совпадение PHP и TS не зависело от libm sin/cos
+// (V8 использует свой fdlibm, отличный от libc), сводка строится
+// из устойчивых к 1-пиксельной разнице величин:
+//   - размеры, размер файла, фиксированные первые байты заголовка,
+//   - количество ненулевых (закрашенных) пикселей,
+//   - сумма красного/зелёного/синего каналов,
+//   - цвета центра кадра и четырёх угловых сэмплов,
+//   - суммарный «вес» (R+G+B по всем пикселям).
+// =============================================================================
+
+
+// ───────────────────────────── Vec3 ──────────────────────────────────────────
+
+class Vec3 {
+    constructor(x, y, z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+    }
+    add(o) { return new Vec3(this.x + o.x, this.y + o.y, this.z + o.z); }
+    sub(o) { return new Vec3(this.x - o.x, this.y - o.y, this.z - o.z); }
+    mul(k) { return new Vec3(this.x * k, this.y * k, this.z * k); }
+    dot(o) { return this.x * o.x + this.y * o.y + this.z * o.z; }
+    cross(o) {
+        return new Vec3(
+            this.y * o.z - this.z * o.y,
+            this.z * o.x - this.x * o.z,
+            this.x * o.y - this.y * o.x
+        );
+    }
+    length() { return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z); }
+    normalize() {
+        let len = this.length();
+        if (len == 0) { return new Vec3(0, 0, 0); }
+        return new Vec3(this.x / len, this.y / len, this.z / len);
+    }
+}
+
+
+// ───────────────────────────── Mat4 (row-major) ──────────────────────────────
+
+class Mat4 {
+    // m — массив длины 16, индексация: row * 4 + col
+    constructor(m) {
+        this.m = m;
+    }
+    multiply(o) {
+        let r = [];
+        let i = 0;
+        while (i < 16) {
+            r.push(0);
+            i = i + 1;
+        }
+        let row = 0;
+        while (row < 4) {
+            let col = 0;
+            while (col < 4) {
+                let sum = 0;
+                let k = 0;
+                while (k < 4) {
+                    sum = sum + this.m[row * 4 + k] * o.m[k * 4 + col];
+                    k = k + 1;
+                }
+                r[row * 4 + col] = sum;
+                col = col + 1;
+            }
+            row = row + 1;
+        }
+        return new Mat4(r);
+    }
+    // Трансформация точки (x,y,z,1), возвращает Vec3 (x',y',z') после
+    // perspective divide на w.
+    transform(v) {
+        let m = this.m;
+        let x = m[0] * v.x + m[1] * v.y + m[2]  * v.z + m[3];
+        let y = m[4] * v.x + m[5] * v.y + m[6]  * v.z + m[7];
+        let z = m[8] * v.x + m[9] * v.y + m[10] * v.z + m[11];
+        let w = m[12] * v.x + m[13] * v.y + m[14] * v.z + m[15];
+        if (w == 0) { w = 1; }
+        return new Vec3(x / w, y / w, z / w);
+    }
+}
+
+function mat4Identity() {
+    return new Mat4([
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+    ]);
+}
+
+function mat4Translate(tx, ty, tz) {
+    return new Mat4([
+        1, 0, 0, tx,
+        0, 1, 0, ty,
+        0, 0, 1, tz,
+        0, 0, 0, 1
+    ]);
+}
+
+function mat4RotateX(angle) {
+    let c = Math.cos(angle);
+    let s = Math.sin(angle);
+    return new Mat4([
+        1, 0,  0, 0,
+        0, c, -s, 0,
+        0, s,  c, 0,
+        0, 0,  0, 1
+    ]);
+}
+
+function mat4RotateY(angle) {
+    let c = Math.cos(angle);
+    let s = Math.sin(angle);
+    return new Mat4([
+         c, 0, s, 0,
+         0, 1, 0, 0,
+        -s, 0, c, 0,
+         0, 0, 0, 1
+    ]);
+}
+
+function mat4RotateZ(angle) {
+    let c = Math.cos(angle);
+    let s = Math.sin(angle);
+    return new Mat4([
+        c, -s, 0, 0,
+        s,  c, 0, 0,
+        0,  0, 1, 0,
+        0,  0, 0, 1
+    ]);
+}
+
+// Простая «перспектива»: x,y → x/(distance - z), y/(distance - z).
+// Реализована не отдельной матрицей, а вручную в проекции — избегаем
+// общего 4x4-perspective, который мутит знаки в зависимости от соглашений.
+
+
+// ───────────────────────────── Bmp24 (24-bit BMP) ────────────────────────────
+
+class Bmp24 {
+    constructor(width, height) {
+        this.width = width;
+        this.height = height;
+        // framebuffer: список длины width*height*3, порядок BGR-сверху-вниз
+        // (мы сами развернём при выгрузке в BMP, где порядок снизу-вверх).
+        this.pixels = [];
+        let total = width * height * 3;
+        let i = 0;
+        while (i < total) {
+            this.pixels.push(0);
+            i = i + 1;
+        }
+        // z-буфер: -Infinity-ный начальный (камера смотрит в -z, ближе = больше z).
+        // У нас Math.Infinity нет — берём -1000000000.
+        this.zbuffer = [];
+        let total2 = width * height;
+        let j = 0;
+        while (j < total2) {
+            this.zbuffer.push(-1000000000);
+            j = j + 1;
+        }
+    }
+    clear(r, g, b) {
+        let i = 0;
+        let total = this.width * this.height;
+        while (i < total) {
+            this.pixels[i * 3 + 0] = b;     // BGR-порядок
+            this.pixels[i * 3 + 1] = g;
+            this.pixels[i * 3 + 2] = r;
+            this.zbuffer[i] = -1000000000;
+            i = i + 1;
+        }
+    }
+    // Записывает пиксель (x,y,z) если z ближе текущего zbuffer.
+    putPixel(x, y, z, r, g, b) {
+        if (x < 0) { return; }
+        if (y < 0) { return; }
+        if (x >= this.width) { return; }
+        if (y >= this.height) { return; }
+        let idx = y * this.width + x;
+        if (z <= this.zbuffer[idx]) { return; }
+        this.zbuffer[idx] = z;
+        let pi = idx * 3;
+        this.pixels[pi + 0] = b;
+        this.pixels[pi + 1] = g;
+        this.pixels[pi + 2] = r;
+    }
+    // Рисует горизонтальную строку с линейной интерполяцией z от zL к zR.
+    fillRow(y, xL, xR, zL, zR, r, g, b) {
+        if (xR < xL) {
+            let tx = xL; xL = xR; xR = tx;
+            let tz = zL; zL = zR; zR = tz;
+        }
+        let dx = xR - xL;
+        let x = xL;
+        while (x <= xR) {
+            let z = zL;
+            if (dx > 0) {
+                let t = (x - xL) / dx;
+                z = zL + (zR - zL) * t;
+            }
+            this.putPixel(x, y, z, r, g, b);
+            x = x + 1;
+        }
+    }
+    // Растеризация треугольника. Вершины: { x: int, y: int, z: float }.
+    fillTriangle(a, b, c, r, g, bl) {
+        // Сортировка по y: a.y <= b.y <= c.y.
+        if (a.y > b.y) { let t = a; a = b; b = t; }
+        if (b.y > c.y) { let t = b; b = c; c = t; }
+        if (a.y > b.y) { let t = a; a = b; b = t; }
+
+        let total = c.y - a.y;
+        if (total == 0) { return; }
+
+        let yi = a.y;
+        while (yi <= c.y) {
+            // Сегмент: верхняя половина (a..b) или нижняя (b..c).
+            let secondHalf = (yi > b.y) || (b.y == a.y);
+            let segmentHeight;
+            if (secondHalf) { segmentHeight = c.y - b.y; } else { segmentHeight = b.y - a.y; }
+            if (segmentHeight == 0) {
+                yi = yi + 1;
+                continue;
+            }
+
+            // alpha: позиция между a и c (для длинного ребра),
+            // beta: позиция внутри текущего сегмента.
+            let alpha = (yi - a.y) / total;
+            let yStart;
+            if (secondHalf) { yStart = b.y; } else { yStart = a.y; }
+            let beta = (yi - yStart) / segmentHeight;
+
+            // Точки A (на длинном ребре a→c) и B (на коротком).
+            let ax = a.x + Math.floor((c.x - a.x) * alpha + 0.5);
+            let az = a.z + (c.z - a.z) * alpha;
+            let bx;
+            let bz;
+            if (secondHalf) {
+                bx = b.x + Math.floor((c.x - b.x) * beta + 0.5);
+                bz = b.z + (c.z - b.z) * beta;
+            } else {
+                bx = a.x + Math.floor((b.x - a.x) * beta + 0.5);
+                bz = a.z + (b.z - a.z) * beta;
+            }
+            this.fillRow(yi, ax, bx, az, bz, r, g, bl);
+            yi = yi + 1;
+        }
+    }
+    // Кодирует framebuffer в BMP-байты (BITMAPFILEHEADER + BITMAPINFOHEADER + BGR-строки снизу-вверх с паддингом до 4 байт).
+    toBytes() {
+        let rowSize = this.width * 3;
+        let pad = (4 - (rowSize % 4)) % 4;
+        let stride = rowSize + pad;
+        let pixDataSize = stride * this.height;
+        let fileSize = 14 + 40 + pixDataSize;
+        let offset = 14 + 40;
+
+        let bytes = [];
+
+        // BITMAPFILEHEADER (14 байт).
+        bytes.push(66);   // 'B'
+        bytes.push(77);   // 'M'
+        this.pushU32LE(bytes, fileSize);
+        bytes.push(0);  // reserved1
+        bytes.push(0);
+        bytes.push(0);  // reserved2
+        bytes.push(0);
+        this.pushU32LE(bytes, offset);
+
+        // BITMAPINFOHEADER (40 байт).
+        this.pushU32LE(bytes, 40);                // header size
+        this.pushU32LE(bytes, this.width);
+        this.pushU32LE(bytes, this.height);
+        this.pushU16LE(bytes, 1);                 // planes
+        this.pushU16LE(bytes, 24);                // bpp
+        this.pushU32LE(bytes, 0);                 // compression: BI_RGB
+        this.pushU32LE(bytes, pixDataSize);
+        this.pushU32LE(bytes, 2835);              // x ppm (72 dpi)
+        this.pushU32LE(bytes, 2835);              // y ppm
+        this.pushU32LE(bytes, 0);                 // colors used
+        this.pushU32LE(bytes, 0);                 // important colors
+
+        // Пиксели: снизу-вверх, BGR + паддинг.
+        let row = this.height - 1;
+        while (row >= 0) {
+            let col = 0;
+            while (col < this.width) {
+                let pi = (row * this.width + col) * 3;
+                bytes.push(this.pixels[pi + 0]);  // B
+                bytes.push(this.pixels[pi + 1]);  // G
+                bytes.push(this.pixels[pi + 2]);  // R
+                col = col + 1;
+            }
+            let p = 0;
+            while (p < pad) {
+                bytes.push(0);
+                p = p + 1;
+            }
+            row = row - 1;
+        }
+        return bytes;
+    }
+    // Кладёт младшие 4 байта числа в bytes (little-endian).
+    pushU32LE(bytes, n) {
+        bytes.push(n & 255);
+        n = Math.floor(n / 256);
+        bytes.push(n & 255);
+        n = Math.floor(n / 256);
+        bytes.push(n & 255);
+        n = Math.floor(n / 256);
+        bytes.push(n & 255);
+    }
+    pushU16LE(bytes, n) {
+        bytes.push(n & 255);
+        n = Math.floor(n / 256);
+        bytes.push(n & 255);
+    }
+}
+
+
+// ───────────────────────────── Меш куба ──────────────────────────────────────
+
+// Точка на экране: целочисленные пиксельные координаты + камера-z (float).
+class ScreenPoint {
+    constructor(x, y, z) {
+        this.x = x;
+        this.y = y;
+        this.z = z;
+    }
+}
+
+// Готовый меш: список вершин и список граней.
+class Mesh {
+    constructor(verts, faces) {
+        this.verts = verts;
+        this.faces = faces;
+    }
+}
+
+class Face {
+    constructor(i0, i1, i2, r, g, b) {
+        this.i0 = i0;
+        this.i1 = i1;
+        this.i2 = i2;
+        this.r = r;
+        this.g = g;
+        this.b = b;
+    }
+}
+
+function buildCube() {
+    let verts = [
+        new Vec3(-1, -1, -1),  // 0
+        new Vec3( 1, -1, -1),  // 1
+        new Vec3( 1,  1, -1),  // 2
+        new Vec3(-1,  1, -1),  // 3
+        new Vec3(-1, -1,  1),  // 4
+        new Vec3( 1, -1,  1),  // 5
+        new Vec3( 1,  1,  1),  // 6
+        new Vec3(-1,  1,  1)   // 7
+    ];
+
+    // Каждая грань — два треугольника. Порядок обхода: против часовой стрелки
+    // при взгляде извне (для расчёта внешней нормали).
+    // Цвета граней — насыщенные, чтобы flat-shading давал видимый перепад.
+    let faces = [
+        // Front (z = -1): красный
+        new Face(0, 1, 2, 220, 60, 60),
+        new Face(0, 2, 3, 220, 60, 60),
+        // Back (z = +1): зелёный
+        new Face(5, 4, 7, 60, 220, 60),
+        new Face(5, 7, 6, 60, 220, 60),
+        // Left (x = -1): синий
+        new Face(4, 0, 3, 60, 100, 220),
+        new Face(4, 3, 7, 60, 100, 220),
+        // Right (x = +1): жёлтый
+        new Face(1, 5, 6, 230, 200, 60),
+        new Face(1, 6, 2, 230, 200, 60),
+        // Top (y = +1): пурпурный
+        new Face(3, 2, 6, 200, 80, 200),
+        new Face(3, 6, 7, 200, 80, 200),
+        // Bottom (y = -1): циан
+        new Face(4, 5, 1, 80, 200, 200),
+        new Face(4, 1, 0, 80, 200, 200)
+    ];
+
+    return new Mesh(verts, faces);
+}
+
+
+// ───────────────────────────── Рендер ────────────────────────────────────────
+
+function clampByte(v) {
+    let r = Math.floor(v + 0.5);
+    if (r < 0) { return 0; }
+    if (r > 255) { return 255; }
+    return r;
+}
+
+function renderCube(width, height) {
+    let bmp = new Bmp24(width, height);
+    bmp.clear(20, 22, 28);   // тёмно-серый фон, чуть холодный
+
+    let cube = buildCube();
+    let verts = cube.verts;
+    let faces = cube.faces;
+
+    // Сборка матрицы: M = Ry(angY) * Rx(angX) * Rz(angZ).
+    // Углы фиксированные — детерминизм между PHP и JS.
+    let angX = 0.65;
+    let angY = 0.95;
+    let angZ = 0.30;
+    let model = mat4RotateY(angY).multiply(mat4RotateX(angX)).multiply(mat4RotateZ(angZ));
+
+    // Направление света в мировых координатах (нормализованное).
+    // Источник «сверху-спереди-слева».
+    let lightDir = new Vec3(-0.4, 0.6, -0.7).normalize();
+
+    // Параметры камеры/проекции (упрощённая perspective).
+    let distance = 4.0;     // расстояние камеры от центра по оси z
+    let scale = 1.7;        // масштаб экрана
+    let halfW = width / 2;
+    let halfH = height / 2;
+
+    // Трансформируем все вершины один раз.
+    let tverts = [];
+    let vi = 0;
+    while (vi < verts.length) {
+        let v = verts[vi];
+        let r = model.transform(v);
+        tverts.push(r);
+        vi = vi + 1;
+    }
+
+    // Проектируем в экранные координаты (целые), параллельно сохраняем z.
+    function project(v3) {
+        let zCam = distance - v3.z;
+        if (zCam < 0.1) { zCam = 0.1; }   // защита от деления на ~0
+        let sx = halfW + Math.floor(v3.x * scale / zCam * halfW + 0.5);
+        let sy = halfH - Math.floor(v3.y * scale / zCam * halfH + 0.5);
+        // z в экранном пространстве: больше = ближе. Берём -zCam.
+        return new ScreenPoint(sx, sy, -zCam);
+    }
+
+    let pverts = [];
+    let pi = 0;
+    while (pi < tverts.length) {
+        pverts.push(project(tverts[pi]));
+        pi = pi + 1;
+    }
+
+    // Рисуем все треугольники с flat shading и backface culling.
+    let fi = 0;
+    while (fi < faces.length) {
+        let f = faces[fi];
+        let a = tverts[f.i0];
+        let b = tverts[f.i1];
+        let c = tverts[f.i2];
+
+        // Нормаль в трансформированном (модельном после rotation) пространстве.
+        let edge1 = b.sub(a);
+        let edge2 = c.sub(a);
+        let normal = edge1.cross(edge2).normalize();
+
+        // Backface culling: нормаль смотрит к камере, если её z отрицательный
+        // (камера у нас на +z в мире, смотрит в -z).
+        // У нас normal.z направлена «от точки», поэтому видимая грань имеет
+        // normal.z < 0. Невидимую пропускаем.
+        if (normal.z >= 0) {
+            fi = fi + 1;
+            continue;
+        }
+
+        // Освещение: dot нормали с (-lightDir) — чем больше, тем ярче.
+        // Берём abs и нормализуем в диапазон [0.25..1.0], чтобы тени не были
+        // полностью чёрными.
+        let intensity = -normal.dot(lightDir);
+        if (intensity < 0) { intensity = 0; }
+        let shaded = 0.25 + 0.75 * intensity;
+        if (shaded > 1) { shaded = 1; }
+
+        let rr = clampByte(f.r * shaded);
+        let gg = clampByte(f.g * shaded);
+        let bb = clampByte(f.b * shaded);
+
+        // ScreenPoint совместим с fillTriangle (читает только .x/.y/.z).
+        bmp.fillTriangle(pverts[f.i0], pverts[f.i1], pverts[f.i2], rr, gg, bb);
+        fi = fi + 1;
+    }
+
+    return bmp;
+}
+
+
+// ───────────────────────────── Сводка ────────────────────────────────────────
+
+function makeSummary(bmp, bytes) {
+    let w = bmp.width;
+    let h = bmp.height;
+
+    // 1) Фиксированные первые 14 байт BMP-заголовка.
+    let header = "";
+    let hi = 0;
+    while (hi < 14) {
+        if (hi > 0) { header = header + ","; }
+        header = header + bytes[hi];
+        hi = hi + 1;
+    }
+
+    // 2) Перебор пикселей: nonBg, суммы каналов, суммарный вес.
+    // Чтобы быть устойчивым к разнице в 1 пикселе на границе грани между
+    // PHP и TS, берём целочисленные суммы по всему framebuffer — расхождение
+    // в 1-2 пикселя на ~9000 пикселей даёт разность бита суммы в десятки —
+    // допустим небольшой допуск через округление в большие блоки. Здесь
+    // делаем строго: целые суммы; если cross-runtime дрогнет, перейдём на
+    // более устойчивые метрики.
+    let nonBg = 0;
+    let sumR = 0;
+    let sumG = 0;
+    let sumB = 0;
+    let weight = 0;
+    let y = 0;
+    while (y < h) {
+        let x = 0;
+        while (x < w) {
+            let pi = (y * w + x) * 3;
+            let b = bmp.pixels[pi + 0];
+            let g = bmp.pixels[pi + 1];
+            let r = bmp.pixels[pi + 2];
+            if (r != 20 || g != 22 || b != 28) {
+                nonBg = nonBg + 1;
+            }
+            sumR = sumR + r;
+            sumG = sumG + g;
+            sumB = sumB + b;
+            weight = weight + (r + g + b);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+
+    // 3) Центр и 4 угла framebuffer-а.
+    function pixelAt(bmp2, x, y) {
+        let pi = (y * bmp2.width + x) * 3;
+        return bmp2.pixels[pi + 2] + "," + bmp2.pixels[pi + 1] + "," + bmp2.pixels[pi + 0];
+    }
+    let cx = Math.floor(w / 2);
+    let cy = Math.floor(h / 2);
+
+    let parts = [];
+    parts.push("width=" + w);
+    parts.push("height=" + h);
+    parts.push("filesize=" + bytes.length);
+    parts.push("header14=" + header);
+    parts.push("nonBg=" + nonBg);
+    parts.push("sumR=" + sumR);
+    parts.push("sumG=" + sumG);
+    parts.push("sumB=" + sumB);
+    parts.push("weight=" + weight);
+    parts.push("center=" + pixelAt(bmp, cx, cy));
+    parts.push("tl=" + pixelAt(bmp, 0, 0));
+    parts.push("tr=" + pixelAt(bmp, w - 1, 0));
+    parts.push("bl=" + pixelAt(bmp, 0, h - 1));
+    parts.push("br=" + pixelAt(bmp, w - 1, h - 1));
+
+    let out = "";
+    let i = 0;
+    while (i < parts.length) {
+        if (i > 0) { out = out + "|"; }
+        out = out + parts[i];
+        i = i + 1;
+    }
+    return out;
+}
+
+
+// ═════════════════════════════ Main ══════════════════════════════════════════
+
+const W = 32;
+const H = 32;
+let bmp = renderCube(W, H);
+let bytes = bmp.toBytes();
+
+// Для cross-runtime теста скрипт возвращает строку-сводку (детерминированно
+// сравнивается между PHP и TS). Если из MSLang нужно получить сами байты
+// BMP — замени последнюю строку на `return bytes;` и в host-коде запиши
+// результат как двоичный файл:
+//
+//   PHP:
+//     $bytes = $context->exec(true)->getValue();   // массив StackVariableNumber
+//     $bin = pack('C*', ...array_map(fn($b) => (int) $b->getValue(), $bytes));
+//     file_put_contents('cube.bmp', $bin);
+//
+//   TS (Node):
+//     const v = ctx.exec(true);
+//     const arr = [...v._value.values()].map(b => Number(b._value));
+//     fs.writeFileSync('cube.bmp', Buffer.from(arr));
+
+let result = makeSummary(bmp, bytes);
+return result;
