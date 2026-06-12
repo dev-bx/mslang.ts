@@ -8,15 +8,23 @@ import {StackVariableObject} from "./stackvariableobject.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableRef} from "./stackvariableref.js";
 import {MSLangException} from "./exceptions";
+import type {ContextInterpreter} from "./interpreter.js";
 
 export class StackVariableArray extends StackVariable {
 
     private _nextNumKey: number = 0;
-    constructor(isConst: boolean = false, value: unknown) {
-        super(VariableType.vtArray, isConst);
+    constructor(isConst: boolean = false, value: unknown, context: ContextInterpreter | null = null) {
+        super(VariableType.vtArray, isConst, context);
 
         this._nextNumKey = 0;
         this.value = value;
+
+        //Бюджет создаваемых данных (зеркало PHP): новый массив стоит по 16 байт
+        //за ячейку (грубая оценка накладных расходов; содержимое ячеек учтено при
+        //создании самих значений). Ловит new Array(N) и concat с огромным N.
+        if (!isConst && context !== null) {
+            context.trackAllocation(this.value.size * 16);
+        }
     }
 
 

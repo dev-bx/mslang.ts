@@ -17,7 +17,7 @@ import {MathFunctions} from "./mathfunctions";
 import {StringStaticFunctions} from "./stringstaticfunctions";
 import {ArrayConstructor} from "./arrayconstructor";
 import {StackVariableDateTime} from "./stackvariabledatetime";
-import {InterpreterException, MSLangException} from "./exceptions";
+import {InterpreterException, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {StackVariableObject} from "./stackvariableobject";
 
@@ -2907,9 +2907,10 @@ export class Interpreter {
         }
 
         //Нативные «классы» (Array, ...): передаём параметры самому объекту,
-        //он сам строит результат. Без push кадра.
+        //он сам строит результат. Без push кадра. Контекст — для бюджета данных
+        //(зеркало PHP: construct(array $parameters, ContextInterpreter $context)).
         if (constructor instanceof ArrayConstructor) {
-            context.pushStackVar(constructor.construct(parameters));
+            context.pushStackVar(constructor.construct(parameters, context));
             return;
         }
 
@@ -3541,10 +3542,63 @@ export class ContextInterpreter {
     // Зеркало PHP limitExecInstruction + instructionCounter.
     protected limitExecInstruction: number = 0;
     protected instructionCounter: number = 0;
+    //Лимит времени работы скрипта в миллисекундах (0 = выключен). Отметка старта
+    //ставится в exec(); проверка — в execOne, рядом со счётчиком инструкций.
+    protected limitExecTimeMs: number = 0;
+    protected execStartTime: number = 0;
+    //Бюджет создаваемых данных в байтах (0 = выключен): сколько байт строк/ячеек
+    //массивов скрипт успел СОЗДАТЬ за прогон (накопительно, как счётчик инструкций).
+    //Ловит раздувание памяти (удвоение строки в цикле), которое укладывается в
+    //бюджет инструкций. Учёт — в конструкторах StackVariableString/StackVariableArray.
+    protected limitAllocBytes: number = 0;
+    protected allocatedBytes: number = 0;
 
     setLimitExecInstruction(limit: number) {
         this.limitExecInstruction = limit;
         return this;
+    }
+
+    getLimitExecInstruction(): number {
+        return this.limitExecInstruction;
+    }
+
+    setLimitExecTimeMs(limit: number) {
+        this.limitExecTimeMs = limit;
+        return this;
+    }
+
+    getLimitExecTimeMs(): number {
+        return this.limitExecTimeMs;
+    }
+
+    setLimitAllocBytes(limit: number) {
+        this.limitAllocBytes = limit;
+        return this;
+    }
+
+    getLimitAllocBytes(): number {
+        return this.limitAllocBytes;
+    }
+
+    getAllocatedBytes(): number {
+        return this.allocatedBytes;
+    }
+
+    /**
+     * Учёт создаваемых данных (вызывается из конструкторов строк/массивов).
+     * Счётчик накопительный — считает, сколько байт скрипт успел создать за прогон,
+     * а не сколько живёт сейчас (как и бюджет инструкций — это бюджет работы).
+     */
+    trackAllocation(bytes: number): void {
+        if (bytes <= 0) {
+            return;
+        }
+
+        this.allocatedBytes += bytes;
+
+        if (this.limitAllocBytes && this.allocatedBytes > this.limitAllocBytes) {
+            throw new ResourceLimitException('Allocation limit [' + this.limitAllocBytes + '] exceeded', this.currentToken?.cursorPos);
+        }
     }
 
     constructor(codeItems: ParseNode[], interpreter: Interpreter) {
@@ -3891,7 +3945,12 @@ export class ContextInterpreter {
         // Защита от бесконечного выполнения, если установлен лимит.
         // Зеркало PHP execOne (см. ContextInterpreter::execOne).
         if (this.limitExecInstruction && this.instructionCounter >= this.limitExecInstruction) {
-            throw new InterpreterException('Execution limit [' + this.limitExecInstruction + '] exceeded', this.currentToken?.cursorPos);
+            throw new ResourceLimitException('Execution limit [' + this.limitExecInstruction + '] exceeded', this.currentToken?.cursorPos);
+        }
+
+        if (this.limitExecTimeMs && this.execStartTime
+            && Date.now() - this.execStartTime >= this.limitExecTimeMs) {
+            throw new ResourceLimitException('Execution time limit [' + this.limitExecTimeMs + ' ms] exceeded', this.currentToken?.cursorPos);
         }
 
         this.instructionCounter++;
@@ -3936,6 +3995,12 @@ export class ContextInterpreter {
     exec(returnVal?: boolean) {
         const stackPosition = this._stackVars.length;
 
+        //Отметка старта для лимита времени (ставится один раз — вложенные exec
+        //функций не перезаписывают её, время считается от начала всего прогона).
+        if (this.execStartTime === 0) {
+            this.execStartTime = Date.now();
+        }
+
         //Hoisting функций верхнего уровня: они должны быть видны до своих
         //строк-объявлений (как в JavaScript).
         if (Array.isArray(this._codeItems)) {
@@ -3946,6 +4011,12 @@ export class ContextInterpreter {
             try {
                 this.execOne();
             } catch (e) {
+                //Ресурсный лимит (инструкции/время/данные) скриптовый try/catch ловить
+                //НЕ должен: иначе скрипт перехватил бы остановку и продолжил работу.
+                if (e instanceof ResourceLimitException) {
+                    throw e;
+                }
+
                 //Системная ошибка интерпретатора. Если в стеке есть try — оборачиваем
                 //её в Error-объект и продолжаем с catch-блока. Иначе пробрасываем дальше.
                 if (!this._interpreter.hasCatchInStack(this)) {
@@ -4068,18 +4139,20 @@ export class ContextInterpreter {
         this._variables[name] = value;
     }
 
-    static createVariable(type: VariableType, value: unknown): StackVariable {
+    static createVariable(type: VariableType, value: unknown, context: ContextInterpreter | null = null): StackVariable {
         switch (type) {
             case VariableType.vtInteger:
             case VariableType.vtFloat:
             case VariableType.vtNumber:
                 return new StackVariableNumber(false, value);
             case VariableType.vtString:
-                return new StackVariableString(false, value as string);
+                //Контекст прокидывается в строки/массивы (зеркало PHP createStackVariableString):
+                //конструктор учитывает размер в бюджете создаваемых данных.
+                return new StackVariableString(false, value as string, context);
             case VariableType.vtBoolean:
                 return new StackVariableBoolean(false, !!value);
             case VariableType.vtArray:
-                return new StackVariableArray(false, value);
+                return new StackVariableArray(false, value, context);
             case VariableType.vtNull:
                 return new StackVariableNull(false);
             case VariableType.vtUndefined:
@@ -4094,7 +4167,7 @@ export class ContextInterpreter {
     }
 
     createVariable(type: VariableType, value: unknown) {
-        return ContextInterpreter.createVariable(type, value);
+        return ContextInterpreter.createVariable(type, value, this);
     }
 
     reset() {
@@ -4107,6 +4180,10 @@ export class ContextInterpreter {
         this._pos = 0;
         this._type = ContextType.ctNormal;
         this._executionStack = [];
+        //Зеркало PHP reset(): счётчики ресурсов обнуляются вместе с состоянием.
+        this.instructionCounter = 0;
+        this.allocatedBytes = 0;
+        this.execStartTime = 0;
     }
 
     callFunction(name: string, parameters: StackVariable[]) {

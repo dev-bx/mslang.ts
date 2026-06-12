@@ -26,6 +26,7 @@
     "preview": "vite preview",
     "test": "tsx tests/tests.ts",
     "test:bugs": "tsx tests/bugs.ts",
+    "test:limits": "tsx tests/limits.ts",
     "test:mirror": "tsx tests/mirror.ts",
     "test:cross": "tsx tests/cross.ts",
     "test:fuzz": "tsx tests/fuzz.ts --count 200 --seed 42 > tests/.fuzz.jsonl",
@@ -37,7 +38,13 @@
     "test:watch": "node --loader ts-node/esm --watch tests/tests.ts",
     "prepublishOnly": "npm run test:all && npm run build"
   },
-  "keywords": ["mslang", "scripting", "interpreter", "bitrix", "devbx"],
+  "keywords": [
+    "mslang",
+    "scripting",
+    "interpreter",
+    "bitrix",
+    "devbx"
+  ],
   "author": "DevBx <info@dev-bx.ru> (https://dev-bx.ru/)",
   "license": "ISC",
   "homepage": "https://github.com/dev-bx/mslang.ts#readme",
