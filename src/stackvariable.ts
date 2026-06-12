@@ -17,12 +17,24 @@ export class StackVariable {
     _type: VariableType
     _value: unknown
     _isConst : boolean
+    //Зеркало PHP StackVariable::$context: контекст-владелец (учёт бюджета данных,
+    //доступ из методов). null у переменных, созданных без контекста.
+    protected _context: ContextInterpreter | null = null;
     properties: Record<string, VariableProperty> = {}
 
-    constructor(type: VariableType, isConst: boolean = false) {
+    constructor(type: VariableType, isConst: boolean = false, context: ContextInterpreter | null = null) {
         this._type = type;
         this._value = undefined;
         this._isConst = isConst;
+        this._context = context;
+    }
+
+    getContext(): ContextInterpreter | null {
+        return this._context;
+    }
+
+    setContext(context: ContextInterpreter | null): void {
+        this._context = context;
     }
 
     get isNumeric() {
@@ -298,6 +310,14 @@ export class StackVariable {
 
         if (returnValue instanceof StackVariable)
             return returnValue;
+
+        //Зеркало PHP: результат оборачивается через контекст переменной (если он есть) —
+        //так строки/массивы из методов (repeat, join, concat…) попадают в бюджет данных.
+        //Контекст берём с получателя метода (self), запасной вариант — с владельца кэша.
+        const ctx = (self instanceof StackVariable ? self.getContext() : null) ?? this.getContext();
+        if (ctx) {
+            return ctx.createVariable(entry.getReturnType(), returnValue);
+        }
 
         return ContextInterpreter.createVariable(entry.getReturnType(), returnValue);
     }

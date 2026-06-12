@@ -5,12 +5,20 @@ import {StackVariableNumber} from "./stackvariablenumber.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {MSLangException} from "./exceptions";
+import type {ContextInterpreter} from "./interpreter.js";
 
 export class StackVariableString extends StackVariable {
-    constructor(isConst: boolean = false, value: string) {
-        super(VariableType.vtString, isConst);
+    constructor(isConst: boolean = false, value: string, context: ContextInterpreter | null = null) {
+        super(VariableType.vtString, isConst, context);
 
         this.value = value;
+
+        //Бюджет создаваемых данных (зеркало PHP): каждая строка, рождённая на
+        //исполнении (склейка, repeat, join…), учитывается своим размером.
+        //Литералы из кода (isConst) не считаем — это текст самой программы.
+        if (!isConst && context !== null) {
+            context.trackAllocation(value.length);
+        }
     }
 
     get value(): string {

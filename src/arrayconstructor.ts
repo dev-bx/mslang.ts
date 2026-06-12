@@ -3,7 +3,8 @@ import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableRef} from "./stackvariableref";
 import {VariableType} from "./variabletype";
-import {InterpreterException} from "./exceptions";
+import {InterpreterException, ResourceLimitException} from "./exceptions";
+import type {ContextInterpreter} from "./interpreter.js";
 
 /**
  * Нативный «класс» `Array` для JS-стиля `new Array(N)` и `new Array(a, b, c)`.
@@ -23,10 +24,10 @@ export class ArrayConstructor extends StackVariable {
         super(VariableType.vtObject, true);
     }
 
-    construct(parameters: StackVariable[]): StackVariable {
+    construct(parameters: StackVariable[], context: ContextInterpreter | null = null): StackVariable {
         //new Array() → пустой массив.
         if (parameters.length === 0) {
-            return new StackVariableArray(false, []);
+            return new StackVariableArray(false, [], context);
         }
 
         //new Array(N) где N — число: создаём массив фиксированной длины с
@@ -43,11 +44,18 @@ export class ArrayConstructor extends StackVariable {
             if (asNumber !== null && Number.isFinite(asNumber.value as number)) {
                 const n = Number(asNumber.value);
                 if (n >= 0 && Number.isInteger(n)) {
+                    //Предварительная проверка бюджета данных ДО материализации N ячеек:
+                    //иначе при огромном N память съел бы сам цикл ниже — раньше, чем
+                    //учёт в конструкторе StackVariableArray (он спишет бюджет по факту).
+                    if (context && context.getLimitAllocBytes()
+                        && context.getAllocatedBytes() + n * 16 > context.getLimitAllocBytes()) {
+                        throw new ResourceLimitException('Allocation limit [' + context.getLimitAllocBytes() + '] exceeded', context.currentToken?.cursorPos);
+                    }
                     const items: StackVariable[] = [];
                     for (let i = 0; i < n; i++) {
                         items.push(new StackVariableUndefined(false));
                     }
-                    return new StackVariableArray(false, items);
+                    return new StackVariableArray(false, items, context);
                 }
                 throw new InterpreterException('Invalid array length: ' + asNumber.value);
             }
@@ -62,6 +70,6 @@ export class ArrayConstructor extends StackVariable {
             }
             items.push(item);
         }
-        return new StackVariableArray(false, items);
+        return new StackVariableArray(false, items, context);
     }
 }
