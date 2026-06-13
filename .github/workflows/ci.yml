@@ -32,6 +32,9 @@ jobs:
       - name: Ловушки на баги (tests/bugs.ts)
         run: npm run test:bugs
 
+      - name: Лимиты песочницы (tests/limits.ts)
+        run: npm run test:limits
+
       # tests/mirror.ts сам пропускает свои 19 тестов, если PHP-зеркало
       # рядом не найдено (см. PHP_AVAILABLE в файле). Локально, где репо
       # devbx.core лежит рядом, тесты прогоняются. В CI они skipped.

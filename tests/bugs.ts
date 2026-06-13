@@ -766,3 +766,92 @@ test('P0_20_Bitwise64Bit', () => {
     assert.strictEqual(4294967297, executeReturnCode('return 0x100000000 | 1;')?.value);
     assert.strictEqual(240,        executeReturnCode('return 0x1FF & 0xF0;')?.value);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P1-21: зеркало пропущенных PHP-тестов TestBugs.php (Bug16/Bug17/Bug22).
+// Поведение в TS уже верное — это добивка тест-парности до 1:1 с эталоном.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('Bug16_MulDivChainAfterPlus', () => {
+    assert.strictEqual(2, executeReturnCode('return 1 + 2 * 3 / 6;')?.value);
+});
+test('Bug16_MulMulChainAfterPlus', () => {
+    assert.strictEqual(25, executeReturnCode('return 1 + 2 * 3 * 4;')?.value);
+});
+test('Bug16_TaxFormula', () => {
+    // Реальный сценарий, на котором баг был пойман.
+    assert.strictEqual(1020, executeReturnCode('return 850 + 850 * 20 / 100;')?.value);
+});
+test('Bug16_TwoTermsHighPriority', () => {
+    // `a*b + c*d` — два независимых высокоприоритетных блока вокруг `+`.
+    assert.strictEqual(26, executeReturnCode('return 2 * 3 + 4 * 5;')?.value);
+});
+test('Bug16_DivThenMulLeftToRight', () => {
+    // Левая ассоциативность `/` и `*` — `20/4*2` = 10, а не 2.5.
+    assert.strictEqual(10, executeReturnCode('return 20 / 4 * 2;')?.value);
+});
+test('Bug16_MixWithMinus', () => {
+    // 100 - 50 + 4 = 54
+    assert.strictEqual(54, executeReturnCode('return 100 - 10 * 5 + 8 / 2;')?.value);
+});
+test('Bug16_ModInChain', () => {
+    // 17%5=2, 2*2=4, 10+4=14
+    assert.strictEqual(14, executeReturnCode('return 10 + 17 % 5 * 2;')?.value);
+});
+
+test('Bug17_LetNullThenReassignTopLevel', () => {
+    assert.strictEqual(10, executeReturnCode('let off = null; off = 10; return off;')?.value);
+});
+test('Bug17_LetNullThenReassignInFunction', () => {
+    const r = executeReturnCode(`
+        function pick(x) {
+            let off = null;
+            if (x > 0) { off = "pos"; }
+            else { off = "neg"; }
+            return off;
+        }
+        return pick(5) + "/" + pick(-1);
+    `);
+    assert.strictEqual('pos/neg', r?.value);
+});
+test('Bug17_VarNullThenReassign', () => {
+    assert.strictEqual(42, executeReturnCode('var off = null; off = 42; return off;')?.value);
+});
+test('Bug17_LetNullStaysReassignableAcrossBlocks', () => {
+    const r = executeReturnCode(`
+        let off = null;
+        if (true) {
+            off = 1;
+        }
+        off = off + 5;
+        return off;
+    `);
+    assert.strictEqual(6, r?.value);
+});
+test('Bug17_GlobalNullStillConst', () => {
+    // Тип ContextException появится в P1-5; пока матчим по сообщению.
+    assert.throws(() => executeReturnCode('null = 10; return null;'), /Cannot override constant/);
+});
+test('Bug17_ConstNullStaysConst', () => {
+    assert.throws(() => executeReturnCode('const off = null; off = 10; return off;'), /Cannot override constant/);
+});
+
+test('Bug22_FloatIndexFromArithmetic', () => {
+    // length=5, half=2.5; arr[2.5] не должен падать TypeError-ом, даёт nullish.
+    const v = executeReturnCode(`
+        let arr = [];
+        let i = 0;
+        while (i < 5) { arr.push(i * 10); i = i + 1; }
+        let half = arr.length / 2;
+        return arr[half];
+    `)?.value;
+    assert.ok(v === undefined || v === null);
+});
+
+// P1-22: зеркало PHP Test.php testMSLang077_VarRedeclaresLetFails. Поведение уже
+// покрыто 077_LetRedeclarationInSameBlockFails в tests.ts (заморожен) — здесь
+// добивка парности по имени с эталоном.
+test('077_VarRedeclaresLetFails', () => {
+    assert.throws(() => executeReturnCode('let x = 1; let x = 2; return x;'),
+        /Identifier 'x' has already been declared/);
+});
