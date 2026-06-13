@@ -151,30 +151,38 @@ export class StackVariableArray extends StackVariable {
         ];
     }
 
+    /**
+     * Строгое сравнение элемента с искомым значением по правилам JS
+     * (includes/indexOf): тип должен совпасть, число сравнивается по значению.
+     * Так `[1,null].Contains(null)` → true, `[1].Contains("1")` → false,
+     * `[true,false].IndexOf(true)` → 0. Раньше игла приводилась к строке и
+     * сравнивалась строкой — это давало неверные результаты и падало на null.
+     */
+    private matchesNeedle(value: StackVariable, searchValue: unknown): boolean {
+        if (searchValue === null)
+            return value.type === VariableType.vtNull;
+        if (searchValue === undefined)
+            return value.type === VariableType.vtUndefined;
+
+        switch (typeof searchValue) {
+            case 'boolean':
+                return value.type === VariableType.vtBoolean && value.value === searchValue;
+            case 'number':
+                return value.type === VariableType.vtNumber && Number(value.value) === searchValue;
+            case 'string':
+                return value.type === VariableType.vtString && value.value === searchValue;
+        }
+
+        return false;
+    }
+
     funcInvoke_contains(searchValue: unknown) {
-        let result = false;
+        for (const value of this.value.values()) {
+            if (this.matchesNeedle(value, searchValue))
+                return true;
+        }
 
-        searchValue = (searchValue as string).toString();
-
-        Array.from(this.value.values()).every(value => {
-            if (value.type === VariableType.vtString) {
-                if (value.value === searchValue) {
-                    result = true;
-                    return false;
-                }
-            } else {
-                const castString = value.castAs(VariableType.vtString);
-
-                if (castString && castString.value === searchValue) {
-                    result = true;
-                    return false;
-                }
-            }
-
-            return true;
-        });
-
-        return result;
+        return false;
     }
 
     /** IndexOf */
@@ -188,33 +196,18 @@ export class StackVariableArray extends StackVariable {
     }
 
     funcInvoke_indexOf(searchValue: unknown) {
-        let result: unknown = -1;
+        const keys = Array.from(this.value.keys());
+        const values = Array.from(this.value.values());
 
-        searchValue = (searchValue as string).toString();
-
-        Array.from(this.value.values()).every((value, index) => {
-            if (value.type === VariableType.vtString) {
-                if (value.value === searchValue) {
-                    // Возвращаемый тип — vtInteger, ключи в Map всегда строки;
-                    // приводим к числу, как делает PHP-зеркало (`: int`).
-                    result = Number(Array.from(this.value.keys())[index]);
-                    return false;
-                }
-            } else {
-                const castString = value.castAs(VariableType.vtString);
-
-                if (castString && castString.value === searchValue) {
-                    // Возвращаемый тип — vtInteger, ключи в Map всегда строки;
-                    // приводим к числу, как делает PHP-зеркало (`: int`).
-                    result = Number(Array.from(this.value.keys())[index]);
-                    return false;
-                }
+        for (let i = 0; i < values.length; i++) {
+            if (this.matchesNeedle(values[i], searchValue)) {
+                //Возвращаемый тип — vtInteger, ключи в Map всегда строки;
+                //приводим к числу, как делает PHP-зеркало (`: int`).
+                return Number(keys[i]);
             }
+        }
 
-            return true;
-        });
-
-        return result;
+        return -1;
     }
 
     /** push */

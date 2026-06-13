@@ -12,7 +12,7 @@
  */
 import {
     CodeLexer, CodeParser, Interpreter, ContextInterpreter,
-    LexerTypeArray, LexerType, ParseNode, StackVariableArray,
+    LexerTypeArray, LexerType, ParseNode, StackVariable, StackVariableArray,
     StackVariableNull, StackVariableUndefined, VariableType,
 } from '../src';
 

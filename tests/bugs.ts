@@ -673,3 +673,96 @@ test('Bug_FuncEntryCache_ProxyOnDeadScope', () => {
     `);
     assert.strictEqual(7, r?.value);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P0: числовая модель IEEE-754/JS и сопутствующие фиксы (зеркало TestBugs.php).
+// Решение от 2026-06-13: эталон — спецификация (IEEE/JS), PHP-first как багфикс.
+// Подробности и матрица — в ROADMAP.md (§2, §2бис).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('P0_01_NumericStringEquality', () => {
+    // Две числовые строки сравниваются как строки (JS), а не численно (PHP ==).
+    assert.strictEqual(false, executeReturnCode('return "1" == "01";')?.value);
+    assert.strictEqual(false, executeReturnCode('return "10" == "1e1";')?.value);
+    assert.strictEqual(true,  executeReturnCode('return "abc" == "abc";')?.value);
+    assert.strictEqual(true,  executeReturnCode('return "1" != "01";')?.value);
+});
+
+test('P0_02_SubStringLength', () => {
+    // Второй аргумент — длина (mb_substr), а не конечный индекс (JS substring).
+    assert.strictEqual('bcd',  executeReturnCode('return "abcdef".SubString(1,3);')?.value);
+    assert.strictEqual('de',   executeReturnCode('return "abcdef".SubString(-3,2);')?.value);
+    assert.strictEqual('cdef', executeReturnCode('return "abcdef".SubString(2);')?.value);
+});
+
+test('P0_03_DivisionByZeroIEEE', () => {
+    // Деление на ноль по IEEE: ±Infinity / NaN, а не общий INF.
+    assert.strictEqual(false, executeReturnCode('return (5/0).isFinite;')?.value);
+    assert.strictEqual(true,  executeReturnCode('return (-5/0) < 0;')?.value);
+    assert.strictEqual(true,  executeReturnCode('return (0/0).isNaN;')?.value);
+    assert.strictEqual(2,     executeReturnCode('return 4/2;')?.value);
+});
+
+test('P0_04_ModuloFloat', () => {
+    // Остаток вещественный (fmod); делитель 0 → NaN; целые остаются целыми.
+    assert.strictEqual(1.5,  executeReturnCode('return (7/2) % 2;')?.value);
+    assert.strictEqual(true, executeReturnCode('return (7 % 0).isNaN;')?.value);
+    assert.strictEqual(1,    executeReturnCode('return 10 % 3;')?.value);
+});
+
+test('P0_05_StringToNumberJS', () => {
+    // Строка → число по правилам JS Number(): hex/bin/Infinity, trim, пустая → 0.
+    assert.strictEqual(26,    executeReturnCode('return "0x1A" - 0;')?.value);
+    assert.strictEqual(false, executeReturnCode('return ("Infinity" - 0).isFinite;')?.value);
+    assert.strictEqual(0,     executeReturnCode('return "" - 0;')?.value);
+    assert.strictEqual(5,     executeReturnCode('return "  5  " - 0;')?.value);
+    assert.strictEqual(true,  executeReturnCode('return ("abc" - 0).isNaN;')?.value);
+});
+
+test('P0_06_ArrayMembershipStrict', () => {
+    // Членство по строгому равенству значений: null/bool работают, без приведения к строке.
+    assert.strictEqual(true,  executeReturnCode('return [1, null].Contains(null);')?.value);
+    assert.strictEqual(false, executeReturnCode('return [1, 2].Contains(null);')?.value);
+    assert.strictEqual(0,     executeReturnCode('return [true, false].IndexOf(true);')?.value);
+    assert.strictEqual(false, executeReturnCode('return [1].Contains("1");')?.value);
+});
+
+test('P0_07_RoundHalfUp', () => {
+    // Math.round округляет половины к +∞ (JS), а не от нуля (PHP round).
+    assert.strictEqual(-2, executeReturnCode('return Math.round(-2.5);')?.value);
+    // Math.round(-0.5) в JS даёт -0; прибавляем +0 — это тот же ноль (SameValue
+    // в strictEqual иначе различил бы -0 и +0; в PHP floor даёт сразу +0).
+    assert.strictEqual(0,  (executeReturnCode('return Math.round(-0.5);')?.value as number) + 0);
+    assert.strictEqual(3,  executeReturnCode('return Math.round(2.5);')?.value);
+});
+
+test('P0_08_FromCharCodeCodePoint', () => {
+    // Сборка по код-поинту (mb_chr): астральные символы не теряются.
+    assert.strictEqual('я',  executeReturnCode('return String.fromCharCode(1103);')?.value);
+    assert.strictEqual('😀', executeReturnCode('return String.fromCharCode(128512);')?.value);
+});
+
+test('P0_09_NewArrayInvalidThrows', () => {
+    // Недопустимая длина → бросает, а не молча создаёт [NaN].
+    assert.strictEqual(3, executeReturnCode('return new Array(3).length;')?.value);
+    assert.throws(() => executeReturnCode('return new Array(NaN);'));
+    assert.throws(() => executeReturnCode('return new Array("abc");'));
+});
+
+test('P0_10_DateTimeTimeIsNumber', () => {
+    // .Time — число (секунды от полуночи), а не объект DateTime.
+    assert.strictEqual(3723, executeReturnCode('return DateTime.Today.AddHours(1).AddMinutes(2).AddSeconds(3).Time;')?.value);
+    assert.strictEqual(3601, executeReturnCode('return DateTime.Today.AddHours(1).Time + 1;')?.value);
+});
+
+test('P0_11_VoidCoercion', () => {
+    // Возврат без значения (void): к числу → NaN, к булеву → false.
+    assert.strictEqual(true, executeReturnCode('function f() {} return (f() + 1).isNaN;')?.value);
+    assert.strictEqual('f',  executeReturnCode('function f() {} if (f()) { return "t"; } return "f";')?.value);
+});
+
+test('P0_20_Bitwise64Bit', () => {
+    // Битовые операции 64-битные (через BigInt), а не 32-битные.
+    assert.strictEqual(4294967297, executeReturnCode('return 0x100000000 | 1;')?.value);
+    assert.strictEqual(240,        executeReturnCode('return 0x1FF & 0xF0;')?.value);
+});

@@ -39,11 +39,13 @@ export class ArrayConstructor extends StackVariable {
                 first = first.refValue as StackVariable;
             }
             const asNumber = first.castAs(VariableType.vtNumber);
-            //Только если это «честное» число: после cast тип vtNumber и значение
-            //совпадает с целым неотрицательным. Иначе считаем что это один элемент.
-            if (asNumber !== null && Number.isFinite(asNumber.value as number)) {
-                const n = Number(asNumber.value);
-                if (n >= 0 && Number.isInteger(n)) {
+            //Зеркало PHP: если один аргумент кастуется в число — это попытка задать
+            //длину. Допустимая длина — неотрицательное целое; иначе бросаем (как PHP),
+            //а не молча создаём [NaN]/[Infinity]. NaN/Infinity/"abc"/дробное/отрицательное
+            //отбраковываются здесь. Текст печатает NAN/INF, как PHP.
+            if (asNumber !== null && typeof asNumber.value === 'number') {
+                const n = asNumber.value as number;
+                if (Number.isInteger(n) && n >= 0) {
                     //Предварительная проверка бюджета данных ДО материализации N ячеек:
                     //иначе при огромном N память съел бы сам цикл ниже — раньше, чем
                     //учёт в конструкторе StackVariableArray (он спишет бюджет по факту).
@@ -57,7 +59,8 @@ export class ArrayConstructor extends StackVariable {
                     }
                     return new StackVariableArray(false, items, context);
                 }
-                throw new InterpreterException('Invalid array length: ' + asNumber.value);
+                const label = Number.isNaN(n) ? 'NAN' : (n === Infinity ? 'INF' : (n === -Infinity ? '-INF' : String(n)));
+                throw new InterpreterException('Invalid array length: ' + label, context?.currentToken?.cursorPos);
             }
         }
 

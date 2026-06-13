@@ -98,7 +98,9 @@ export class StackVariableDateTime extends StackVariable {
             get(this: StackVariableDateTime) {
                 const d = new Date(this.value * 1000);
                 if (d) {
-                    return new StackVariableDateTime((d.getHours() * 60 * 60) + (d.getMinutes() * 60) + d.getSeconds());
+                    //Зеркало PHP getPropertyTime(): секунды от полуночи как ЧИСЛО,
+                    //а не объект DateTime (иначе ломается арифметика и сравнение).
+                    return new StackVariableNumber(true, (d.getHours() * 60 * 60) + (d.getMinutes() * 60) + d.getSeconds());
                 }
 
                 return undefined;
