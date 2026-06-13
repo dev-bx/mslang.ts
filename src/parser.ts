@@ -516,7 +516,8 @@ export class CodeParser {
 
                     if (this.reservedWords.indexOf(saveToken.toLowerCase())>=0)
                     {
-                        //throw new ParserException("can", this.lexer.tokenCursor);
+                        // Зеркало PHP: зарезервированное слово как голый идентификатор — ошибка.
+                        throw new ParserException('Using reserved word "' + saveToken + '"', this.lexer.tokenCursor);
                     }
 
                     this.lexer.getToken();
@@ -1085,9 +1086,9 @@ export class CodeParser {
             }
 
             SubNode = new ParseNode(this.lexer.tokenCursor);
-            // EndCompareType должен быть в стоп-списке: иначе bare-выражения вроде
-            // for(i=0; true; ...) не разберутся (`;` встречается раньше любого ltCompare).
-            this.parseExpression(SubNode, false, new LexerTypeArray(LexerType.ltCompare, LexerType.ltRPar, LexerType.ltCompareAnd, LexerType.ltCompareOr, EndCompareType));
+            // Зеркало PHP parseCompare: стоп-список без EndCompareType (for ушёл на
+            // parseExpression, while всегда оканчивается ltRPar — он уже в списке).
+            this.parseExpression(SubNode, false, new LexerTypeArray(LexerType.ltCompare, LexerType.ltRPar, LexerType.ltCompareAnd, LexerType.ltCompareOr));
             NodeList.push(SubNode);
 
             if (this.lexer.tokenSym === LexerType.ltCompare)
@@ -1295,9 +1296,13 @@ export class CodeParser {
                         this.parseCode(Node2.childItems, true, true, LexerTypeArray.one(LexerType.ltSemicolon));
 
                         Node2 = new ParseNode(this.lexer.tokenCursor, NodeType.ntForCompare);
+                        Node2.childItems = [];
                         Node.childItems.push(Node2);
 
-                        this.parseCompare(Node2, LexerType.ltSemicolon);
+                        // Зеркало PHP: условие for через parseExpression (allowEmpty), а не
+                        // parseCompare. Так небулевое голое условие (`for(i=0; n; ...)`)
+                        // бросает "For compare invalid variable type", как в эталоне.
+                        this.parseExpression(Node2, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
 
                         Node2 = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
                         Node2.childItems = [];
