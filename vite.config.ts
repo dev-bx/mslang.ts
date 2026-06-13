@@ -19,8 +19,12 @@ export default defineConfig({
         },
         // tsc заранее положил декларации в dist/types/, не стирать их.
         emptyOutDir: false,
-        target: 'es2015',
+        // es2020 нужен для BigInt (64-битные битовые операции) и прочих фич.
+        target: 'es2020',
+        // Минификация выключена сознательно: при включении сначала нужен
+        // keep_classnames/keepNames (funcEntryCache опирается на constructor.name).
         minify: false,
-        sourcemap: true,
+        // Не публикуем sourcemap (~1.2 МБ): сборка не минифицирована и читаема и так.
+        sourcemap: false,
     },
 });
