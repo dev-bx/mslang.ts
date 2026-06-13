@@ -1,7 +1,7 @@
 import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
-import type {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 export class StackVariableRef extends StackVariable {
 

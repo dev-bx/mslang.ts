@@ -5,7 +5,7 @@ import {StackVariableNumber} from "./stackvariablenumber.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {InterpreterException} from "./exceptions";
-import type {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 export class StackVariableString extends StackVariable {
     constructor(isConst: boolean = false, value: string, context: ContextInterpreter | null = null) {

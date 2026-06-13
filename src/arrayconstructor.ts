@@ -5,7 +5,7 @@ import {StackVariableRef} from "./stackvariableref";
 import {VariableType} from "./variabletype";
 import {InterpreterException, ResourceLimitException} from "./exceptions";
 import type {BuiltinConstructor} from "./builtinconstructor";
-import type {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 /**
  * Нативный «класс» `Array` для JS-стиля `new Array(N)` и `new Array(a, b, c)`.

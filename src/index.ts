@@ -1,7 +1,9 @@
 import {Version} from "./version";
 import {CodeLexer, LexerTypeArray, LexerType, Lexer, TokenCursor, FullTokenInfo} from "./lexer";
 import {CodeParser, NodeType, CompareType, ParseNode} from "./parser";
-import {Interpreter, ContextInterpreter, InterpreterNode, ContextType} from "./interpreter";
+import {Interpreter, InterpreterNode} from "./interpreter";
+import {ContextInterpreter} from "./contextinterpreter";
+import {ContextType} from "./contexttype";
 import {VariableType} from "./variabletype";
 import {StackVariable} from "./stackvariable";
 import {StackVariableUndefined} from "./stackvariableundefined";

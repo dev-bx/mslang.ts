@@ -4,7 +4,7 @@ import {StackVariableNumber} from "./stackvariablenumber.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
-import type {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 /**
  * Глобал `Env` — доступ скрипта к конфигу контекста (read-only). Хост кладёт
