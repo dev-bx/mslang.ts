@@ -17,6 +17,7 @@ import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
 import {StringStaticFunctions} from "./stringstaticfunctions";
 import {ArrayConstructor} from "./arrayconstructor";
+import {isBuiltinConstructor} from "./builtinconstructor";
 import {StackVariableDateTime} from "./stackvariabledatetime";
 import {ContextException, InterpreterException, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
@@ -2922,7 +2923,7 @@ export class Interpreter {
         //Нативные «классы» (Array, ...): передаём параметры самому объекту,
         //он сам строит результат. Без push кадра. Контекст — для бюджета данных
         //(зеркало PHP: construct(array $parameters, ContextInterpreter $context)).
-        if (constructor instanceof ArrayConstructor) {
+        if (isBuiltinConstructor(constructor)) {
             context.pushStackVar(constructor.construct(parameters, context));
             return;
         }

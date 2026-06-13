@@ -17,6 +17,7 @@ import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableClass} from "./stackvariableclass";
 import {StackVariableDateTime} from './stackvariabledatetime';
 import {FunctionEntry} from "./functionentry";
+import {isBuiltinConstructor, type BuiltinConstructor} from "./builtinconstructor";
 import {MSLangException, InterpreterException, ResourceLimitException, ContextException, LexerException, ParserCursorException, ParserNodeException} from "./exceptions";
 
 export {
@@ -50,6 +51,8 @@ export {
     InterpreterNode,
     ContextType,
     FunctionEntry,
+    isBuiltinConstructor,
+    type BuiltinConstructor,
     MSLangException,
     InterpreterException,
     ResourceLimitException,
