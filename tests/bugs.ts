@@ -956,3 +956,15 @@ test('Feat34_TimezoneStringAndInvalid', () => {
     assert.strictEqual(180, ContextInterpreter.parseTimezone('180'));
     assert.throws(() => ContextInterpreter.parseTimezone('Europe/Moscow'), ContextException);
 });
+
+test('P1_19_IndexAccessLogic', () => {
+    // Согласованная таблица доступа по индексу:
+    // скаляр → "Cannot read offset"; строка str[i] → символ; массив → элемент/undefined.
+    assert.throws(() => executeReturnCode('let n = 5; return n[0];'), /Cannot read offset/);
+    assert.throws(() => executeReturnCode('let t = true; return t[0];'), /Cannot read offset/);
+    assert.strictEqual('b', executeReturnCode('return "abc"[1];')?.value);
+    assert.strictEqual(undefined, executeReturnCode('return "abc"[5];')?.value);
+    assert.strictEqual(20, executeReturnCode('let a = [10,20,30]; return a[1];')?.value);
+    assert.strictEqual(20, executeReturnCode('let a = [10,20,30]; let i = 1.0; return a[i];')?.value);
+    assert.strictEqual(undefined, executeReturnCode('let a = [10,20,30]; let i = 1.5; return a[i];')?.value);
+});

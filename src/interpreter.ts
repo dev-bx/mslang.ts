@@ -1919,8 +1919,34 @@ export class Interpreter {
 
         context.popExecutionStack();
 
-        const accessTo = context.popStackVar(),
-            propertyValue = accessTo.getProperty(variable.value as string);
+        const accessTo = context.popStackVar();
+
+        // Зеркало PHP (раздельные двери offsetGet/getProperty), сведённое в один
+        // обработчик: строка индексируема (str[i] → символ, как JS); массив/объект —
+        // через getProperty; скаляр (число/булево/null/undefined) индексировать
+        // нельзя — "Cannot read offset" (а не молчаливый undefined).
+        if (accessTo.type === VariableType.vtString) {
+            const idx = Number(variable.value);
+            const chars = Array.from(accessTo.value as string);
+            if (Number.isInteger(idx) && idx >= 0 && idx < chars.length) {
+                context.pushStackVar(new StackVariableString(false, chars[idx], context));
+            } else {
+                context.pushStackVar(context.createVariable(VariableType.vtUndefined, undefined));
+            }
+            return;
+        }
+
+        if (accessTo.type !== VariableType.vtArray && accessTo.type !== VariableType.vtObject) {
+            throw new InterpreterException('Cannot read offset', token.cursorPos);
+        }
+
+        //Нормализуем дробный ключ к строке, как PHP (целый float уже совпадает с int).
+        let key = variable.value;
+        if (typeof key === 'number' && !Number.isInteger(key)) {
+            key = String(key);
+        }
+
+        const propertyValue = accessTo.getProperty(key as string);
 
         if (!propertyValue) {
             context.pushStackVar(context.createVariable(VariableType.vtUndefined, undefined));
