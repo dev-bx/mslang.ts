@@ -395,11 +395,14 @@
 | M9-7 | O-5..O-12 оптимизации (PHP-first для O-7..O-10) | P3 | M–L | mix | M9-6 | парность сохранена |
 
 ### Milestone 10 — Архитектура и структура (паритет формы)
+
+> **✅ Закрыт (2026-06-14).** M10-1: `interpreter.ts` (4185 строк) разнесён — `ContextInterpreter`+`ExecutionStackItem` → `contextinterpreter.ts`, `ContextType` → `contexttype.ts` (как `ContextType.php`); цикл `Interpreter↔ContextInterpreter` тип-только, фабрика `createVariable` в базе через позднее связывание (`_registerCreateVariable`). M10-2: `.bind(this)` сделан в Тире 4 (O-4). M10-3: `_functions`/`_type`/`_interpreter` типизированы (зеркало `array`/`int`/`Interpreter` в PHP). Всё зелёное (typecheck/lint/тесты 194/97/38/11/mirror 21/фаззер 0/500/сборка). **Осталось по желанию:** `InterpreterNode`+`InterpreterNodeType` всё ещё в `interpreter.ts` — их вынос в `interpreternode.ts`/`interpreternodetype.ts` довершил бы полный паритет файлов с PHP (низкий риск, вне явного запроса).
+
 | id | Заголовок | Приоритет | Effort | Репо первым | Зависимости | Критерий готовности |
 |---|---|---|---|---|---|---|
-| M10-1 | Вынести `ContextInterpreter` в `src/contextinterpreter.ts` (как в PHP) | P2 | M | TS | M5 | build/test/mirror зелёные; API не изменился |
-| M10-2 | `registerHandlers` — прямая привязка методов (см. O-4) | P3 | S | TS | M9-6 | поведение идентично |
-| M10-3 | Типизация полей `ContextInterpreter` (`_interpreter`/`_type`/`_functions`) | P3 | S | TS | M10-1 | строгие типы как в PHP |
+| M10-1 ✅ | Вынести `ContextInterpreter` в `src/contextinterpreter.ts` (как в PHP) | P2 | M | TS | M5 | build/test/mirror зелёные; API не изменился |
+| M10-2 ✅ | `registerHandlers` — прямая привязка методов (см. O-4) | P3 | S | TS | M9-6 | поведение идентично |
+| M10-3 ✅ | Типизация полей `ContextInterpreter` (`_interpreter`/`_type`/`_functions`) | P3 | S | TS | M10-1 | строгие типы как в PHP |
 
 ---
 
