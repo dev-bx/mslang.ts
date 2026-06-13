@@ -1,6 +1,6 @@
 {
   "name": "devbx.mslang",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "MSLang — встраиваемый язык скриптов для Bitrix DevBx (TypeScript-реализация, зеркало PHP-версии)",
   "type": "module",
   "main": "./dist/mslang.umd.js",

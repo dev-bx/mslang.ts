@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /*
- * Подставляет в src/version.ts:
- *   Num   — последний git-тег (без префикса v) или version из package.json,
- *   Build — дата сборки в формате YYYY-MM-DD.
+ * Синхронизирует VERSION в src/version.ts с последним git-тегом (без префикса v)
+ * или version из package.json. REVISION (дата релиза) — ручная константа, скрипт
+ * её НЕ трогает, чтобы `vite build` не пачкал дерево датой сборки.
  *
- * Запускается перед `vite build`. Скрипт идемпотентный: если src/version.ts
- * уже содержит нужные значения, ничего не пишет (чтобы не дёргать mtime).
+ * Зеркало PHP Version (VERSION/REVISION/getFullVersion). Идемпотентный: пишет,
+ * только если VERSION реально изменился.
  */
 import {execSync} from 'node:child_process';
 import {readFileSync, writeFileSync} from 'node:fs';
@@ -25,19 +25,14 @@ function gitDescribe() {
 }
 
 const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf-8'));
-const num = gitDescribe() ?? pkg.version ?? '0.0.0';
-const build = new Date().toISOString().slice(0, 10);
-
-const next = `export const Version = {
-    Num: '${num}',
-    Build: '${build}',
-};
-`;
+const version = gitDescribe() ?? pkg.version ?? '0.0.0';
 
 const current = readFileSync(versionFile, 'utf-8');
+const next = current.replace(/VERSION:\s*'[^']*'/, `VERSION: '${version}'`);
+
 if (current === next) {
     process.exit(0);
 }
 
 writeFileSync(versionFile, next);
-console.log(`version.ts → ${num} (build ${build})`);
+console.log(`version.ts → VERSION ${version}`);

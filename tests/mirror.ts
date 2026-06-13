@@ -219,3 +219,57 @@ for (const [tsFile, phpFile] of STACK_VAR_PAIRS) {
         assert.deepStrictEqual(onlyPhp, [], `${phpFile}: funcInvoke только в PHP: ${onlyPhp.join(', ')}`);
     });
 }
+
+// --- Зеркало версии ---
+// VERSION/REVISION в TS version.ts и PHP Version.php обязаны совпадать.
+function readVersionFields(text: string): {version: string | null, revision: string | null} {
+    const v = text.match(/VERSION\s*[=:]\s*'([^']*)'/);
+    const r = text.match(/REVISION\s*[=:]\s*'([^']*)'/);
+    return {version: v?.[1] ?? null, revision: r?.[1] ?? null};
+}
+
+test('mirror_Version — VERSION/REVISION совпадают', {skip: !PHP_AVAILABLE}, () => {
+    const ts = readVersionFields(fs.readFileSync(path.join(TS_ROOT, 'version.ts'), 'utf-8'));
+    const php = readVersionFields(fs.readFileSync(path.join(PHP_ROOT, 'Version.php'), 'utf-8'));
+
+    assert.strictEqual(ts.version, php.version, `VERSION: TS=${ts.version} PHP=${php.version}`);
+    assert.strictEqual(ts.revision, php.revision, `REVISION: TS=${ts.revision} PHP=${php.revision}`);
+});
+
+// --- Зеркало набора тестов ---
+// Имена тест-кейсов в tests.ts/bugs.ts и Test.php/TestBugs.php обязаны совпадать
+// один-в-один (после снятия префикса testMSLang/test). Это автоматически ловит
+// пропуски тестов с любой стороны. limits.ts исключён: там русские описания, а в
+// PHP — английские имена методов (зеркалятся по порядку/содержанию, не по имени).
+function readTsTestNames(files: string[]): Set<string> {
+    const out = new Set<string>();
+    for (const f of files) {
+        const text = fs.readFileSync(path.join(__dirname, f), 'utf-8');
+        for (const m of text.matchAll(/(?:^|\n)\s*test\(\s*'([^']+)'/g)) {
+            out.add(m[1]);
+        }
+    }
+    return out;
+}
+
+function readPhpTestNames(files: string[]): Set<string> {
+    const out = new Set<string>();
+    for (const f of files) {
+        const text = fs.readFileSync(path.join(PHP_ROOT, '..', 'tests', f), 'utf-8');
+        for (const m of text.matchAll(/function\s+test(\w+)\s*\(/g)) {
+            out.add(m[1].replace(/^MSLang/, ''));
+        }
+    }
+    return out;
+}
+
+test('mirror_test_parity — имена тест-кейсов совпадают (tests+bugs)', {skip: !PHP_AVAILABLE}, () => {
+    const ts = readTsTestNames(['tests.ts', 'bugs.ts']);
+    const php = readPhpTestNames(['Test.php', 'TestBugs.php']);
+
+    const onlyTs = [...ts].filter(x => !php.has(x)).sort();
+    const onlyPhp = [...php].filter(x => !ts.has(x)).sort();
+
+    assert.deepStrictEqual(onlyTs, [], `тест только в TS: ${onlyTs.join(', ')}`);
+    assert.deepStrictEqual(onlyPhp, [], `тест только в PHP: ${onlyPhp.join(', ')}`);
+});
