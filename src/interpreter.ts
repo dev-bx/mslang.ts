@@ -147,362 +147,156 @@ export class Interpreter {
     }
 
     registerHandlers() {
-        this.registerNodeHandler(NodeType.ntAssign, (...args: Parameters<TNodeHandler>) => {
-            this.assignHandler(...args);
-        });
+        this.registerNodeHandler(NodeType.ntAssign, this.assignHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntAssignFinish, (...args: Parameters<TNodeHandler>) => {
-            this.assignFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntAssignFinish, this.assignFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntExpressionAssign, (...args: Parameters<TNodeHandler>) => {
-            this.expressionAssignHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntExpressionAssignFinish, (...args: Parameters<TNodeHandler>) => {
-            this.expressionAssignFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntCompoundAssign, (...args: Parameters<TNodeHandler>) => {
-            this.compoundAssignHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntCompoundAssignFinish, (...args: Parameters<TNodeHandler>) => {
-            this.compoundAssignFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntTernary, (...args: Parameters<TNodeHandler>) => {
-            this.ternaryHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntTernaryFinish, (...args: Parameters<TNodeHandler>) => {
-            this.ternaryFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntForOf, (...args: Parameters<TNodeHandler>) => {
-            this.forOfHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntForOfStart, (...args: Parameters<TNodeHandler>) => {
-            this.forOfStartHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntForOfTick, (...args: Parameters<TNodeHandler>) => {
-            this.forOfTickHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntExpressionAssign, this.expressionAssignHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntExpressionAssignFinish, this.expressionAssignFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntCompoundAssign, this.compoundAssignHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntCompoundAssignFinish, this.compoundAssignFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntTernary, this.ternaryHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntTernaryFinish, this.ternaryFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntForOf, this.forOfHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntForOfStart, this.forOfStartHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntForOfTick, this.forOfTickHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntNumeric, (...args: Parameters<TNodeHandler>) => {
-            this.numericHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntFloat, (...args: Parameters<TNodeHandler>) => {
-            this.floatHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntString, (...args: Parameters<TNodeHandler>) => {
-            this.stringHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntNumeric, this.numericHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntFloat, this.floatHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntString, this.stringHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntPlus, (...args: Parameters<TNodeHandler>) => {
-            this.plusHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntMinus, (...args: Parameters<TNodeHandler>) => {
-            this.minusHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntMul, (...args: Parameters<TNodeHandler>) => {
-            this.mulHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntDiv, (...args: Parameters<TNodeHandler>) => {
-            this.divHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntMod, (...args: Parameters<TNodeHandler>) => {
-            this.modHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntBitAnd, (...args: Parameters<TNodeHandler>) => {
-            this.bitAndHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntBitOr, (...args: Parameters<TNodeHandler>) => {
-            this.bitOrHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntBitXor, (...args: Parameters<TNodeHandler>) => {
-            this.bitXorHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntShiftLeft, (...args: Parameters<TNodeHandler>) => {
-            this.shiftLeftHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntShiftRight, (...args: Parameters<TNodeHandler>) => {
-            this.shiftRightHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntUShiftRight, (...args: Parameters<TNodeHandler>) => {
-            this.uShiftRightHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntPlus, this.plusHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntMinus, this.minusHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntMul, this.mulHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntDiv, this.divHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntMod, this.modHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntBitAnd, this.bitAndHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntBitOr, this.bitOrHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntBitXor, this.bitXorHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntShiftLeft, this.shiftLeftHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntShiftRight, this.shiftRightHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntUShiftRight, this.uShiftRightHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntShortIncrement, (...args: Parameters<TNodeHandler>) => {
-            this.shortIncrementHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntShortDecrement, (...args: Parameters<TNodeHandler>) => {
-            this.shortDecrementHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntShortIncrement, this.shortIncrementHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntShortDecrement, this.shortDecrementHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntSubExpression, (...args: Parameters<TNodeHandler>) => {
-            this.subExpressionHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntSubExpressionFinish, (...args: Parameters<TNodeHandler>) => {
-            this.subExpressionFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntSubExpression, this.subExpressionHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntSubExpressionFinish, this.subExpressionFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntFuncCall, (...args: Parameters<TNodeHandler>) => {
-            this.funcCallHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntFuncCall, this.funcCallHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntFuncNameSpaceCall, (...args: Parameters<TNodeHandler>) => {
-            this.funcCallHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntFuncParam, (...args: Parameters<TNodeHandler>) => {
-            this.funcParamHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntFuncParamFinish, (...args: Parameters<TNodeHandler>) => {
-            this.funcParamFinishHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntFuncCallFinish, (...args: Parameters<TNodeHandler>) => {
-            this.funcCallFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntFuncNameSpaceCall, this.funcCallHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntFuncParam, this.funcParamHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntFuncParamFinish, this.funcParamFinishHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntFuncCallFinish, this.funcCallFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntSelfFuncCall, (...args: Parameters<TNodeHandler>) => {
-            this.selfFuncCallHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntSelfFuncCallFinish, (...args: Parameters<TNodeHandler>) => {
-            this.selfFuncCallFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntSelfFuncCall, this.selfFuncCallHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntSelfFuncCallFinish, this.selfFuncCallFinishHandler.bind(this));
 
 
-        this.registerNodeHandler(NodeType.ntShiftSP, (...args: Parameters<TNodeHandler>) => {
-            this.shiftSPHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntShiftSP, this.shiftSPHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntObjSetPropValue, (...args: Parameters<TNodeHandler>) => {
-            this.objSetPropValueHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntObjSetPropValueFinish, (...args: Parameters<TNodeHandler>) => {
-            this.objSetPropValueFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntArrayPushArrayUnpack, (...args: Parameters<TNodeHandler>) => {
-            this.arrayPushArrayUnpackHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntArrayPushArrayUnpackFinish, (...args: Parameters<TNodeHandler>) => {
-            this.arrayPushArrayUnpackFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntObjSetPropValue, this.objSetPropValueHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntObjSetPropValueFinish, this.objSetPropValueFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntArrayPushArrayUnpack, this.arrayPushArrayUnpackHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntArrayPushArrayUnpackFinish, this.arrayPushArrayUnpackFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntObjProp, (...args: Parameters<TNodeHandler>) => {
-            this.objPropHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntObjProp, this.objPropHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntContextVariable, (...args: Parameters<TNodeHandler>) => {
-            this.contextVariableHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntContextVariable, this.contextVariableHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntIF, (...args: Parameters<TNodeHandler>) => {
-            this.ifHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntIFValue, (...args: Parameters<TNodeHandler>) => {
-            this.ifValueHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntIFValueBOOL, (...args: Parameters<TNodeHandler>) => {
-            this.ifValueBOOLHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntIFValueFinish, (...args: Parameters<TNodeHandler>) => {
-            this.ifValueFinishHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntIFValueBOOLFinish, (...args: Parameters<TNodeHandler>) => {
-            this.ifValueBOOLFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntIF, this.ifHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntIFValue, this.ifValueHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntIFValueBOOL, this.ifValueBOOLHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntIFValueFinish, this.ifValueFinishHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntIFValueBOOLFinish, this.ifValueBOOLFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntExpressionCompare, (...args: Parameters<TNodeHandler>) => {
-            this.expressionCompareHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntExpressionCompare, this.expressionCompareHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntCompare, (...args: Parameters<TNodeHandler>) => {
-            this.ifCompareHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntCompareOr, (...args: Parameters<TNodeHandler>) => {
-            this.ifCompareOrHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntCompareAnd, (...args: Parameters<TNodeHandler>) => {
-            this.ifCompareAndHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntCompare, this.ifCompareHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntCompareOr, this.ifCompareOrHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntCompareAnd, this.ifCompareAndHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntNegativeIf, (...args: Parameters<TNodeHandler>) => {
-            this.negativeIfHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntNegativeIf, this.negativeIfHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntIFFinish, (...args: Parameters<TNodeHandler>) => {
-            this.ifFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntSubCode, (...args: Parameters<TNodeHandler>) => {
-            this.subCodeHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntSubCodeFinish, (...args: Parameters<TNodeHandler>) => {
-            this.subCodeFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntELSE, (...args: Parameters<TNodeHandler>) => {
-            this.elseHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntIFFinish, this.ifFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntSubCode, this.subCodeHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntSubCodeFinish, this.subCodeFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntELSE, this.elseHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntFor, (...args: Parameters<TNodeHandler>) => {
-            this.forHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntForCompare, (...args: Parameters<TNodeHandler>) => {
-            this.forCompareHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntForCompareFinish, (...args: Parameters<TNodeHandler>) => {
-            this.forCompareFinishHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntForLoop, (...args: Parameters<TNodeHandler>) => {
-            this.forLoopHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntFor, this.forHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntForCompare, this.forCompareHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntForCompareFinish, this.forCompareFinishHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntForLoop, this.forLoopHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntWhile, (...args: Parameters<TNodeHandler>) => {
-            this.whileHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntWhile, this.whileHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntReturn, (...args: Parameters<TNodeHandler>) => {
-            this.returnHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntReturnFinish, (...args: Parameters<TNodeHandler>) => {
-            this.returnFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntReturn, this.returnHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntReturnFinish, this.returnFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntContinue, (...args: Parameters<TNodeHandler>) => {
-            this.continueHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntContinue, this.continueHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntBreak, (...args: Parameters<TNodeHandler>) => {
-            this.breakHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntBreak, this.breakHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntSwitch, (...args: Parameters<TNodeHandler>) => {
-            this.switchHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntSwitchEvaluated, (...args: Parameters<TNodeHandler>) => {
-            this.switchEvaluatedHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntSwitch, this.switchHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntSwitchEvaluated, this.switchEvaluatedHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntFunctionDef, (...args: Parameters<TNodeHandler>) => {
-            this.functionDefHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntUserFuncFinish, (...args: Parameters<TNodeHandler>) => {
-            this.userFuncFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntFunctionDef, this.functionDefHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntUserFuncFinish, this.userFuncFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntTry, (...args: Parameters<TNodeHandler>) => {
-            this.tryHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntTryFinish, (...args: Parameters<TNodeHandler>) => {
-            this.tryFinishHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntFinallyFinish, (...args: Parameters<TNodeHandler>) => {
-            this.finallyFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntThrow, (...args: Parameters<TNodeHandler>) => {
-            this.throwHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntThrowFinish, (...args: Parameters<TNodeHandler>) => {
-            this.throwFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntNew, (...args: Parameters<TNodeHandler>) => {
-            this.newHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntNewFinish, (...args: Parameters<TNodeHandler>) => {
-            this.newFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntTry, this.tryHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntTryFinish, this.tryFinishHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntFinallyFinish, this.finallyFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntThrow, this.throwHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntThrowFinish, this.throwFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntNew, this.newHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntNewFinish, this.newFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntClassDecl, (...args: Parameters<TNodeHandler>) => {
-            this.classDeclHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntThis, (...args: Parameters<TNodeHandler>) => {
-            this.thisHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntCtorReturnInstance, (...args: Parameters<TNodeHandler>) => {
-            this.ctorReturnInstanceHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntClassDecl, this.classDeclHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntThis, this.thisHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntCtorReturnInstance, this.ctorReturnInstanceHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntSuperCall, (...args: Parameters<TNodeHandler>) => {
-            this.superCallHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntSuperCallFinish, (...args: Parameters<TNodeHandler>) => {
-            this.superCallFinishHandler(...args)
-        });
-        this.registerNodeHandler(NodeType.ntSuperMethodCall, (...args: Parameters<TNodeHandler>) => {
-            this.superMethodCallHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntSuperMethodCallFinish, (...args: Parameters<TNodeHandler>) => {
-            this.superMethodCallFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntSuperCall, this.superCallHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntSuperCallFinish, this.superCallFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntSuperMethodCall, this.superMethodCallHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntSuperMethodCallFinish, this.superMethodCallFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntInstanceof, (...args: Parameters<TNodeHandler>) => {
-            this.instanceofHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntInstanceof, this.instanceofHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntVarDecl, (...args: Parameters<TNodeHandler>) => {
-            this.varDeclHandler(...args)
-        });
-        this.registerNodeHandler(InterpreterNodeType.ntVarDeclFinish, (...args: Parameters<TNodeHandler>) => {
-            this.varDeclFinishHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntVarDecl, this.varDeclHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntVarDeclFinish, this.varDeclFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntArray, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntArray, this.ArrayHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntArrayPush, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayPushHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntArrayPush, this.ArrayPushHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntArrayPushFinish, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayPushFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntArrayPushFinish, this.ArrayPushFinishHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntArrayFinish, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntArrayFinish, this.ArrayFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntBracketGetKey, (...args: Parameters<TNodeHandler>) => {
-            this.BracketGetKeyHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntBracketGetKey, this.BracketGetKeyHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntBracketGetKeyFinish, (...args: Parameters<TNodeHandler>) => {
-            this.BracketGetKeyFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntBracketGetKeyFinish, this.BracketGetKeyFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntBracketSetKey, (...args: Parameters<TNodeHandler>) => {
-            this.BracketSetKeyHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntBracketSetKey, this.BracketSetKeyHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntBracketSetKeyLeftFinish, (...args: Parameters<TNodeHandler>) => {
-            this.BracketSetKeyLeftFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntBracketSetKeyLeftFinish, this.BracketSetKeyLeftFinishHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntBracketSetKeyRightFinish, (...args: Parameters<TNodeHandler>) => {
-            this.BracketSetKeyRightFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntBracketSetKeyRightFinish, this.BracketSetKeyRightFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntFuncParamArrayUnpack, (...args: Parameters<TNodeHandler>) => {
-            this.FuncParamArrayUnpackHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntFuncParamArrayUnpack, this.FuncParamArrayUnpackHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntFuncParamArrayUnpackFinish, (...args: Parameters<TNodeHandler>) => {
-            this.FuncParamArrayUnpackFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntFuncParamArrayUnpackFinish, this.FuncParamArrayUnpackFinishHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntArrayPushSeparator, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayPushSeparatorHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntArrayPushSeparator, this.ArrayPushSeparatorHandler.bind(this));
 
-        this.registerNodeHandler(NodeType.ntArrayPushSeparatorKey, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayPushSeparatorKeyHandler(...args)
-        });
+        this.registerNodeHandler(NodeType.ntArrayPushSeparatorKey, this.ArrayPushSeparatorKeyHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntArrayPushSeparatorKeyFinish, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayPushSeparatorKeyFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntArrayPushSeparatorKeyFinish, this.ArrayPushSeparatorKeyFinishHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntArrayPushSeparatorFinish, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayPushSeparatorFinishHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntArrayPushSeparatorFinish, this.ArrayPushSeparatorFinishHandler.bind(this));
 
-        this.registerNodeHandler(InterpreterNodeType.ntArrayPushKeyValue, (...args: Parameters<TNodeHandler>) => {
-            this.ArrayPushKeyValueHandler(...args)
-        });
+        this.registerNodeHandler(InterpreterNodeType.ntArrayPushKeyValue, this.ArrayPushKeyValueHandler.bind(this));
     }
 
     assignHandler(context: ContextInterpreter, token: ParseNode) {
