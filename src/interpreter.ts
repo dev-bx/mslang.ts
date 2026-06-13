@@ -18,7 +18,7 @@ import {MathFunctions} from "./mathfunctions";
 import {StringStaticFunctions} from "./stringstaticfunctions";
 import {ArrayConstructor} from "./arrayconstructor";
 import {StackVariableDateTime} from "./stackvariabledatetime";
-import {InterpreterException, MSLangException, ResourceLimitException} from "./exceptions";
+import {ContextException, InterpreterException, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {StackVariableObject} from "./stackvariableobject";
 
@@ -3714,7 +3714,7 @@ export class ContextInterpreter {
 
     popExecutionStack(saveVariables?: boolean) {
         if (!this._executionStack.length)
-            throw new MSLangException('Execution stack is empty');
+            throw new ContextException('Execution stack is empty');
 
         const data = this._executionStack.pop();
 
@@ -3843,7 +3843,7 @@ export class ContextInterpreter {
      */
     popFunctionScope() {
         if (!this._executionStack.length)
-            throw new MSLangException('Execution stack is empty');
+            throw new ContextException('Execution stack is empty');
 
         const data = this._executionStack.pop();
         if (!data)
@@ -3899,7 +3899,7 @@ export class ContextInterpreter {
         const r = this._stackVars.pop();
 
         if (r === undefined)
-            throw new MSLangException('Stack is empty');
+            throw new ContextException('Stack is empty');
 
         return r;
     }
@@ -3924,7 +3924,7 @@ export class ContextInterpreter {
             throw new MSLangException('codeItems not initialized');
 
         if (this._pos >= this._codeItems.length)
-            throw new MSLangException('End of execution code');
+            throw new ContextException('End of execution code');
 
         return this._codeItems[this._pos++];
     }
@@ -3974,7 +3974,7 @@ export class ContextInterpreter {
             handler = this._interpreter.getCodeHandler(token.nType);
 
         if (!handler)
-            throw new MSLangException('no registered handler for token ' + token.typeName + '(' + token.nType + ')');
+            throw new ContextException('no registered handler for token ' + token.typeName + '(' + token.nType + ')');
 
         //handler.call(this._interpreter, this, token);
         handler(this, token);
@@ -4053,7 +4053,7 @@ export class ContextInterpreter {
             return this.createVariable(VariableType.vtVoid, undefined);
         } else {
             if (stackPosition !== this._stackVars.length)
-                throw new MSLangException('Execution stack corrupted');
+                throw new ContextException('Execution stack corrupted');
         }
     }
 
@@ -4122,7 +4122,7 @@ export class ContextInterpreter {
                 const vars = this._executionStack[i].variables;
                 if (vars && vars[name] !== undefined) {
                     if (vars[name].isConst)
-                        throw new MSLangException('Cannot override constant "' + name + '"');
+                        throw new ContextException('Cannot override constant "' + name + '"');
                     vars[name] = value;
                     return;
                 }
@@ -4132,7 +4132,7 @@ export class ContextInterpreter {
             if (this._currentCapturedScope !== null && this._currentCapturedScope[name] !== undefined) {
                 const existing = this._currentCapturedScope[name];
                 if (existing.isConst)
-                    throw new MSLangException('Cannot override constant "' + name + '"');
+                    throw new ContextException('Cannot override constant "' + name + '"');
                 if (existing.type === value.type) {
                     existing.value = value.value;
                 } else {
@@ -4149,7 +4149,7 @@ export class ContextInterpreter {
         }
 
         if (!!this._variables[name] && this._variables[name].isConst)
-            throw new MSLangException('Cannot override constant "' + name + '"');
+            throw new ContextException('Cannot override constant "' + name + '"');
 
         this._variables[name] = value;
     }
@@ -4177,7 +4177,7 @@ export class ContextInterpreter {
             case VariableType.vtFunction:
                 return new StackVariableFunction(value, null);
             default:
-                throw new MSLangException('Unknown variable type ' + type);
+                throw new ContextException('Unknown variable type ' + type);
         }
     }
 
@@ -4220,7 +4220,7 @@ export class ContextInterpreter {
         }
 
         if (funcEntry.getRequiredCount() > parameters.length) {
-            throw new MSLangException('Invalid number of arguments for function "' + name + '"');
+            throw new ContextException('Invalid number of arguments for function "' + name + '"');
         }
 
         const callFuncArgs: (StackVariable|null)[] = [null];
@@ -4252,11 +4252,11 @@ export class ContextInterpreter {
         const funcEntry = self.getFunctionEntry(name);
 
         if (!funcEntry) {
-            throw new MSLangException('Unknown function "' + name + '"');
+            throw new ContextException('Unknown function "' + name + '"');
         }
 
         if (funcEntry.getRequiredCount() > parameters.length) {
-            throw new MSLangException('Invalid number of arguments for function "' + name + '"');
+            throw new ContextException('Invalid number of arguments for function "' + name + '"');
         }
 
         const callFuncArgs = [self];

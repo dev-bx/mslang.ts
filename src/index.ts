@@ -17,7 +17,7 @@ import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableClass} from "./stackvariableclass";
 import {StackVariableDateTime} from './stackvariabledatetime';
 import {FunctionEntry} from "./functionentry";
-import {MSLangException, InterpreterException, ResourceLimitException} from "./exceptions";
+import {MSLangException, InterpreterException, ResourceLimitException, ContextException} from "./exceptions";
 
 export {
     Version,
@@ -53,5 +53,6 @@ export {
     MSLangException,
     InterpreterException,
     ResourceLimitException,
+    ContextException,
 };
 
