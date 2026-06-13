@@ -855,3 +855,27 @@ test('077_VarRedeclaresLetFails', () => {
     assert.throws(() => executeReturnCode('let x = 1; let x = 2; return x;'),
         /Identifier 'x' has already been declared/);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P1 батч B: парсер (зеркало TestBugs.php).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('P1_01_AssocArrayWithArrayValue', () => {
+    // ['k' => [1,2,3]] — литерал-массив как значение ассоц-ключа (P1-1, PHP-first).
+    assert.strictEqual(3, executeReturnCode("let m = ['a' => [1,2,3]]; return m['a'].length;")?.value);
+    assert.strictEqual(1, executeReturnCode("return ['k' => [1,2,3]]['k'][0];")?.value);
+});
+
+test('P1_02_ForNonBooleanConditionThrows', () => {
+    // Голое небулевое условие for бросает, как PHP (P1-2/P1-3).
+    assert.throws(() => executeReturnCode('let n = 3; for (let i = 0; n; i = i + 1) { }'),
+        /For compare invalid variable type/);
+    // Нормальные формы по-прежнему работают.
+    assert.strictEqual(10, executeReturnCode('let s = 0; for (let i = 0; i < 5; i = i + 1) { s = s + i; } return s;')?.value);
+});
+
+test('P1_04_ReservedWordAsIdentifierThrows', () => {
+    // Зарезервированное слово как голый идентификатор — ошибка (P1-4).
+    assert.throws(() => executeReturnCode('let y = clone + 1; return y;'),
+        /Using reserved word/);
+});
