@@ -1,7 +1,8 @@
 import {Version} from "./version";
 import {CodeLexer, LexerTypeArray, LexerType, Lexer, TokenCursor, FullTokenInfo} from "./lexer";
 import {CodeParser, NodeType, CompareType, ParseNode} from "./parser";
-import {Interpreter, InterpreterNode} from "./interpreter";
+import {Interpreter} from "./interpreter";
+import {InterpreterNode} from "./interpreternode";
 import {ContextInterpreter} from "./contextinterpreter";
 import {ContextType} from "./contexttype";
 import {VariableType} from "./variabletype";

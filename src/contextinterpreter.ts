@@ -22,7 +22,7 @@ import {StackVariableDateTime} from "./stackvariabledatetime";
 import {ContextException, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {ContextType} from "./contexttype";
-import {InterpreterNode} from "./interpreter";
+import {InterpreterNode} from "./interpreternode";
 import type {Interpreter} from "./interpreter";
 
 interface ExecutionStackItem {
