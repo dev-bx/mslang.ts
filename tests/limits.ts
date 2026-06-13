@@ -113,3 +113,11 @@ test('без лимитов поведение прежнее', () => {
     const result = context.exec(true);
     assert.equal(result?.value, 101);
 });
+
+//P1-10: Array-методы, отдающие новый массив, тоже списывают бюджет данных.
+test('бюджет данных: Array.keys/values списываются', () => {
+    const context = createCodeContext('let a = [10, 20, 30]; let k = a.keys(); let v = a.values(); return 1;');
+    context.exec(true);
+    //keys и values создают по 3-элементному массиву → не меньше 6*16 байт (совпадает с PHP).
+    assert.ok(context.getAllocatedBytes() >= 96);
+});

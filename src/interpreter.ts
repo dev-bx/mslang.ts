@@ -1849,7 +1849,7 @@ export class Interpreter {
         context._codeItems = [];
         context._codeItems.push(...token.nodeChildren());
 
-        context._contextVariable = new StackVariableArray(false, []);
+        context._contextVariable = new StackVariableArray(false, [], context);
 
         const node = new InterpreterNode(token.cursorPos);
         node.nType = InterpreterNodeType.ntArrayFinish;
@@ -2533,11 +2533,9 @@ export class Interpreter {
                         restItems.push(context.createVariable(arg.type, arg.value));
                     }
                 }
-                //Создаём пустой StackVariableArray и заполняем через push.
-                const restArray = new StackVariableArray(false, []);
-                for (const item of restItems) {
-                    restArray.funcInvoke_push(item);
-                }
+                //Зеркало PHP: строим rest-массив сразу из элементов с контекстом —
+                //так его размер списывается из бюджета данных (count*16).
+                const restArray = new StackVariableArray(false, restItems, context);
                 boundValues.push(restArray);
                 continue;
             }
@@ -4233,7 +4231,7 @@ export class ContextInterpreter {
             if (index < parameters.length) {
                 callFuncArgs.push(parameters[index]);
             } else {
-                callFuncArgs.push(funcParameters[index].createVariableDefaultValue());
+                callFuncArgs.push(funcParameters[index].createVariableDefaultValue(this));
             }
         }
 
@@ -4268,7 +4266,7 @@ export class ContextInterpreter {
             if (index < parameters.length) {
                 callFuncArgs.push(parameters[index]);
             } else {
-                callFuncArgs.push(funcParameters[index].createVariableDefaultValue());
+                callFuncArgs.push(funcParameters[index].createVariableDefaultValue(this));
             }
         }
 

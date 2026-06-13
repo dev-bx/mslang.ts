@@ -281,7 +281,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_concatReturn = () => VariableType.vtArray;
 
     funcInvoke_concat() {
-        const result = new StackVariableArray(false, this._value);
+        const result = new StackVariableArray(false, this._value, this.getContext());
 
         Array.from(arguments).forEach(param => {
             if (param instanceof StackVariableArray) {
@@ -305,7 +305,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_keysReturn = () => VariableType.vtArray;
 
     funcInvoke_keys() {
-        return new StackVariableArray(false, Array.from(this.value.keys()));
+        return new StackVariableArray(false, Array.from(this.value.keys()), this.getContext());
     }
 
     /** values */
@@ -313,7 +313,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_valuesReturn = () => VariableType.vtArray;
 
     funcInvoke_values() {
-        return new StackVariableArray(false, Array.from(this.value.values()));
+        return new StackVariableArray(false, Array.from(this.value.values()), this.getContext());
     }
 
     /** reverse */
@@ -321,7 +321,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_reverseReturn = () => VariableType.vtArray;
 
     funcInvoke_reverse() {
-        return new StackVariableArray(false, Array.from(this.value.values()).reverse());
+        return new StackVariableArray(false, Array.from(this.value.values()).reverse(), this.getContext());
     }
 
     /** flip */
@@ -329,7 +329,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_flipReturn = () => VariableType.vtArray;
 
     funcInvoke_flip() {
-        const result = new StackVariableArray(false, []);
+        const result = new StackVariableArray(false, [], this.getContext());
 
         Array.from(this.value.keys()).forEach(k => {
             const value = this.value.get(k)?.castAs(VariableType.vtString);
