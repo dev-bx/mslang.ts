@@ -879,3 +879,13 @@ test('P1_04_ReservedWordAsIdentifierThrows', () => {
     assert.throws(() => executeReturnCode('let y = clone + 1; return y;'),
         /Using reserved word/);
 });
+
+test('P1_07_ErrorMessageHasLineColPrefix', () => {
+    // К сообщениям лексера/парсера/интерпретатора приписывается [строка:столбец] (P1-7).
+    const grabMessage = (src: string): string => {
+        try { executeReturnCode(src); return ''; } catch (e) { return (e as Error).message; }
+    };
+    assert.match(grabMessage('let y = clone + 1; return y;'), /^\[1:9\] Using reserved word/);
+    assert.match(grabMessage('return 0x;'), /^\[1:9\] Parse numeric failed/);
+    assert.match(grabMessage('return 5 + undefinedVar2;'), /^\[1:12\] variable not defined/);
+});
