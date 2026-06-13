@@ -3,7 +3,7 @@ import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
-import {MSLangException} from "./exceptions";
+import {InterpreterException, MSLangException} from "./exceptions";
 import {phpLooseEqual} from "./phpsemantics";
 
 export class StackVariableNumber extends StackVariable {
@@ -57,7 +57,8 @@ export class StackVariableNumber extends StackVariable {
             case CompareType.ctEqual | CompareType.ctGreat:
                 return this.value >= variable.value;
             default:
-                throw new Error('Unknown compare type ' + compareType);
+                // Зеркало PHP: InterpreterException с позицией текущего токена, а не голый Error.
+                throw new InterpreterException('Unknown compare type ' + compareType, this.getContext()?.currentToken?.cursorPos);
         }
     }
 

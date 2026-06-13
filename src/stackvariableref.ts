@@ -1,5 +1,6 @@
 import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
+import {StackVariableUndefined} from "./stackvariableundefined.js";
 
 export class StackVariableRef extends StackVariable {
 
@@ -11,7 +12,14 @@ export class StackVariableRef extends StackVariable {
     }
 
     getRefValue() {
-        return this._refProxy.get();
+        // Зеркало PHP: если переменная по ссылке исчезла (null/undefined из-за
+        // вышедшего scope), отдаём настоящий StackVariableUndefined, а не null —
+        // иначе дальше падает "Reflect.get called on non-object".
+        const value = this._refProxy.get();
+        if (value === null || value === undefined) {
+            return new StackVariableUndefined(false);
+        }
+        return value;
     }
 
     setRefValue(value: object) {

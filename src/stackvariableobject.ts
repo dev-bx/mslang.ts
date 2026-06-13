@@ -1,5 +1,6 @@
 import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
+import {StackVariableString} from "./stackvariablestring.js";
 import type {StackVariableClass} from "./stackvariableclass.js";
 
 export class StackVariableObject extends StackVariable {
@@ -41,6 +42,18 @@ export class StackVariableObject extends StackVariable {
 
     getProperty(name: string) {
         return this._value[name];
+    }
+
+    castAs(variableType: VariableType): StackVariable | null {
+        // Зеркало PHP StackVariableObject::castAs: к объекту → сам, к строке → '[object]'.
+        switch (variableType) {
+            case VariableType.vtObject:
+                return this;
+            case VariableType.vtString:
+                return new StackVariableString(false, '[object]', this.getContext());
+        }
+
+        return null;
     }
 
     setProperty(name: string, value: StackVariable): void {

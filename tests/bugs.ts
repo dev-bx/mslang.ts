@@ -889,3 +889,9 @@ test('P1_07_ErrorMessageHasLineColPrefix', () => {
     assert.match(grabMessage('return 0x;'), /^\[1:9\] Parse numeric failed/);
     assert.match(grabMessage('return 5 + undefinedVar2;'), /^\[1:12\] variable not defined/);
 });
+
+test('P1_13_ObjectCastsToStringBracket', () => {
+    // str += obj → '[object]' (StackVariableObject.castAs), а не падение (P1-13).
+    const r = executeReturnCode('class C { constructor() { this.x = 1; } } let o = new C(); let s = "v:"; s += o; return s;');
+    assert.strictEqual('v:[object]', r?.value);
+});
