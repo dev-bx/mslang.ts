@@ -4,6 +4,7 @@ import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableRef} from "./stackvariableref";
 import {VariableType} from "./variabletype";
 import {InterpreterException, ResourceLimitException} from "./exceptions";
+import type {BuiltinConstructor} from "./builtinconstructor";
 import type {ContextInterpreter} from "./interpreter.js";
 
 /**
@@ -19,7 +20,7 @@ import type {ContextInterpreter} from "./interpreter.js";
  * Регистрируется через {@see ContextInterpreter.registerConst} под именем `"Array"`.
  * Зеркало PHP-эталона ArrayConstructor.
  */
-export class ArrayConstructor extends StackVariable {
+export class ArrayConstructor extends StackVariable implements BuiltinConstructor {
     constructor() {
         super(VariableType.vtObject, true);
     }
