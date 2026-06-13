@@ -1,4 +1,5 @@
 import {TokenCursor} from "./lexer";
+import type {ParseNode} from "./parser";
 
 export class MSLangException extends Error {
 
@@ -68,24 +69,47 @@ export class ResourceLimitException extends InterpreterException {
 }
 
 // Зеркало PHP ParserCursorException — ошибка парсера с привязкой к позиции
-// в исходнике. Использовать вместо голого `new Error(...)`.
-export class ParserException extends MSLangException {
+// (TokenCursor) в исходнике. Использовать вместо голого `new Error(...)`.
+export class ParserCursorException extends MSLangException {
 
-    _cursorPosition
-    constructor(message: string, cursorPosition?: TokenCursor) {
+    _cursor
+    constructor(message: string, cursor?: TokenCursor) {
         // Зеркало PHP ParserCursorException: префикс [строка:столбец] при наличии позиции.
-        if (cursorPosition && cursorPosition.startCursorLine && cursorPosition.startCursorCol) {
-            message = '[' + cursorPosition.startCursorLine + ':' + cursorPosition.startCursorCol + '] ' + message;
+        if (cursor && cursor.startCursorLine && cursor.startCursorCol) {
+            message = '[' + cursor.startCursorLine + ':' + cursor.startCursorCol + '] ' + message;
         }
 
         super(message);
 
-        this._cursorPosition = cursorPosition;
+        this._cursor = cursor;
     }
 
-    getCursorPosition()
+    getCursor()
     {
-        return this._cursorPosition;
+        return this._cursor;
+    }
+
+}
+
+// Зеркало PHP ParserNodeException — ошибка парсера с привязкой к узлу разбора
+// (ParseNode). Позиция [строка:столбец] берётся из cursorPos узла.
+export class ParserNodeException extends MSLangException {
+
+    _node
+    constructor(message: string, node?: ParseNode | false | null) {
+        const cursor = node ? node.cursorPos : null;
+        if (cursor && cursor.startCursorLine && cursor.startCursorCol) {
+            message = '[' + cursor.startCursorLine + ':' + cursor.startCursorCol + '] ' + message;
+        }
+
+        super(message);
+
+        this._node = node;
+    }
+
+    getNode()
+    {
+        return this._node;
     }
 
 }

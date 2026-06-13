@@ -15,6 +15,7 @@ import {
     VariableType, StackVariableBoolean, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray,
     ParseNode, StackVariableUndefined, FunctionEntry, ContextException,
+    ParserCursorException, ParserNodeException,
 } from "../src";
 import {FunctionParameter} from "../src/functionparameter";
 
@@ -894,4 +895,10 @@ test('P1_13_ObjectCastsToStringBracket', () => {
     // str += obj → '[object]' (StackVariableObject.castAs), а не падение (P1-13).
     const r = executeReturnCode('class C { constructor() { this.x = 1; } } let o = new C(); let s = "v:"; s += o; return s;');
     assert.strictEqual('v:[object]', r?.value);
+});
+
+test('P1_06_08_ParserExceptionTypes', () => {
+    // Узловая ошибка → ParserNodeException, позиционная → ParserCursorException (P1-6/P1-8).
+    assert.throws(() => executeReturnCode('return 1 + * 2;'), ParserNodeException);
+    assert.throws(() => executeReturnCode('let y = clone + 1;'), ParserCursorException);
 });
