@@ -5,6 +5,7 @@ import {Interpreter, ContextInterpreter, InterpreterNode, ContextType} from "./i
 import {VariableType} from "./variabletype";
 import {StackVariable} from "./stackvariable";
 import {StackVariableUndefined} from "./stackvariableundefined";
+import {StackVariableVoid} from "./stackvariablevoid";
 import {StackVariableNull} from "./stackvariablenull";
 import {StackVariableNumber} from "./stackvariablenumber";
 import {StackVariableString} from "./stackvariablestring";
@@ -34,6 +35,7 @@ export {
     ContextInterpreter,
     StackVariable,
     StackVariableUndefined,
+    StackVariableVoid,
     StackVariableNull,
     StackVariableNumber,
     StackVariableString,

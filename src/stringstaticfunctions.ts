@@ -24,7 +24,13 @@ export class StringStaticFunctions extends StackVariable {
             } else {
                 code = Number(a);
             }
-            result += String.fromCharCode(code | 0);
+            //Зеркало PHP mb_chr: собираем по КОД-ПОИНТУ, а не код-юниту UTF-16
+            //(fromCharCode терял астральные символы — эмодзи). Невалидный код → ''
+            //(как mb_chr возвращает false).
+            const i = Math.trunc(code);
+            if (!Number.isFinite(i) || i < 0 || i > 0x10FFFF)
+                continue;
+            result += String.fromCodePoint(i);
         }
         return result;
     }

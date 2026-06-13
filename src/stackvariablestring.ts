@@ -215,13 +215,26 @@ export class StackVariableString extends StackVariable {
         if (typeof this.value !== 'string')
             return '';
 
-        if (start<0)
-            start = this.value.length+start;
+        //Зеркало PHP mb_substr($value, $start, $length): второй аргумент — это
+        //ДЛИНА, а не конечный индекс (как у JS substring). Отрицательный start —
+        //смещение от конца; отрицательная длина — отбрасывает столько символов с
+        //конца. Работаем по код-поинтам, как mb_substr.
+        const chars = Array.from(this.value);
+        const total = chars.length;
+        const begin = start < 0 ? Math.max(total + start, 0) : Math.min(start, total);
+        const len = (end === null || end === undefined) ? undefined : end;
+        let stop: number;
+        if (len === undefined) {
+            stop = total;
+        } else if (len < 0) {
+            stop = Math.max(total + len, begin);
+        } else {
+            stop = Math.min(begin + len, total);
+        }
+        if (stop < begin)
+            stop = begin;
 
-        if (end === null)
-            end = undefined;
-
-        return this.value.substring(start, end)
+        return chars.slice(begin, stop).join('');
     }
 
     /** Concat */

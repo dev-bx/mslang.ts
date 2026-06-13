@@ -8,6 +8,7 @@ import {StackVariableBoolean} from "./stackvariableboolean";
 import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableNull} from "./stackvariablenull";
 import {StackVariableUndefined} from "./stackvariableundefined";
+import {StackVariableVoid} from "./stackvariablevoid";
 import {StackVariableFunction} from "./stackvariablefunction";
 import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableClass} from "./stackvariableclass";
@@ -107,6 +108,15 @@ export class InterpreterNode extends ParseNode {
 
 type TNodeHandler = (context: ContextInterpreter, token: ParseNode) => void;
 type NodeHandlerItems = Record<number, TNodeHandler>;
+
+/**
+ * Приведение JS-числа к 64-битному целому со знаком — как PHP `(int)` в связке с
+ * 64-битным int. Невалидное (NaN/±Infinity) → 0n (зеркало PHP (int)NAN/(int)INF=0).
+ * Нужно для 64-битных битовых операций: нативные JS-битовые усекают к 32 битам.
+ */
+function toInt64(v: number): bigint {
+    return Number.isFinite(v) ? BigInt.asIntN(64, BigInt(Math.trunc(v))) : 0n;
+}
 
 export class Interpreter {
     _nodeHandler: NodeHandlerItems
@@ -905,28 +915,33 @@ export class Interpreter {
         context.pushStackVar(variable);
     }
 
+    //Битовые операции 64-битные (зеркало PHP, где int 64-битный), а не 32-битные
+    //как нативные JS-битовые. Считаем через BigInt и сворачиваем в 64-битное знаковое.
+    //Сдвиги маскируют правый операнд по модулю 32 (JS-семантика), uShiftRight даёт
+    //беззнаковое 32-битное представление. Результат >2^53 теряет точность при
+    //возврате в number — это предел модели (для типичных значений безопасно).
     bitAndHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) & (b | 0));
+        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) & toInt64(b))));
     }
 
     bitOrHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) | (b | 0));
+        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) | toInt64(b))));
     }
 
     bitXorHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) ^ (b | 0));
+        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) ^ toInt64(b))));
     }
 
     shiftLeftHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) << (b & 31));
+        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) << (toInt64(b) & 31n))));
     }
 
     shiftRightHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => (a | 0) >> (b & 31));
+        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) >> (toInt64(b) & 31n))));
     }
 
     uShiftRightHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => (a >>> (b & 31)));
+        this.bitwiseBinaryHandler(context, token, (a, b) => Number(((toInt64(a) & 0xFFFFFFFFn) >> (toInt64(b) & 31n)) & 0xFFFFFFFFn));
     }
 
     /**
@@ -4158,7 +4173,7 @@ export class ContextInterpreter {
             case VariableType.vtUndefined:
                 return new StackVariableUndefined(false);
             case VariableType.vtVoid:
-                return new StackVariable(VariableType.vtVoid);
+                return new StackVariableVoid(false);
             case VariableType.vtFunction:
                 return new StackVariableFunction(value, null);
             default:
