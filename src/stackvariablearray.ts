@@ -7,7 +7,7 @@ import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableObject} from "./stackvariableobject.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableRef} from "./stackvariableref.js";
-import {MSLangException} from "./exceptions";
+import {InterpreterException} from "./exceptions";
 import type {ContextInterpreter} from "./interpreter.js";
 
 export class StackVariableArray extends StackVariable {
@@ -62,7 +62,7 @@ export class StackVariableArray extends StackVariable {
                         v = new StackVariableUndefined(false);
                         break;
                     default:
-                        throw new MSLangException('Incompatible array value ' + typeof v);
+                        throw new InterpreterException('Incompatible array value ' + typeof v, this.getContext()?.currentToken?.cursorPos);
                 }
             }
         }
@@ -110,7 +110,7 @@ export class StackVariableArray extends StackVariable {
         if (name === 'length') {
             const asNumber = value.castAs(VariableType.vtNumber);
             if (!asNumber)
-                throw new MSLangException('Failed set length, invalid value');
+                throw new InterpreterException('Failed set length, invalid value', this.getContext()?.currentToken?.cursorPos);
 
             const newLen = asNumber.value as number;
             const currentLen = this.value.size;
@@ -217,7 +217,7 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_push(...args: unknown[]) {
         Object.values(args).forEach(rawValue => {
             if (!(rawValue instanceof StackVariable)) {
-                throw new MSLangException('value must be instance of StackVariable');
+                throw new InterpreterException('value must be instance of StackVariable', this.getContext()?.currentToken?.cursorPos);
             }
 
             //Ref-аргумент (например, параметр функции) указывает на ячейку scope-а,
@@ -254,7 +254,7 @@ export class StackVariableArray extends StackVariable {
             const value = this.value.get(lastKey);
 
             if (!this.value.delete(lastKey))
-                throw new MSLangException('Failed delete key in StackVariableArray');
+                throw new InterpreterException('Failed delete key in StackVariableArray', this.getContext()?.currentToken?.cursorPos);
 
             return value;
         }
@@ -358,7 +358,7 @@ export class StackVariableArray extends StackVariable {
         const key = Array.from(oldValue.keys()).shift() as string;
         const value = oldValue.get(key);
         if (!oldValue.delete(key))
-            throw new MSLangException('Failed delete key in StackVariableArray');
+            throw new InterpreterException('Failed delete key in StackVariableArray', this.getContext()?.currentToken?.cursorPos);
 
         this._nextNumKey = 0;
         this._value = new Map();
@@ -470,7 +470,7 @@ export class StackVariableArray extends StackVariable {
             } else if (v instanceof StackVariable) {
                 const prim = v.toPrimitive();
                 if (prim.type !== VariableType.vtString && prim.type !== VariableType.vtNumber)
-                    throw new MSLangException('Failed convert value to primitive');
+                    throw new InterpreterException('Failed convert value to primitive', this.getContext()?.currentToken?.cursorPos);
                 result.push(prim.value);
             } else {
                 result.push(v);

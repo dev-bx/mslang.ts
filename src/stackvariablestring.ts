@@ -4,7 +4,7 @@ import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableUndefined} from "./stackvariableundefined";
-import {MSLangException} from "./exceptions";
+import {InterpreterException} from "./exceptions";
 import type {ContextInterpreter} from "./interpreter.js";
 
 export class StackVariableString extends StackVariable {
@@ -23,13 +23,13 @@ export class StackVariableString extends StackVariable {
 
     get value(): string {
         if (typeof this._value !== 'string')
-            throw new MSLangException('String value not initialized');
+            throw new InterpreterException('String value not initialized', this.getContext()?.currentToken?.cursorPos);
 
         return this._value;
     }
     set value(value: unknown) {
         if (typeof value !== 'string')
-            throw new MSLangException('variable type ' + typeof value + ' expected string');
+            throw new InterpreterException('variable type ' + typeof value + ' expected string', this.getContext()?.currentToken?.cursorPos);
 
         this._value = value;
     }
@@ -249,7 +249,7 @@ export class StackVariableString extends StackVariable {
             const varString = value.castAs(VariableType.vtString);
 
             if (!varString)
-                throw new MSLangException('Failed convert ' + value.typeName + ' to string');
+                throw new InterpreterException('Failed convert ' + value.typeName + ' to string', this.getContext()?.currentToken?.cursorPos);
 
             values.push(varString.value);
         });

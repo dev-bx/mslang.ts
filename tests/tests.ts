@@ -945,16 +945,17 @@ test('040_AdvancedDateTime', (t) => {
     returnVal = executeReturnCode('return DateTime.Now < "1999-01-01 12:00:00";');
     assert.strictEqual(false, returnVal?.value);
 
-    // 2. AddHours и свойства
+    // 2. AddHours и свойства. DateTime детерминирован в зоне конфига (по умолчанию
+    // UTC), поэтому сравниваем с UTC-датой (раньше тест зависел от локальной зоны).
     returnVal = executeReturnCode('a = DateTime.Today.AddHours(9); return [a.Day, a.Hour, a.Minute];');
     const ar = (returnVal as StackVariableArray).convertToNativeArray();
-    assert.strictEqual(new Date().getDate(), ar[0]);
+    assert.strictEqual(new Date().getUTCDate(), ar[0]);
     assert.strictEqual(9, ar[1]);
     assert.strictEqual(0, ar[2]);
 
     // 3. DayOfWeek (свойство, 0=Sun..6=Sat)
     returnVal = executeReturnCode('return DateTime.Today.DayOfWeek;');
-    assert.strictEqual(new Date().getDay(), returnVal?.value);
+    assert.strictEqual(new Date().getUTCDay(), returnVal?.value);
 });
 
 test('041_AdvancedArrayFeatures', (t) => {

@@ -4,7 +4,7 @@ import {ParseNode} from "./parser.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableClass} from "./stackvariableclass.js";
-import {MSLangException} from "./exceptions.js";
+import {InterpreterException} from "./exceptions.js";
 
 /**
  * Пользовательская функция, объявленная внутри скрипта через
@@ -51,7 +51,7 @@ export class StackVariableUserFunction extends StackVariable {
         return this;
     }
     set value(_v) {
-        throw new MSLangException('Cannot override user function');
+        throw new InterpreterException('Cannot override user function', this.getContext()?.currentToken?.cursorPos);
     }
 
     get name(): string {

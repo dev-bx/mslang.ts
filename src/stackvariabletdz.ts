@@ -1,6 +1,6 @@
 import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
-import {MSLangException} from "./exceptions.js";
+import {InterpreterException} from "./exceptions.js";
 
 /**
  * Sentinel-значение для переменных, объявленных через `let` или `const`,
@@ -32,20 +32,20 @@ export class StackVariableTDZ extends StackVariable {
     }
 
     get value(): unknown {
-        throw new MSLangException("Cannot access '" + this._name + "' before initialization");
+        throw new InterpreterException("Cannot access '" + this._name + "' before initialization", this.getContext()?.currentToken?.cursorPos);
     }
     set value(_v: unknown) {
         //Эту ошибку увидим только если кто-то напрямую трогает sentinel
         //обходя varDeclHandler — нормальное объявление заменяет sentinel
         //в _variables новым StackVariable, а не пишет в его value.
-        throw new MSLangException("Cannot assign to '" + this._name + "' before initialization");
+        throw new InterpreterException("Cannot assign to '" + this._name + "' before initialization", this.getContext()?.currentToken?.cursorPos);
     }
 
     castAs<T extends VariableType>(_variableType: T): StackVariable | null {
-        throw new MSLangException("Cannot access '" + this._name + "' before initialization");
+        throw new InterpreterException("Cannot access '" + this._name + "' before initialization", this.getContext()?.currentToken?.cursorPos);
     }
 
     toPrimitive(): StackVariable {
-        throw new MSLangException("Cannot access '" + this._name + "' before initialization");
+        throw new InterpreterException("Cannot access '" + this._name + "' before initialization", this.getContext()?.currentToken?.cursorPos);
     }
 }
