@@ -28,82 +28,75 @@ export class StackVariableDateTime extends StackVariable {
         return this._value as number;
     }
 
+    /**
+     * Смещение таймзоны в секундах от UTC (из конфига контекста). Компоненты даты
+     * считаем как UTC от сдвинутого timestamp (getUTC*) — так JS и PHP дают
+     * одинаковый результат независимо от зоны сервера. По умолчанию 0 (UTC).
+     * Зеркало PHP StackVariableDateTime::tzOffsetSeconds.
+     */
+    private tzOffsetSeconds(): number {
+        const ctx = this.getContext();
+        return (ctx ? ctx.getTimezoneOffsetMinutes() : 0) * 60;
+    }
+
+    //Зеркало PHP createStackVariableDateTime: пробрасываем контекст в производный
+    //объект (иначе у результата AddDays/Today не будет таймзоны/контекста).
+    private makeDateTime(ts: number): StackVariableDateTime {
+        const dt = new StackVariableDateTime(ts);
+        dt.setContext(this.getContext());
+        return dt;
+    }
+
     properties = {
         'Today': {
-            get() {
-                const d = new Date();
-                d.setHours(0,0,0,0);
-                return new StackVariableDateTime(Math.floor(d.getTime()/1000));
+            get(this: StackVariableDateTime) {
+                //Полночь сегодня в зоне конфига: сдвигаем, обрезаем до суток, возвращаем сдвиг.
+                const off = this.tzOffsetSeconds();
+                const now = Math.floor(Date.now() / 1000);
+                const midnight = Math.floor((now + off) / 86400) * 86400 - off;
+                return this.makeDateTime(midnight);
             }
         },
         'Now': {
-            get() {
-                const d = new Date();
-                return new StackVariableDateTime(Math.floor(d.getTime()/1000));
+            get(this: StackVariableDateTime) {
+                return this.makeDateTime(Math.floor(Date.now() / 1000));
             },
         },
         'Year': {
             get(this: StackVariableDateTime) {
-                const d = new Date(this.value * 1000);
-                return new StackVariableNumber(true, d.getFullYear());
+                return new StackVariableNumber(true, new Date((this.value + this.tzOffsetSeconds()) * 1000).getUTCFullYear());
             }
         },
         'Month': {
             get(this: StackVariableDateTime) {
-                const d = new Date(this.value * 1000);
-
-                if (d)
-                    return new StackVariableNumber(true, d.getMonth()+1);
-
-                return undefined;
+                return new StackVariableNumber(true, new Date((this.value + this.tzOffsetSeconds()) * 1000).getUTCMonth() + 1);
             }
         },
         'Day': {
             get(this: StackVariableDateTime) {
-                const d = new Date(this.value * 1000);
-                if (d)
-                    return new StackVariableNumber(true, d.getDate());
-
-                return undefined;
+                return new StackVariableNumber(true, new Date((this.value + this.tzOffsetSeconds()) * 1000).getUTCDate());
             }
         },
         'Hour': {
             get(this: StackVariableDateTime) {
-                const d = new Date(this.value * 1000);
-                if (d)
-                    return new StackVariableNumber(true, d.getHours());
-
-                return undefined;
+                return new StackVariableNumber(true, new Date((this.value + this.tzOffsetSeconds()) * 1000).getUTCHours());
             },
         },
         'Minute': {
             get(this: StackVariableDateTime) {
-                const d = new Date(this.value * 1000);
-                if (d)
-                    return new StackVariableNumber(true, d.getMinutes());
-
-                return undefined;
+                return new StackVariableNumber(true, new Date((this.value + this.tzOffsetSeconds()) * 1000).getUTCMinutes());
             },
         },
         'DayOfWeek': {
             get(this: StackVariableDateTime) {
-                const d = new Date(this.value * 1000);
-                if (d)
-                    return new StackVariableNumber(true, d.getDay());
-
-                return undefined;
+                return new StackVariableNumber(true, new Date((this.value + this.tzOffsetSeconds()) * 1000).getUTCDay());
             },
         },
         'Time': {
             get(this: StackVariableDateTime) {
-                const d = new Date(this.value * 1000);
-                if (d) {
-                    //Зеркало PHP getPropertyTime(): секунды от полуночи как ЧИСЛО,
-                    //а не объект DateTime (иначе ломается арифметика и сравнение).
-                    return new StackVariableNumber(true, (d.getHours() * 60 * 60) + (d.getMinutes() * 60) + d.getSeconds());
-                }
-
-                return undefined;
+                //Зеркало PHP getPropertyTime(): секунды от полуночи как ЧИСЛО (в зоне конфига).
+                const d = new Date((this.value + this.tzOffsetSeconds()) * 1000);
+                return new StackVariableNumber(true, (d.getUTCHours() * 60 * 60) + (d.getUTCMinutes() * 60) + d.getUTCSeconds());
             },
         }
     }
@@ -118,7 +111,7 @@ export class StackVariableDateTime extends StackVariable {
 
     funcInvokeAddDays(days: number)
     {
-        return new StackVariableDateTime(this.value+(days*60*60*24));
+        return this.makeDateTime(this.value+(days*60*60*24));
     }
 
     /** AddHours*/
@@ -131,7 +124,7 @@ export class StackVariableDateTime extends StackVariable {
 
     funcInvokeAddHours(hours: number)
     {
-        return new StackVariableDateTime(this.value+(hours*60*60));
+        return this.makeDateTime(this.value+(hours*60*60));
     }
 
     /** AddMinutes */
@@ -144,7 +137,7 @@ export class StackVariableDateTime extends StackVariable {
 
     funcInvokeAddMinutes(minutes: number)
     {
-        return new StackVariableDateTime(this.value+(minutes*60));
+        return this.makeDateTime(this.value+(minutes*60));
     }
 
     /** AddSeconds */
@@ -157,7 +150,7 @@ export class StackVariableDateTime extends StackVariable {
 
     funcInvokeAddSeconds(seconds: number)
     {
-        return new StackVariableDateTime(this.value+seconds);
+        return this.makeDateTime(this.value+seconds);
     }
 
     comparePriority(variable: StackVariable, compareType: CompareType):number|false
@@ -206,10 +199,9 @@ export class StackVariableDateTime extends StackVariable {
 
             if (m)
             {
-                const date = new Date(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]),
-                    m[4] ? parseInt(m[4]) : 0, m[5] ? parseInt(m[5]) : 0, m[6] ? parseInt(m[6]) : 0, 0);
-                if (date)
-                    compareValue = Math.floor(date.getTime()/1000);
+                //Компоненты строки — локальное время в зоне конфига → timestamp = UTC(компоненты) - offset.
+                compareValue = Math.floor(Date.UTC(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]),
+                    m[4] ? parseInt(m[4]) : 0, m[5] ? parseInt(m[5]) : 0, m[6] ? parseInt(m[6]) : 0) / 1000) - this.tzOffsetSeconds();
             } else {
                 m = variable.value.match(timeSecRegex);
                 if (!m)
@@ -257,13 +249,11 @@ export class StackVariableDateTime extends StackVariable {
         switch (variableType)
         {
             case VariableType.vtString: {
-                const date = new Date(this.value * 1000);
-                const iso = date.toISOString().match(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/);
-
-                if (iso)
-                    return new StackVariableString(false, iso[1] + ' ' + iso[2]);
-
-                return null;
+                const d = new Date((this.value + this.tzOffsetSeconds()) * 1000);
+                const pad = (n: number) => String(n).padStart(2, '0');
+                const s = d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' '
+                    + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
+                return new StackVariableString(false, s, this.getContext());
             }
             case VariableType.vtBoolean:
                 return new StackVariableBoolean(false, !!this.value);
@@ -275,9 +265,17 @@ export class StackVariableDateTime extends StackVariable {
     }
 
     toPrimitive(): StackVariable {
-        const d = new Date(this.value * 1000);
-        const iso = d.toISOString().match(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/);
-        return new StackVariableString(false, iso ? iso[1] + ' ' + iso[2] : '');
+        //ISO 8601 с числовым смещением зоны (детерминированно для JS/PHP).
+        const ctx = this.getContext();
+        const offMin = ctx ? ctx.getTimezoneOffsetMinutes() : 0;
+        const d = new Date((this.value + offMin * 60) * 1000);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const sign = offMin < 0 ? '-' : '+';
+        const abs = Math.abs(offMin);
+        const offStr = sign + pad(Math.floor(abs / 60)) + ':' + pad(abs % 60);
+        const body = d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + 'T'
+            + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
+        return new StackVariableString(false, body + offStr, this.getContext());
     }
 
 }

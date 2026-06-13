@@ -6,6 +6,7 @@ import {VariableType} from "./variabletype";
 import {StackVariable} from "./stackvariable";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableVoid} from "./stackvariablevoid";
+import {StackVariableEnv} from "./stackvariableenv";
 import {StackVariableNull} from "./stackvariablenull";
 import {StackVariableNumber} from "./stackvariablenumber";
 import {StackVariableString} from "./stackvariablestring";
@@ -37,6 +38,7 @@ export {
     StackVariable,
     StackVariableUndefined,
     StackVariableVoid,
+    StackVariableEnv,
     StackVariableNull,
     StackVariableNumber,
     StackVariableString,
