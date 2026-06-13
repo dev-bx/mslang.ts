@@ -123,7 +123,7 @@ test('mirror_InterpreterNodeType', {skip: !PHP_AVAILABLE}, () => {
 
 test('mirror_ContextType', {skip: !PHP_AVAILABLE}, () => {
     compareConsts(
-        readTsConsts(path.join(TS_ROOT, 'interpreter.ts'), 'ContextType'),
+        readTsConsts(path.join(TS_ROOT, 'contexttype.ts'), 'ContextType'),
         readPhpConsts('ContextType.php'),
         'ContextType',
     );

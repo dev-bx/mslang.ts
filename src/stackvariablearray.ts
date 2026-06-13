@@ -9,7 +9,7 @@ import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableNull} from "./stackvariablenull.js";
 import {StackVariableRef} from "./stackvariableref.js";
 import {InterpreterException} from "./exceptions";
-import type {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 export class StackVariableArray extends StackVariable {
 

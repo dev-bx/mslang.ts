@@ -1,4 +1,4 @@
-import {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 import {VariableType} from "./variabletype.js";
 
 export class FunctionParameter {

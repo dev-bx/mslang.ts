@@ -1,5 +1,5 @@
 import type {StackVariable} from "./stackvariable";
-import type {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 /**
  * Контракт для нативных «классов» (Array, ...), которые можно создавать через

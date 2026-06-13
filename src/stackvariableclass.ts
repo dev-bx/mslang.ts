@@ -4,7 +4,7 @@ import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableUserFunction} from "./stackvariableuserfunction.js";
 import {InterpreterException} from "./exceptions.js";
-import type {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 /**
  * Пользовательский класс, объявленный внутри скрипта через

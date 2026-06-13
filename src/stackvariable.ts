@@ -1,7 +1,7 @@
 import {CompareType} from "./parser.js";
 import {VariableType} from "./variabletype.js";
 import {FunctionEntry} from "./functionentry.js";
-import {ContextInterpreter} from "./interpreter.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 import {FunctionParameter} from "./functionparameter";
 import {InterpreterException} from "./exceptions";
 import {phpLooseEqual} from "./phpsemantics";
@@ -18,6 +18,17 @@ interface VariableProperty {
 const EMPTY_PROPERTIES: Record<string, VariableProperty> = Object.freeze({});
 
 const funcEntryCache: Record<string, Record<string, FunctionEntry>> = {};
+
+// Фабрика значений живёт статическим методом в ContextInterpreter, но базовый
+// StackVariable не может импортировать его в рантайме: получится цикл модулей
+// (база → ContextInterpreter → подклассы → база), и подкласс пытается наследовать
+// ещё не инициализированную базу (TDZ). Поэтому импорт типа-только, а сам метод
+// ContextInterpreter регистрирует здесь после своего объявления (низ contextinterpreter.ts).
+type CreateVariableFn = (type: VariableType, value: unknown) => StackVariable;
+let createVariableFn: CreateVariableFn | null = null;
+export function _registerCreateVariable(fn: CreateVariableFn): void {
+    createVariableFn = fn;
+}
 
 export class StackVariable {
     _type: VariableType
@@ -325,7 +336,7 @@ export class StackVariable {
             return ctx.createVariable(entry.getReturnType(), returnValue);
         }
 
-        return ContextInterpreter.createVariable(entry.getReturnType(), returnValue);
+        return createVariableFn!(entry.getReturnType(), returnValue);
     }
 
     funcInvokeToStringArgs()
@@ -352,9 +363,9 @@ export class StackVariable {
     toPrimitive(): StackVariable {
         switch (this.type) {
             case VariableType.vtVoid:
-                return ContextInterpreter.createVariable(VariableType.vtString, 'void');
+                return createVariableFn!(VariableType.vtString, 'void');
             case VariableType.vtObject:
-                return ContextInterpreter.createVariable(VariableType.vtString, '[object]');
+                return createVariableFn!(VariableType.vtString, '[object]');
             case VariableType.vtString:
             case VariableType.vtNumber:
                 return this;
