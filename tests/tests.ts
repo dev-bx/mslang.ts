@@ -841,23 +841,25 @@ test('035_SpecialNumbersAndAssignments', (t) => {
 });
 
 test('036_DateTimeFeatures', (t) => {
-    // 1. DateTime.Today — полночь сегодня (локальное время)
+    // 1. DateTime.Today — полночь сегодня. С появлением конфига DateTime стал
+    // детерминированным в зоне конфига (по умолчанию UTC), поэтому реконструируем
+    // дату в UTC (раньше тест неявно зависел от локальной зоны сервера).
     const todayMidnight = new Date();
-    todayMidnight.setHours(0, 0, 0, 0);
+    todayMidnight.setUTCHours(0, 0, 0, 0);
 
     let returnVal = executeReturnCode('return DateTime.Today;');
     const actualDate = new Date((returnVal?.value as number) * 1000);
-    assert.strictEqual(todayMidnight.toDateString(), actualDate.toDateString());
-    assert.strictEqual(0, actualDate.getHours());
-    assert.strictEqual(0, actualDate.getMinutes());
-    assert.strictEqual(0, actualDate.getSeconds());
+    assert.strictEqual(todayMidnight.toISOString().slice(0, 10), actualDate.toISOString().slice(0, 10));
+    assert.strictEqual(0, actualDate.getUTCHours());
+    assert.strictEqual(0, actualDate.getUTCMinutes());
+    assert.strictEqual(0, actualDate.getUTCSeconds());
 
     // 2. Свойства .Year, .Month, .Day
     returnVal = executeReturnCode('a = DateTime.Today; return [a.Year, a.Month, a.Day];');
     const ar = (returnVal as StackVariableArray).convertToNativeArray();
-    assert.strictEqual(todayMidnight.getFullYear(), ar[0]);
-    assert.strictEqual(todayMidnight.getMonth() + 1, ar[1]);
-    assert.strictEqual(todayMidnight.getDate(), ar[2]);
+    assert.strictEqual(todayMidnight.getUTCFullYear(), ar[0]);
+    assert.strictEqual(todayMidnight.getUTCMonth() + 1, ar[1]);
+    assert.strictEqual(todayMidnight.getUTCDate(), ar[2]);
 
     // 3. Сравнение DateTime.Now > DateTime.Today
     returnVal = executeReturnCode('return DateTime.Now > DateTime.Today;');

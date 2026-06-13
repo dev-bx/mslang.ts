@@ -246,6 +246,38 @@ ctx.setLimitExecInstruction(10000);
 ctx.exec(true);  // бросит исключение после 10000 шагов
 ```
 
+## Конфиг и `Env`
+
+`ContextInterpreter` держит конфиг (хост-настройки), доступный скрипту через глобал `Env` (только чтение):
+
+- `setConfigValue(key, value)` / `setConfig({...})` — задать значения для этого контекста;
+- `getConfigValue(key, default)` — прочитать;
+- `ContextInterpreter.setDefaultConfigValue(key, value)` — дефолт для всех контекстов.
+
+Из скрипта: `Env.key` (неизвестный ключ → `undefined`).
+
+```ts
+const ctx = createCodeContext('return "app: " + Env.appName;');
+ctx.setConfigValue('appName', 'shop');
+ctx.exec(true);   // "app: shop"
+```
+
+### Таймзона
+
+Ключ `timezone` — смещение от UTC, **только числовое** (чтобы JS и PHP не расходились на именованных зонах и DST). По умолчанию `0` (UTC). Принимает:
+
+- целое число минут: `180` (UTC+3), `-300` (UTC-5);
+- строку: `"+03:00"`, `"+0300"`, `"+03"`, `"180"`, `"UTC"`, `"Z"`.
+
+Именованная зона (`"Europe/Moscow"`) или мусор — ошибка `Invalid timezone: "..."` (бросается при использовании `DateTime`).
+
+Геттеры `DateTime` (`Year`/`Hour`/…/`Time`), `toString` и `toPrimitive` считаются в зоне конфига детерминированно — один и тот же момент даёт одинаковый результат в TS и PHP. `toPrimitive` → ISO 8601 с числовым смещением, напр. `2024-06-01T15:10:00+03:00`.
+
+```ts
+const ctx = createCodeContext('return DateTime.Now.Hour;');
+ctx.setConfigValue('timezone', 180);   // UTC+3
+```
+
 ## Совместимость TS ↔ PHP
 
 Гарантируется через CI: для каждого скрипта в `tests/scripts/` оба интерпретатора обязаны вернуть одно и то же значение. См. `CONTRIBUTING.md`.

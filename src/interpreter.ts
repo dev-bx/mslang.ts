@@ -9,6 +9,7 @@ import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableNull} from "./stackvariablenull";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableVoid} from "./stackvariablevoid";
+import {StackVariableEnv} from "./stackvariableenv";
 import {StackVariableFunction} from "./stackvariablefunction";
 import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableClass} from "./stackvariableclass";
@@ -3650,13 +3651,87 @@ export class ContextInterpreter {
         this.setVariable('Math', new MathFunctions());
         this.setVariable('String', new StringStaticFunctions());
         this.setVariable('Array', new ArrayConstructor());
-        this.setVariable('DateTime', new StackVariableDateTime(undefined));
+        //Контекст нужен DateTime для таймзоны из конфига (TS setVariable, в отличие
+        //от PHP, контекст не проставляет — выставляем явно у нуждающихся глобалов).
+        const dateTime = new StackVariableDateTime(undefined);
+        dateTime.setContext(this);
+        this.setVariable('DateTime', dateTime);
         this.setVariable('debug', new StackVariableFunction(new FunctionEntry('debug', undefined, (...args: unknown[]) => {
             //Это намеренно: встроенная функция debug() из скриптов выводит в консоль.
             // eslint-disable-next-line no-console
             console.log(...args);
         })))
+        this.setVariable('Env', new StackVariableEnv(this));
         this.registerErrorClass();
+    }
+
+    // ── Конфиг/Env скрипта (хост-настройки; скрипт читает их через глобал Env) ──
+
+    private _config: Record<string, unknown> = {};
+
+    private static _defaultConfig: Record<string, unknown> = { timezone: 0 };
+
+    static setDefaultConfigValue(key: string, value: unknown): void {
+        ContextInterpreter._defaultConfig[key] = value;
+    }
+
+    setConfigValue(key: string, value: unknown): void {
+        this._config[key] = value;
+    }
+
+    setConfig(config: Record<string, unknown>): void {
+        for (const key in config) {
+            this._config[key] = config[key];
+        }
+    }
+
+    getConfigValue(key: string, def: unknown = null): unknown {
+        if (key in this._config) {
+            return this._config[key];
+        }
+        if (key in ContextInterpreter._defaultConfig) {
+            return ContextInterpreter._defaultConfig[key];
+        }
+
+        return def;
+    }
+
+    getAllConfig(): Record<string, unknown> {
+        return { ...ContextInterpreter._defaultConfig, ...this._config };
+    }
+
+    /**
+     * Смещение таймзоны в минутах от UTC (из конфига 'timezone'). Принимает целое
+     * число минут или строку: ±HH:MM, ±HHMM, ±HH, минуты-строкой ("180"), "UTC"/"Z".
+     * Именованные зоны и прочий мусор — ошибка (чтобы JS и PHP не расходились).
+     */
+    getTimezoneOffsetMinutes(): number {
+        return ContextInterpreter.parseTimezone(this.getConfigValue('timezone', 0));
+    }
+
+    static parseTimezone(value: unknown): number {
+        if (typeof value === 'number' && Number.isInteger(value)) {
+            return value;
+        }
+        if (typeof value === 'string') {
+            const s = value.trim();
+            if (s === '' || s.toUpperCase() === 'UTC' || s.toUpperCase() === 'Z') {
+                return 0;
+            }
+            let m: RegExpExecArray | null;
+            if ((m = /^([+-])(\d{1,2}):?(\d{2})$/.exec(s))) {
+                return (m[1] === '-' ? -1 : 1) * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+            }
+            if ((m = /^([+-])(\d{1,2})$/.exec(s))) {
+                return (m[1] === '-' ? -1 : 1) * (parseInt(m[2], 10) * 60);
+            }
+            if (/^[+-]?\d+$/.test(s)) {
+                return parseInt(s, 10);
+            }
+        }
+
+        const label = (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') ? String(value) : typeof value;
+        throw new ContextException('Invalid timezone: "' + label + '"');
     }
 
     /**

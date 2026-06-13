@@ -15,7 +15,7 @@ import {
     VariableType, StackVariableBoolean, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray,
     ParseNode, StackVariableUndefined, FunctionEntry, ContextException,
-    ParserCursorException, ParserNodeException,
+    ParserCursorException, ParserNodeException, StackVariableDateTime,
 } from "../src";
 import {FunctionParameter} from "../src/functionparameter";
 
@@ -912,4 +912,47 @@ test('P1_09_ErrorTextMatchesPHP', () => {
     assert.match(grab('null = 10;'), /Cannot override constant null$/);
     // Пустой операнд → "Parse expression failed", а не "syntax error, unexpected token".
     assert.match(grab('return 5 + ;'), /Parse expression failed/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Конфиг/Env скрипта + детерминированная таймзона (зеркало TestBugs.php).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('Feat32_EnvConfig', () => {
+    // Дефолт, кастомные ключи, неизвестный → undefined.
+    const c1 = createCodeContext('return Env.timezone;');
+    assert.strictEqual(0, c1.exec(true)?.value);
+
+    const c2 = createCodeContext('return Env.appName;');
+    c2.setConfigValue('appName', 'shop');
+    assert.strictEqual('shop', c2.exec(true)?.value);
+
+    const c3 = createCodeContext('return Env.nope == undefined;');
+    assert.strictEqual(true, c3.exec(true)?.value);
+});
+
+test('Feat33_TimezoneDeterministic', () => {
+    // Один timestamp + смещение → одинаковые компоненты/строки в TS и PHP (T=1717243800).
+    const check = (off: number, hour: number, time: number, str: string, iso: string) => {
+        const ctx = createCodeContext('return 1;');
+        ctx.setConfigValue('timezone', off);
+        const dt = new StackVariableDateTime(1717243800);
+        dt.setContext(ctx);
+        assert.strictEqual(hour, (dt.getProperty('Hour') as { value: number }).value);
+        assert.strictEqual(time, (dt.getProperty('Time') as { value: number }).value);
+        assert.strictEqual(str, (dt.castAs(VariableType.vtString) as { value: string }).value);
+        assert.strictEqual(iso, (dt.toPrimitive() as { value: string }).value);
+    };
+    check(0, 12, 43800, '2024-06-01 12:10:00', '2024-06-01T12:10:00+00:00');
+    check(180, 15, 54600, '2024-06-01 15:10:00', '2024-06-01T15:10:00+03:00');
+    check(-330, 6, 24000, '2024-06-01 06:40:00', '2024-06-01T06:40:00-05:30');
+});
+
+test('Feat34_TimezoneStringAndInvalid', () => {
+    // Строковые форматы зоны (числовые) и ошибка на именованной/некорректной.
+    assert.strictEqual(180, ContextInterpreter.parseTimezone('+03:00'));
+    assert.strictEqual(-330, ContextInterpreter.parseTimezone('-05:30'));
+    assert.strictEqual(0, ContextInterpreter.parseTimezone('UTC'));
+    assert.strictEqual(180, ContextInterpreter.parseTimezone('180'));
+    assert.throws(() => ContextInterpreter.parseTimezone('Europe/Moscow'), ContextException);
 });
