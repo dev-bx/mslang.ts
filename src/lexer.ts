@@ -347,7 +347,7 @@ export class CodeLexer extends Lexer {
     }
 
     getPCHValue(pch: unknown): string {
-        throw new LexerException('Not applicable');
+        throw new LexerException('Not applicable', this.lastCursorLine, this.lastCursorCol);
     }
 
     /**
@@ -385,7 +385,7 @@ export class CodeLexer extends Lexer {
 
         let digits = '';
         if (!isOk(this.whoNextCh())) {
-            throw new LexerException('Parse numeric failed: empty ' + kind + ' literal');
+            throw new LexerException('Parse numeric failed: empty ' + kind + ' literal', this.lastCursorLine, this.lastCursorCol);
         }
 
         while (true) {
@@ -422,7 +422,7 @@ export class CodeLexer extends Lexer {
             this._tokenSym = LexerType.ltNumeric;
             return;
         }
-        throw new LexerException('Parse numeric failed ' + String(next));
+        throw new LexerException('Parse numeric failed ' + String(next), this.lastCursorLine, this.lastCursorCol);
     }
 
     getRealToken() {
@@ -619,7 +619,7 @@ export class CodeLexer extends Lexer {
                 this.getCh();
 
                 if (this.lastChar === null)
-                    throw new LexerException('unexpected end of file');
+                    throw new LexerException('unexpected end of file', this.lastCursorLine, this.lastCursorCol);
 
                 if (this.lastChar as string === '\\') {
                     if (this.whoNextCh() === strSym) {
@@ -704,7 +704,7 @@ export class CodeLexer extends Lexer {
 
                 if (nextCh === '.') {
                     if (isFloat || sawExp)
-                        throw new LexerException("Parse numeric failed");
+                        throw new LexerException("Parse numeric failed", this.lastCursorLine, this.lastCursorCol);
                     this._tokenValue += this.getCh();
                     isFloat = true;
                     continue;
@@ -715,7 +715,7 @@ export class CodeLexer extends Lexer {
                     //Перед 'e' должна быть цифра (или точка с цифрами слева).
                     const prev = this._tokenValue.slice(-1);
                     if (!this.isDigit(prev) && prev !== '.') {
-                        throw new LexerException("Parse numeric failed " + nextCh);
+                        throw new LexerException("Parse numeric failed " + nextCh, this.lastCursorLine, this.lastCursorCol);
                     }
                     this._tokenValue += this.getCh();    //'e' или 'E'
                     sawExp = true;
@@ -727,7 +727,7 @@ export class CodeLexer extends Lexer {
                     }
                     //После 'e' (с возможным знаком) обязана быть хотя бы одна цифра.
                     if (!this.isDigit(this.whoNextCh())) {
-                        throw new LexerException("Parse numeric failed: empty exponent");
+                        throw new LexerException("Parse numeric failed: empty exponent", this.lastCursorLine, this.lastCursorCol);
                     }
                     continue;
                 }
@@ -740,7 +740,7 @@ export class CodeLexer extends Lexer {
                     return;
                 }
 
-                throw new LexerException("Parse numeric failed " + this.whoNextCh());
+                throw new LexerException("Parse numeric failed " + this.whoNextCh(), this.lastCursorLine, this.lastCursorCol);
             }
         }
 
@@ -759,7 +759,7 @@ export class CodeLexer extends Lexer {
         }
 
         if (!this.isLetter(this.lastChar) && this.lastChar !== '.') {
-            throw new LexerException("Parse failed");
+            throw new LexerException("Parse failed", this.lastCursorLine, this.lastCursorCol);
         }
 
         const isObjProp = this._tokenValue === '.';
@@ -791,15 +791,15 @@ export class CodeLexer extends Lexer {
                 break;
             }
 
-            throw new LexerException("Parse IDStr failed");
+            throw new LexerException("Parse IDStr failed", this.lastCursorLine, this.lastCursorCol);
         }
 
         if (!this._tokenValue.length) {
-            throw new LexerException("syntax error, unexpected token \"" + this.whoNextCh() + "\"");
+            throw new LexerException("syntax error, unexpected token \"" + this.whoNextCh() + "\"", this.lastCursorLine, this.lastCursorCol);
         }
 
         if (isObjProp && this._tokenValue[this._tokenValue.length - 1] === '.') {
-            throw new LexerException("Invalid object property");
+            throw new LexerException("Invalid object property", this.lastCursorLine, this.lastCursorCol);
         }
 
         if (this._tokenValue === "if") {
