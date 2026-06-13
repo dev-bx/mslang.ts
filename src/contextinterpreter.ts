@@ -27,7 +27,7 @@ import type {Interpreter} from "./interpreter";
 
 interface ExecutionStackItem {
     variables: Record<string, StackVariable>;
-    functions: {};
+    functions: Record<string, FunctionEntry>;
     codeItems?: ParseNode[];
     codeData: Record<string, unknown>;
     type: number;
@@ -44,7 +44,7 @@ interface ExecutionStackItem {
 
 export class ContextInterpreter {
     _variables: Record<string, StackVariable>;
-    _functions
+    _functions: Record<string, FunctionEntry>;
     _codeItems?: ParseNode[];
     // Дополнительные данные для текущего кадра выполнения, например
     // позиция перехода для continue в цикле. Зеркало PHP _codeData.
@@ -52,8 +52,8 @@ export class ContextInterpreter {
     _stackVars: StackVariable[];
     _pos:number;
     _executionStack:ExecutionStackItem[];
-    _type
-    _interpreter
+    _type: number;
+    _interpreter: Interpreter;
     _contextVariable?: StackVariableArray; //используется для создания массивов "Array"
 
     /** Накопленные предупреждения времени выполнения (лишние аргументы и т.п.). */
