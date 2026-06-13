@@ -31,7 +31,7 @@
     "test:cross": "tsx tests/cross.ts",
     "test:fuzz": "tsx tests/fuzz.ts --count 200 --seed 42 > tests/.fuzz.jsonl",
     "bench": "tsx tests/bench.ts",
-    "test:all": "npm test && npm run test:bugs && npm run test:mirror && npm run test:cross",
+    "test:all": "npm test && npm run test:bugs && npm run test:limits && npm run test:mirror && npm run test:cross",
     "lint": "eslint src tests",
     "coverage": "node --experimental-test-coverage --import tsx tests/tests.ts",
     "test:compile": "tsc && tsc -p tsconfig.test.json && node dist/tests/tests.js",
