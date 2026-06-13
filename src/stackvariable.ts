@@ -11,6 +11,12 @@ interface VariableProperty {
     set?: unknown;
 }
 
+// O-3: общий пустой набор свойств. Базовое поле раньше инициализировалось
+// литералом `{}` — это аллокация на КАЖДОЕ создание StackVariable. Объект
+// свойств только читается (см. getProperty/setProperty), поэтому безопасно
+// разделять один экземпляр. Подклассы со своими свойствами перекрывают поле.
+const EMPTY_PROPERTIES: Record<string, VariableProperty> = Object.freeze({});
+
 const funcEntryCache: Record<string, Record<string, FunctionEntry>> = {};
 
 export class StackVariable {
@@ -20,7 +26,7 @@ export class StackVariable {
     //Зеркало PHP StackVariable::$context: контекст-владелец (учёт бюджета данных,
     //доступ из методов). null у переменных, созданных без контекста.
     protected _context: ContextInterpreter | null = null;
-    properties: Record<string, VariableProperty> = {}
+    properties: Record<string, VariableProperty> = EMPTY_PROPERTIES
 
     constructor(type: VariableType, isConst: boolean = false, context: ContextInterpreter | null = null) {
         this._type = type;

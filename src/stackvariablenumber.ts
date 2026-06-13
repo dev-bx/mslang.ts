@@ -88,21 +88,26 @@ export class StackVariableNumber extends StackVariable {
         return null;
     }
 
-    properties = {
-        isNaN: {
-            get(this: StackVariableNumber) {
-                return new StackVariableBoolean(false, isNaN(this._value as number));
-            }
-        },
-
-        isFinite: {
-            get(this: StackVariableNumber) {
-                if (typeof this._value === 'number')
-                    return new StackVariableBoolean(false, isFinite(this._value));
-
-                return new StackVariableBoolean(false, false);
-            }
-        },
-    }
+    properties = NUMBER_PROPERTIES;
 
 }
+
+// O-3: один общий набор свойств на все числа (раньше литерал создавался в каждом
+// конструкторе — горячий путь). Геттеры получают конкретный экземпляр через
+// apply в getProperty, поэтому общий объект безопасен.
+const NUMBER_PROPERTIES = Object.freeze({
+    isNaN: {
+        get(this: StackVariableNumber) {
+            return new StackVariableBoolean(false, isNaN(this._value as number));
+        }
+    },
+
+    isFinite: {
+        get(this: StackVariableNumber) {
+            if (typeof this._value === 'number')
+                return new StackVariableBoolean(false, isFinite(this._value));
+
+            return new StackVariableBoolean(false, false);
+        }
+    },
+});
