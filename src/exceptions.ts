@@ -8,6 +8,12 @@ export class LexerException extends MSLangException {
 
 }
 
+// Зеркало PHP ContextException — ошибки контекста выполнения (стек, область
+// видимости, переопределение константы, неизвестная функция/переменная).
+export class ContextException extends MSLangException {
+
+}
+
 export class InterpreterException extends MSLangException {
 
     _cursorPosition

@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {
     VariableType, StackVariableBoolean, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray,
-    ParseNode, StackVariableUndefined, FunctionEntry,
+    ParseNode, StackVariableUndefined, FunctionEntry, ContextException,
 } from "../src";
 import {FunctionParameter} from "../src/functionparameter";
 
@@ -829,11 +829,11 @@ test('Bug17_LetNullStaysReassignableAcrossBlocks', () => {
     assert.strictEqual(6, r?.value);
 });
 test('Bug17_GlobalNullStillConst', () => {
-    // Тип ContextException появится в P1-5; пока матчим по сообщению.
-    assert.throws(() => executeReturnCode('null = 10; return null;'), /Cannot override constant/);
+    // Зеркало PHP expectException(ContextException) (P1-5).
+    assert.throws(() => executeReturnCode('null = 10; return null;'), ContextException);
 });
 test('Bug17_ConstNullStaysConst', () => {
-    assert.throws(() => executeReturnCode('const off = null; off = 10; return off;'), /Cannot override constant/);
+    assert.throws(() => executeReturnCode('const off = null; off = 10; return off;'), ContextException);
 });
 
 test('Bug22_FloatIndexFromArithmetic', () => {
