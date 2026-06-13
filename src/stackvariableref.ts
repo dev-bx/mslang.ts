@@ -47,56 +47,53 @@ export class StackVariableRef extends StackVariable {
     }
 
     getProxy() {
-        return new Proxy(
-            this,
-            {
-                get: (target, prop, receiver) => {
-
-                    if (prop === 'refValue')
-                        return this.getRefValue();
-
-                    const ref = this.getRefValue();
-
-                    return Reflect.get(ref, prop, ref);
-                },
-                set: (target, prop, val, receiver) => {
-                    if (prop === 'refValue')
-                    {
-                        this.setRefValue(val);
-                        return true;
-                    }
-
-                    const ref = this.getRefValue();
-                    return Reflect.set(ref, prop, val, ref);
-                },
-                deleteProperty: (target, prop) => {
-                    return Reflect.deleteProperty(this.getRefValue(), prop);
-                },
-                ownKeys: (target) => {
-                    let v = this.getRefValue();
-
-                    let keys = [];
-
-                    while (v)
-                    {
-                        keys.push(...Reflect.ownKeys(v));
-                        v = Object.getPrototypeOf(v);
-                    }
-
-                    keys = [...new Set(keys)];
-
-                    return keys;
-                    //return Reflect.ownKeys(this.getRefValue());
-                },
-                has: (target, prop) => {
-                    return prop in this.getRefValue();
-                },
-                apply: (target, thisArg, args) => {
-                    const ref = this.getRefValue();
-                    return (ref as Function).apply(ref, args);
-                }
-            }
-        );
+        // O-1: единый общий обработчик (ниже) вместо свежего объекта с 6
+        // замыканиями на каждое чтение переменной. target Proxy === сам Ref,
+        // поэтому трапы берут Ref из target, а не из захваченного this — это
+        // позволяет вынести обработчик в модульную константу.
+        return new Proxy(this, REF_PROXY_HANDLER);
     }
 
 }
+
+// Один экземпляр обработчика на все Ref-прокси: getProxy больше не аллоцирует
+// замыкания. Трапы используют target (это и есть StackVariableRef).
+const REF_PROXY_HANDLER: ProxyHandler<StackVariableRef> = {
+    get(target, prop) {
+        if (prop === 'refValue')
+            return target.getRefValue();
+
+        const ref = target.getRefValue();
+        return Reflect.get(ref, prop, ref);
+    },
+    set(target, prop, val) {
+        if (prop === 'refValue') {
+            target.setRefValue(val);
+            return true;
+        }
+
+        const ref = target.getRefValue();
+        return Reflect.set(ref, prop, val, ref);
+    },
+    deleteProperty(target, prop) {
+        return Reflect.deleteProperty(target.getRefValue() as object, prop);
+    },
+    ownKeys(target) {
+        let v: object | null = target.getRefValue();
+        const keys: (string | symbol)[] = [];
+
+        while (v) {
+            keys.push(...Reflect.ownKeys(v));
+            v = Object.getPrototypeOf(v);
+        }
+
+        return [...new Set(keys)];
+    },
+    has(target, prop) {
+        return prop in (target.getRefValue() as object);
+    },
+    apply(target, thisArg, args) {
+        const ref = target.getRefValue();
+        return (ref as unknown as (...a: unknown[]) => unknown).apply(ref, args as unknown[]);
+    },
+};
