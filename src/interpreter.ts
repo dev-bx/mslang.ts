@@ -4121,7 +4121,7 @@ export class ContextInterpreter {
                 const vars = this._executionStack[i].variables;
                 if (vars && vars[name] !== undefined) {
                     if (vars[name].isConst)
-                        throw new ContextException('Cannot override constant "' + name + '"');
+                        throw new ContextException('Cannot override constant ' + name);
                     vars[name] = value;
                     return;
                 }
@@ -4131,7 +4131,7 @@ export class ContextInterpreter {
             if (this._currentCapturedScope !== null && this._currentCapturedScope[name] !== undefined) {
                 const existing = this._currentCapturedScope[name];
                 if (existing.isConst)
-                    throw new ContextException('Cannot override constant "' + name + '"');
+                    throw new ContextException('Cannot override constant ' + name);
                 if (existing.type === value.type) {
                     existing.value = value.value;
                 } else {
@@ -4148,7 +4148,7 @@ export class ContextInterpreter {
         }
 
         if (!!this._variables[name] && this._variables[name].isConst)
-            throw new ContextException('Cannot override constant "' + name + '"');
+            throw new ContextException('Cannot override constant ' + name);
 
         this._variables[name] = value;
     }

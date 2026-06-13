@@ -803,7 +803,7 @@ export class CodeParser {
                     {
                         if (!NodeList.length)
                         {
-                            throw new ParserNodeException("syntax error, unexpected token "+this.lexer.tokenValue, ParentNode);
+                            throw new ParserNodeException("Parse expression failed "+this.lexer.tokenValue, ParentNode);
                         }
 
                         ParentNode.nType = NodeType.ntArrayPushSeparator;
@@ -815,7 +815,7 @@ export class CodeParser {
                     }
                     break;
                 default:
-                    throw new ParserNodeException("Parse lexer expression failed "+this.lexer.tokenName+" wait "+StopLex.asNames.join(', '), ParentNode);
+                    throw new ParserNodeException("Parse lexer expression failed, found token "+this.lexer.tokenName+" expected "+StopLex.asNames.join(', '), ParentNode);
             }
         }
 

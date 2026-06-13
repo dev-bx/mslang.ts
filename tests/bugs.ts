@@ -902,3 +902,14 @@ test('P1_06_08_ParserExceptionTypes', () => {
     assert.throws(() => executeReturnCode('return 1 + * 2;'), ParserNodeException);
     assert.throws(() => executeReturnCode('let y = clone + 1;'), ParserCursorException);
 });
+
+test('P1_09_ErrorTextMatchesPHP', () => {
+    // Тексты ошибок выровнены под PHP бит-в-бит (P1-9).
+    const grab = (src: string): string => {
+        try { executeReturnCode(src); return ''; } catch (e) { return (e as Error).message; }
+    };
+    // Имя константы без кавычек (PHP: 'Cannot override constant ' . $name).
+    assert.match(grab('null = 10;'), /Cannot override constant null$/);
+    // Пустой операнд → "Parse expression failed", а не "syntax error, unexpected token".
+    assert.match(grab('return 5 + ;'), /Parse expression failed/);
+});

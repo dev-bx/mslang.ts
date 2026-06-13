@@ -795,7 +795,7 @@ export class CodeLexer extends Lexer {
         }
 
         if (!this._tokenValue.length) {
-            throw new LexerException("syntax error, unexpected token \"" + this.whoNextCh() + "\"", this.lastCursorLine, this.lastCursorCol);
+            throw new LexerException("Parse expression failed \"" + this.whoNextCh() + "\"", this.lastCursorLine, this.lastCursorCol);
         }
 
         if (isObjProp && this._tokenValue[this._tokenValue.length - 1] === '.') {
