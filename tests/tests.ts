@@ -1240,7 +1240,6 @@ test('054_ParserSyntaxErrors_Part2', (t) => {
 
 test('055_ExecutionLimit', (t) => {
     const context = createCodeContext('for(i=0; i<10000000000; i=i+1) {}');
-    // @ts-expect-error — метод setLimitExecInstruction может отсутствовать в TS-версии
     context.setLimitExecInstruction(10000000);
     assert.throws(() => {
         context.exec(true);

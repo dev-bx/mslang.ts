@@ -20,8 +20,8 @@ jobs:
 
       - run: npm ci
 
-      - name: TypeScript типизация
-        run: npx tsc --noEmit
+      - name: TypeScript типизация (src + tests)
+        run: npm run typecheck
 
       - name: Lint
         run: npm run lint
