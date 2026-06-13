@@ -39,14 +39,16 @@ export class FunctionParameter {
         return this._defaultValue;
     }
 
-    createVariableDefaultValue()
+    createVariableDefaultValue(context: ContextInterpreter)
     {
+        // Зеркало PHP: создаём через контекст, чтобы дефолт-строки/массивы
+        // попадали в бюджет данных (раньше звался статический createVariable).
         const value = this.getDefaultValue();
 
         if (value === null)
-            return ContextInterpreter.createVariable(VariableType.vtNull, null);
+            return context.createVariable(VariableType.vtNull, null);
 
-        return ContextInterpreter.createVariable(this.getType(), value);
+        return context.createVariable(this.getType(), value);
     }
 
 }
