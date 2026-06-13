@@ -5,7 +5,7 @@ import {StackVariableNumber} from "./stackvariablenumber.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
-import {MSLangException} from "./exceptions";
+import {InterpreterException} from "./exceptions";
 
 const dateRegex = /^(\d{4})-(\d{2})-(\d{2})$/;
 const dateTimeRegex = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;
@@ -23,7 +23,7 @@ export class StackVariableDateTime extends StackVariable {
 
     get value(): number {
         if (typeof this._value !== 'number')
-            throw new MSLangException('Value must be a number');
+            throw new InterpreterException('Value must be a number', this.getContext()?.currentToken?.cursorPos);
 
         return this._value as number;
     }
@@ -240,7 +240,7 @@ export class StackVariableDateTime extends StackVariable {
             case CompareType.ctEqual | CompareType.ctGreat:
                 return this.value >= compareValue;
             default:
-                throw new MSLangException('Unknown compare type ' + compareType);
+                throw new InterpreterException('Unknown compare type ' + compareType, this.getContext()?.currentToken?.cursorPos);
         }
     }
 

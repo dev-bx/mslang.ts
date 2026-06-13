@@ -16,6 +16,7 @@ import {
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray,
     ParseNode, StackVariableUndefined, FunctionEntry, ContextException,
     ParserCursorException, ParserNodeException, StackVariableDateTime,
+    StackVariableNumber, InterpreterException,
 } from "../src";
 import {FunctionParameter} from "../src/functionparameter";
 
@@ -967,4 +968,12 @@ test('P1_19_IndexAccessLogic', () => {
     assert.strictEqual(20, executeReturnCode('let a = [10,20,30]; return a[1];')?.value);
     assert.strictEqual(20, executeReturnCode('let a = [10,20,30]; let i = 1.0; return a[i];')?.value);
     assert.strictEqual(undefined, executeReturnCode('let a = [10,20,30]; let i = 1.5; return a[i];')?.value);
+});
+
+test('P1_17_LayerThrowsInterpreterException', () => {
+    // Слой StackVariable бросает InterpreterException (с позицией токена при наличии
+    // контекста), а не голый MSLangException/Error. InterpreterException наследует
+    // MSLangException — существующие catch продолжают работать.
+    const num = new StackVariableNumber(false, 5);
+    assert.throws(() => { (num as unknown as { value: unknown }).value = 'x'; }, InterpreterException);
 });

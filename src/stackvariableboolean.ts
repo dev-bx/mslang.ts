@@ -2,7 +2,7 @@ import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
-import {MSLangException} from "./exceptions";
+import {InterpreterException} from "./exceptions";
 
 export class StackVariableBoolean extends StackVariable {
     constructor(isConst: boolean = false, value?: boolean) {
@@ -16,7 +16,7 @@ export class StackVariableBoolean extends StackVariable {
     }
     set value(value) {
         if (typeof value !== 'boolean')
-            throw new MSLangException('variable type ' + typeof value + ' expected boolean');
+            throw new InterpreterException('variable type ' + typeof value + ' expected boolean', this.getContext()?.currentToken?.cursorPos);
 
         this._value = value;
     }

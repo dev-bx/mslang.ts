@@ -2,7 +2,7 @@ import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
-import {MSLangException} from "./exceptions";
+import {InterpreterException} from "./exceptions";
 
 export class StackVariableFunction extends StackVariable
 {
@@ -18,7 +18,7 @@ export class StackVariableFunction extends StackVariable
         return this._value;
     }
     set value(_value) {
-        throw new MSLangException('Cannot override function');
+        throw new InterpreterException('Cannot override function', this.getContext()?.currentToken?.cursorPos);
     }
 
     get self() {

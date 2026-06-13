@@ -3,7 +3,7 @@ import {VariableType} from "./variabletype.js";
 import {FunctionEntry} from "./functionentry.js";
 import {ContextInterpreter} from "./interpreter.js";
 import {FunctionParameter} from "./functionparameter";
-import {MSLangException} from "./exceptions";
+import {InterpreterException} from "./exceptions";
 import {phpLooseEqual} from "./phpsemantics";
 
 interface VariableProperty {
@@ -89,7 +89,7 @@ export class StackVariable {
     }
 
     set value(value) {
-        throw new MSLangException('value is read only');
+        throw new InterpreterException('value is read only', this.getContext()?.currentToken?.cursorPos);
     }
 
     get isConst() {
@@ -143,7 +143,7 @@ export class StackVariable {
                 return !phpLooseEqual(this.value, variable.value);
         }
 
-        throw new MSLangException('Invalid compare type');
+        throw new InterpreterException('Invalid compare type', this.getContext()?.currentToken?.cursorPos);
     }
 
     castAs<T extends VariableType>(variableType: T): SpecificStackVariable<T>|null {
@@ -194,7 +194,7 @@ export class StackVariable {
             {
                 entry.addParameter(funcArgument);
             } else {
-                throw new MSLangException('Invalid argument type: '+typeof funcArgument);
+                throw new InterpreterException('Invalid argument type: '+typeof funcArgument, this.getContext()?.currentToken?.cursorPos);
             }
 
         });
@@ -269,7 +269,7 @@ export class StackVariable {
         /** @var entry FunctionEntry */
 
         if (invokeArguments.length < 1) {
-            throw new MSLangException('Arguments is empty');
+            throw new InterpreterException('Arguments is empty', this.getContext()?.currentToken?.cursorPos);
         }
 
         const funcArguments = entry.getParameters();
@@ -280,11 +280,11 @@ export class StackVariable {
 
         if (typeof self !== 'object' || self === null)
         {
-            throw new MSLangException(entry.getName()+' called on null or undefined');
+            throw new InterpreterException(entry.getName()+' called on null or undefined', this.getContext()?.currentToken?.cursorPos);
         }
 
         if (typeof (this as any)[methodName] !== 'function') {
-            throw new MSLangException(methodName+' method not exists on object');
+            throw new InterpreterException(methodName+' method not exists on object', this.getContext()?.currentToken?.cursorPos);
         }
 
         let index = 0;
@@ -293,7 +293,7 @@ export class StackVariable {
         invokeArguments.forEach(argument => {
             if (!(argument instanceof StackVariable))
             {
-                throw new MSLangException('Argument must be instance of '+StackVariable.constructor.name);
+                throw new InterpreterException('Argument must be instance of '+StackVariable.constructor.name, this.getContext()?.currentToken?.cursorPos);
             }
 
             if (funcArguments[index])
@@ -338,7 +338,7 @@ export class StackVariable {
         if (v)
             return v.value;
 
-        throw new MSLangException('Failed ' + this.typeName + ' cast as string');
+        throw new InterpreterException('Failed ' + this.typeName + ' cast as string', this.getContext()?.currentToken?.cursorPos);
     }
 
     // Приведение значения к примитиву (для конкатенации, арифметики и т.п.).
@@ -354,7 +354,7 @@ export class StackVariable {
                 return this;
         }
 
-        throw new MSLangException('Failed get primitive for ' + this.typeName);
+        throw new InterpreterException('Failed get primitive for ' + this.typeName, this.getContext()?.currentToken?.cursorPos);
     }
 
 }

@@ -3,7 +3,7 @@ import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
-import {InterpreterException, MSLangException} from "./exceptions";
+import {InterpreterException} from "./exceptions";
 import {phpLooseEqual} from "./phpsemantics";
 
 export class StackVariableNumber extends StackVariable {
@@ -18,7 +18,7 @@ export class StackVariableNumber extends StackVariable {
     }
     set value(value) {
         if (typeof value !== 'number')
-            throw new MSLangException('variable type ' + typeof value + ' expected number');
+            throw new InterpreterException('variable type ' + typeof value + ' expected number', this.getContext()?.currentToken?.cursorPos);
 
         this._value = value;
     }
@@ -45,7 +45,7 @@ export class StackVariableNumber extends StackVariable {
         }
 
         if (!variable.isNumeric || typeof this.value !== 'number' || typeof variable.value !== 'number')
-            throw new MSLangException('Invalid compare type');
+            throw new InterpreterException('Invalid compare type', this.getContext()?.currentToken?.cursorPos);
 
         switch (compareType) {
             case CompareType.ctLess:
