@@ -977,3 +977,11 @@ test('P1_17_LayerThrowsInterpreterException', () => {
     const num = new StackVariableNumber(false, 5);
     assert.throws(() => { (num as unknown as { value: unknown }).value = 'x'; }, InterpreterException);
 });
+
+test('P2_Tier1_MinorFixes', () => {
+    // P2-13: геттер isPassedByReference.
+    assert.strictEqual(true, new FunctionParameter('x', VariableType.vtNumber, true, true).isPassedByReference());
+    assert.strictEqual(false, new FunctionParameter('y', VariableType.vtNumber, true, false).isPassedByReference());
+    // P2-2: ++a + a == 22 (castAs(vtNumber) даёт копию, как наблюдаемо в PHP).
+    assert.strictEqual(22, executeReturnCode('a = 10; return ++a + a;')?.value);
+});
