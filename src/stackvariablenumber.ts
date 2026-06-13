@@ -64,23 +64,25 @@ export class StackVariableNumber extends StackVariable {
 
     castAs(variableType: VariableType): StackVariable|null
     {
+        // Убрана TS-only ветка typeof !== 'number' → 'undefined' (в PHP её нет;
+        // _value у числа всегда число). Ранний `return this` (как в PHP) НЕ делаем:
+        // в PHP это значение-объект, в JS — ссылка, и общий объект ломает `++a + a`.
+        const v = this._value as number;
+
         switch (variableType)
         {
             case VariableType.vtString:
-                if (typeof this._value !== 'number')
-                    return new StackVariableString(false, 'undefined');
-
-                if (isNaN(this._value))
+                if (isNaN(v))
                     return new StackVariableString(false, 'NaN');
 
-                if (!isFinite(this._value))
+                if (!isFinite(v))
                     return new StackVariableString(false, 'Infinity');
 
-                return new StackVariableString(false, this._value.toString());
+                return new StackVariableString(false, v.toString());
             case VariableType.vtBoolean:
-                return new StackVariableBoolean(false, !!this._value);
+                return new StackVariableBoolean(false, !!v);
             case VariableType.vtNumber:
-                return new StackVariableNumber(false, this._value);
+                return new StackVariableNumber(false, v);
         }
 
         return null;

@@ -144,7 +144,7 @@ export class StackVariableDateTime extends StackVariable {
 
     funcInvokeAddSecondsArgs() {
         return [
-            new FunctionParameter('minutes', VariableType.vtNumber, true),
+            new FunctionParameter('seconds', VariableType.vtNumber, true),
         ]
     }
 

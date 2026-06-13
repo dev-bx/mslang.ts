@@ -34,6 +34,11 @@ export class FunctionParameter {
         return this._isRequired;
     }
 
+    isPassedByReference()
+    {
+        return this._isPassedByReference;
+    }
+
     getDefaultValue()
     {
         return this._defaultValue;
