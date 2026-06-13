@@ -1,5 +1,5 @@
 import {LexerTypeArray, LexerType, CodeLexer, TokenCursor} from "./lexer.js";
-import {ParserCursorException, ParserNodeException} from "./exceptions";
+import {MSLangException, ParserCursorException, ParserNodeException} from "./exceptions";
 
 export enum CompareType {
     ctEqual = 1,     // Равно
@@ -242,7 +242,7 @@ export class ParseNode
             if (item instanceof ParseNode) {
                 result.push(item);
             } else {
-                throw new Error(
+                throw new MSLangException(
                     'childItems[' + i + '] is not a ParseNode; this is the ntBracketSetKey tuple shape — '
                     + 'access childItems[0]/[1] directly instead of iterating.'
                 );

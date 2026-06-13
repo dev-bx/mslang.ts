@@ -6,6 +6,7 @@ import {StackVariableString} from "./stackvariablestring.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableObject} from "./stackvariableobject.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
+import {StackVariableNull} from "./stackvariablenull.js";
 import {StackVariableRef} from "./stackvariableref.js";
 import {InterpreterException} from "./exceptions";
 import type {ContextInterpreter} from "./interpreter.js";
@@ -41,7 +42,12 @@ export class StackVariableArray extends StackVariable {
     {
         if (!(v instanceof StackVariable)) {
             if (Array.isArray(v)) {
-                v = new StackVariableArray(false, v);
+                // Зеркало PHP: вложенный массив создаём с контекстом.
+                v = new StackVariableArray(false, v, this.getContext());
+            } else if (v === null) {
+                // typeof null === 'object' в JS — без явной проверки null ушёл бы
+                // в StackVariableObject. PHP отдаёт createStackVariableNull.
+                v = new StackVariableNull(false);
             } else {
 
                 switch (typeof v) {
@@ -202,12 +208,22 @@ export class StackVariableArray extends StackVariable {
         for (let i = 0; i < values.length; i++) {
             if (this.matchesNeedle(values[i], searchValue)) {
                 //Возвращаемый тип — vtInteger, ключи в Map всегда строки;
-                //приводим к числу, как делает PHP-зеркало (`: int`).
-                return Number(keys[i]);
+                //нечисловой ключ приводим как PHP (int): ведущие цифры или 0
+                //(Number('k') дал бы NaN — расхождение с PHP).
+                return this.keyToInt(keys[i]);
             }
         }
 
         return -1;
+    }
+
+    /**
+     * Зеркало PHP `(int)$string`: необязательный ведущий знак и цифры,
+     * стоп на первом не-цифре, нет цифр → 0. Для возврата ключа из indexOf.
+     */
+    private keyToInt(key: string): number {
+        const m = key.match(/^\s*[+-]?\d+/);
+        return m ? parseInt(m[0], 10) : 0;
     }
 
     /** push */
@@ -534,25 +550,4 @@ export class StackVariableArray extends StackVariable {
         return result;
     }
 
-    convertToNativeObject()
-    {
-        const result: Record<string, unknown> = {};
-
-        Array.from(this.value.keys()).forEach(key => {
-            const value = this.value.get(key);
-
-            if (value instanceof StackVariable) {
-                if (value instanceof StackVariableArray) {
-                    result[key] = value.convertToNativeObject();
-                } else {
-                    result[key] = value.value;
-                }
-
-            } else {
-                result[key] = value;
-            }
-        });
-
-        return result;
-    }
 }

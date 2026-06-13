@@ -96,12 +96,16 @@ const InterpreterNodeType = {
 
 export class InterpreterNode extends ParseNode {
     get typeName() {
-        let k = Object.keys(InterpreterNodeType),
-            v = Object.values(InterpreterNodeType);
+        // Порядок поиска как в PHP InterpreterNode::getTypeName(): сначала
+        // NodeType (через родителя), затем InterpreterNodeType. Коды не
+        // пересекаются (NodeType < 1000 ≤ InterpreterNodeType), поэтому
+        // видимый результат тот же — выправляем именно порядок под зеркало.
+        let k = Object.keys(NodeType),
+            v = Object.values(NodeType);
 
         if (v.indexOf(this.nType) === -1) {
-            k = Object.keys(NodeType);
-            v = Object.values(NodeType);
+            k = Object.keys(InterpreterNodeType);
+            v = Object.values(InterpreterNodeType);
         }
 
         return k[v.indexOf(this.nType)];
@@ -821,16 +825,13 @@ export class Interpreter {
             return;
         }
 
-        // оба операнда — не строки, считаем как числа
-        const leftNum = leftVar.castAs(VariableType.vtNumber);
-        if (!leftNum)
-            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
+        // оба операнда — не строки, считаем как числа. После toPrimitive они
+        // уже Number (boolean/null в toPrimitive дают Number), поэтому проверяем
+        // isNumeric и берём value напрямую — зеркало PHP (бросает 'Type error').
+        if (!leftVar.isNumeric || !rightVar.isNumeric)
+            throw new InterpreterException('Type error', token.cursorPos);
 
-        const rightNum = rightVar.castAs(VariableType.vtNumber);
-        if (!rightNum)
-            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
-
-        context.pushStackVar(context.createVariable(VariableType.vtNumber, (leftNum.value as number) + (rightNum.value as number)));
+        context.pushStackVar(context.createVariable(VariableType.vtNumber, (leftVar.value as number) + (rightVar.value as number)));
     }
 
     minusHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1346,6 +1347,12 @@ export class Interpreter {
         // Зеркало PHP objPropHandler: если у объекта есть это свойство,
         // отдаём его обёрткой StackVariableRef через get/set — тогда `obj.prop++`
         // запишется обратно через setProperty.
+        // ЯЗЫКОВОЕ ОТЛИЧИЕ от PHP (P2-7): PHP передаёт сюда $context в Ref, но в
+        // TS это нельзя — funcEntryCache захватывает Proxy(StackVariableRef) с его
+        // scope, и после выхода из короткоживущего scope ломается чужой вызов
+        // (баг исправлен в 5c6d5ad, страж — Bug_FuncEntryCache_ProxyOnDeadScope).
+        // Поэтому Ref здесь без context, а отсутствующее свойство отдаём обычным
+        // StackVariableUndefined, а не записываемым Ref.
         if (getVar instanceof StackVariable) {
             const refProp = new StackVariableRef({
                 get: () => variable.getProperty(propname) as object,
@@ -4326,6 +4333,12 @@ export class ContextInterpreter {
         const callFuncArgs: (StackVariable|null)[] = [null];
 
         const funcParameters = funcEntry.getParameters();
+        // ЯЗЫКОВОЕ ОТЛИЧИЕ от PHP (P2-12): PHP идёт строго по объявленным
+        // параметрам (вариативные builtin'ы там объявлены как variadic). В TS
+        // встроенные вариативные функции (String.fromCharCode, Array.fill и т.п.)
+        // недо-объявляют параметры и опираются на позиционную передачу всех
+        // фактических аргументов через Math.max. Для пользовательских функций
+        // разницы нет (в MSLang нет объекта arguments). Поэтому оставляем Math.max.
         const paramCount = Math.max(parameters.length, funcParameters.length);
 
         for (let index = 0; index < paramCount; index++) {
@@ -4362,6 +4375,7 @@ export class ContextInterpreter {
         const callFuncArgs = [self];
 
         const funcParameters = funcEntry.getParameters();
+        // См. комментарий в callFunction: Math.max нужен для вариативных builtin'ов TS.
         const paramCount = Math.max(parameters.length, funcParameters.length);
 
         for (let index = 0; index < paramCount; index++) {
