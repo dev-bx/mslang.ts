@@ -16,7 +16,7 @@ import {
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray,
     ParseNode, StackVariableUndefined, FunctionEntry, ContextException,
     ParserCursorException, ParserNodeException, StackVariableDateTime,
-    StackVariableNumber, InterpreterException,
+    StackVariableNumber, StackVariableNull, InterpreterException,
 } from "../src";
 import {FunctionParameter} from "../src/functionparameter";
 
@@ -984,4 +984,48 @@ test('P2_Tier1_MinorFixes', () => {
     assert.strictEqual(false, new FunctionParameter('y', VariableType.vtNumber, true, false).isPassedByReference());
     // P2-2: ++a + a == 22 (castAs(vtNumber) даёт копию, как наблюдаемо в PHP).
     assert.strictEqual(22, executeReturnCode('a = 10; return ++a + a;')?.value);
+});
+
+// --- Тир 2 ---
+
+test('P2_03_CharCodeAtCharAtNegative', () => {
+    // P2-3: отрицательный/за-концом индекс → NaN / '' (по JS, не «символ с конца»).
+    assert.ok(Number.isNaN(executeReturnCode('return "abc".charCodeAt(-1);')?.value as number));
+    assert.ok(Number.isNaN(executeReturnCode('return "abc".charCodeAt(5);')?.value as number));
+    assert.strictEqual('', executeReturnCode('return "abc".charAt(-1);')?.value);
+    assert.strictEqual('', executeReturnCode('return "abc".charAt(5);')?.value);
+    assert.strictEqual(97, executeReturnCode('return "abc".charCodeAt(0);')?.value);
+    assert.strictEqual('a', executeReturnCode('return "abc".charAt(0);')?.value);
+});
+
+test('P2_04_IndexOfNonNumericKey', () => {
+    // P2-4: нечисловой ключ из indexOf приводится как PHP (int): ведущие цифры или 0.
+    const r = executeReturnCode("a=[]; a['k']='v'; a['12x']='w'; a['t']='z'; return a.indexOf('v')+','+a.indexOf('w')+','+a.indexOf('z');");
+    assert.strictEqual('0,12,0', r?.value);
+});
+
+test('P2_05_PlusNumericBranch', () => {
+    // P2-5: численная ветка plusHandler — toPrimitive приводит boolean/null к Number,
+    // поэтому isNumeric-проверка не падает, а 'Type error' остаётся мёртвой ветвью (как в PHP).
+    assert.strictEqual(5, executeReturnCode('return 2 + 3;')?.value);
+    assert.strictEqual(6, executeReturnCode('return 5 + true;')?.value);
+    assert.strictEqual(5, executeReturnCode('return 5 + null;')?.value);
+    assert.strictEqual('a1', executeReturnCode("return 'a' + 1;")?.value);
+});
+
+test('P2_06_ArrayNullRawValue', () => {
+    // P2-6: сырой JS null в массиве становится StackVariableNull, а не StackVariableObject
+    // (typeof null === 'object'). Путь host-only, поэтому юнит-проверка через конструктор.
+    const ctx = createCodeContext('return 0;');
+    const arr = new StackVariableArray(false, [1, null, 3], ctx);
+    const el = arr.value.get('1');
+    assert.ok(el instanceof StackVariableNull);
+    assert.strictEqual('null', el?.castAs(VariableType.vtString)?.value);
+});
+
+test('P2_16_BitwiseNaNInfinity', () => {
+    // P2-16: NaN/±Infinity в битовых операциях → 0 (toInt64), без предупреждения PHP.
+    assert.strictEqual(0, executeReturnCode('return (1/0) & 1;')?.value);
+    assert.strictEqual(5, executeReturnCode('return (0/0) | 5;')?.value);
+    assert.strictEqual(0, executeReturnCode('return (1/0) | 0;')?.value);
 });

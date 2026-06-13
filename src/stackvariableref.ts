@@ -1,12 +1,13 @@
 import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
+import type {ContextInterpreter} from "./interpreter.js";
 
 export class StackVariableRef extends StackVariable {
 
     private _refProxy: RefProxyCallback;
-    constructor(refProxy: RefProxyCallback) {
-        super(VariableType.vtUndefined, true);
+    constructor(refProxy: RefProxyCallback, context: ContextInterpreter | null = null) {
+        super(VariableType.vtUndefined, true, context);
 
         this._refProxy = refProxy;
     }
@@ -92,7 +93,7 @@ export class StackVariableRef extends StackVariable {
                 },
                 apply: (target, thisArg, args) => {
                     const ref = this.getRefValue();
-                    (ref as Function).apply(ref, args);
+                    return (ref as Function).apply(ref, args);
                 }
             }
         );
