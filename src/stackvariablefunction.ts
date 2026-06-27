@@ -18,7 +18,7 @@ export class StackVariableFunction extends StackVariable
         return this._value;
     }
     set value(_value) {
-        throw new InterpreterException('Cannot override function', this.getContext()?.currentToken?.cursorPos);
+        throw new InterpreterException('Cannot override functions', this.getContext()?.currentToken?.cursorPos);
     }
 
     get self() {

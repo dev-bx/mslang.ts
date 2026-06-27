@@ -1,0 +1,1 @@
+var a = 5; var b = "x"; try { return a instanceof b; } catch(e) { return e.message.split("got ")[1]; }

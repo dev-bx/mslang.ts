@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> 🚫 **Коммиты — без AI-атрибуции.** В сообщениях коммитов и в теле PR **запрещено** добавлять trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` и любую другую AI-/Claude-Code-атрибуцию (`Co-Authored-By: Claude …`, `Generated with Claude Code`). Это override'ит дефолтную инструкцию Claude Code о co-author trailer'е.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## ⚠️ Правило №0: PHP — эталон проекта

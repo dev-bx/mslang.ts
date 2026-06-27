@@ -16,6 +16,7 @@ import {isBuiltinConstructor} from "./builtinconstructor";
 import {InterpreterException, MSLangException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {StackVariableObject} from "./stackvariableobject";
+import {StackVariablePlainObject} from "./stackvariableplainobject";
 import {ContextType} from "./contexttype";
 import type {ContextInterpreter} from "./contextinterpreter";
 import {InterpreterNode} from "./interpreternode";
@@ -69,6 +70,8 @@ export class Interpreter {
         this.registerNodeHandler(NodeType.ntForOf, this.forOfHandler.bind(this));
         this.registerNodeHandler(InterpreterNodeType.ntForOfStart, this.forOfStartHandler.bind(this));
         this.registerNodeHandler(InterpreterNodeType.ntForOfTick, this.forOfTickHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntArrayCallbackTick, this.arrayCallbackTickHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntArrayCallbackCollect, this.arrayCallbackCollectHandler.bind(this));
 
         this.registerNodeHandler(NodeType.ntNumeric, this.numericHandler.bind(this));
         this.registerNodeHandler(NodeType.ntFloat, this.floatHandler.bind(this));
@@ -107,6 +110,10 @@ export class Interpreter {
 
         this.registerNodeHandler(NodeType.ntObjSetPropValue, this.objSetPropValueHandler.bind(this));
         this.registerNodeHandler(InterpreterNodeType.ntObjSetPropValueFinish, this.objSetPropValueFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntObject, this.ObjectHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntObjectFinish, this.ObjectFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntObjectEntry, this.ObjectEntryHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntObjectEntryFinish, this.ObjectEntryFinishHandler.bind(this));
         this.registerNodeHandler(NodeType.ntArrayPushArrayUnpack, this.arrayPushArrayUnpackHandler.bind(this));
         this.registerNodeHandler(InterpreterNodeType.ntArrayPushArrayUnpackFinish, this.arrayPushArrayUnpackFinishHandler.bind(this));
 
@@ -127,6 +134,7 @@ export class Interpreter {
         this.registerNodeHandler(NodeType.ntCompareAnd, this.ifCompareAndHandler.bind(this));
 
         this.registerNodeHandler(NodeType.ntNegativeIf, this.negativeIfHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntTypeof, this.typeofHandler.bind(this));
 
         this.registerNodeHandler(InterpreterNodeType.ntIFFinish, this.ifFinishHandler.bind(this));
         this.registerNodeHandler(NodeType.ntSubCode, this.subCodeHandler.bind(this));
@@ -324,7 +332,7 @@ export class Interpreter {
 
     ternaryHandler(context: ContextInterpreter, token: ParseNode) {
         if (!token.childItems || token.childItems.length !== 3)
-            throw new InterpreterException('ternary must have 3 children', token.cursorPos);
+            throw new InterpreterException('ternary must have 3 children (cond, then, else)', token.cursorPos);
 
         context.pushExecutionStack();
         context._codeItems = [];
@@ -340,13 +348,11 @@ export class Interpreter {
     }
 
     ternaryFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        let cond: StackVariable = context.popStackVar();
-        if (cond instanceof StackVariableRef) cond = cond.refValue as StackVariable;
-        const boolCast = cond.castAs(VariableType.vtBoolean);
-        if (!boolCast) throw new InterpreterException('ternary cond cast failed', token.cursorPos);
+        const cond: StackVariable = context.popStackVar();
 
+        //Выбор ветки — через единую точку истинности (JS): []?a:b → a, NaN?a:b → b.
         const branches = token.childItems!;
-        const chosen = boolCast.value ? branches[0] : branches[1];
+        const chosen = Interpreter.isTruthy(cond) ? branches[0] : branches[1];
         if (!(chosen instanceof ParseNode))
             throw new InterpreterException('ternary branch invalid', token.cursorPos);
 
@@ -428,6 +434,191 @@ export class Interpreter {
         tickNext.nType = InterpreterNodeType.ntForOfTick;
         context._codeItems!.push(tickNext);
         context._codeData['continue'] = tickIdx;
+    }
+
+    /** Имена массивных методов высшего порядка → внутренний код операции. */
+    static readonly ARRAY_CALLBACK_METHODS: Record<string, string> = {
+        'map': 'map', 'filter': 'filter', 'reduce': 'reduce', 'foreach': 'foreach',
+        'find': 'find', 'findindex': 'findindex', 'some': 'some', 'every': 'every',
+    };
+
+    /**
+     * Запускает массивный метод с колбэком. Заводит отдельный кадр цикла (его _codeData
+     * переживёт вызовы колбэка — pushFunctionScope сохраняет _codeData), кладёт состояние
+     * и ставит первый tick. Итог кладётся на стек в финальном tick.
+     */
+    private startArrayCallback(context: ContextInterpreter, array: StackVariableArray, op: string, parameters: StackVariable[], token: ParseNode): void {
+        let callback: unknown = parameters[0];
+        if (callback instanceof StackVariableRef) {
+            callback = callback.refValue;
+        }
+        if (!(callback instanceof StackVariableUserFunction)) {
+            throw new InterpreterException(op.charAt(0).toUpperCase() + op.slice(1) + ' callback is not a function', token.cursorPos);
+        }
+
+        const elements = Array.from((array.value as Map<string, StackVariable>).values());
+
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeData['__cb_op'] = op;
+        context._codeData['__cb_fn'] = callback;
+        context._codeData['__cb_elems'] = elements;
+        context._codeData['__cb_self'] = array;
+        context._codeData['__cb_idx'] = 0;
+        context._codeData['__cb_results'] = [];
+
+        if (op === 'reduce') {
+            if (parameters.length >= 2) {
+                let acc: unknown = parameters[1];
+                if (acc instanceof StackVariableRef) {
+                    acc = acc.refValue;
+                }
+                context._codeData['__cb_acc'] = acc;
+            } else if (elements.length === 0) {
+                throw new InterpreterException('Reduce of empty array with no initial value', token.cursorPos);
+            } else {
+                context._codeData['__cb_acc'] = elements[0];
+                context._codeData['__cb_idx'] = 1;
+            }
+        }
+
+        const tick = new InterpreterNode(token.cursorPos);
+        tick.nType = InterpreterNodeType.ntArrayCallbackTick;
+        context._codeItems!.push(tick);
+    }
+
+    arrayCallbackTickHandler(context: ContextInterpreter, token: ParseNode): void {
+        const op = context._codeData['__cb_op'] as string;
+        const elements = context._codeData['__cb_elems'] as StackVariable[];
+        const idx = context._codeData['__cb_idx'] as number;
+
+        if (idx >= elements.length) {
+            const result = this.buildArrayCallbackResult(context, op);
+            context.popExecutionStack();
+            context.pushStackVar(result);
+            return;
+        }
+
+        const fn = context._codeData['__cb_fn'] as StackVariableUserFunction;
+        const elem = elements[idx];
+        const array = context._codeData['__cb_self'] as StackVariableArray;
+
+        //Аргументы как в JS. reduce: (acc, elem, idx, array); прочие: (elem, idx, array).
+        const indexVar = context.createVariable(VariableType.vtNumber, idx);
+        let args: StackVariable[];
+        if (op === 'reduce') {
+            args = [context._codeData['__cb_acc'] as StackVariable, elem, indexVar, array];
+        } else {
+            args = [elem, indexVar, array];
+        }
+        args = this.trimCallbackArgs(fn, args);
+
+        //Collect ставим ДО запуска колбэка: pushFunctionScope сохранит этот кадр, а после
+        //возврата колбэка кадр восстановится и collect отработает.
+        const collect = new InterpreterNode(token.cursorPos);
+        collect.nType = InterpreterNodeType.ntArrayCallbackCollect;
+        context._codeItems!.push(collect);
+
+        this.invokeUserFunction(context, fn, args, token);
+    }
+
+    arrayCallbackCollectHandler(context: ContextInterpreter, token: ParseNode): void {
+        const op = context._codeData['__cb_op'] as string;
+        const idx = context._codeData['__cb_idx'] as number;
+        const elements = context._codeData['__cb_elems'] as StackVariable[];
+
+        let result: StackVariable = context.popStackVar();
+        if (result instanceof StackVariableRef) {
+            result = result.refValue as StackVariable;
+        }
+
+        const truthy = Interpreter.isTruthy(result);
+
+        switch (op) {
+            case 'map':
+                (context._codeData['__cb_results'] as StackVariable[]).push(result);
+                break;
+            case 'filter':
+                if (truthy) {
+                    (context._codeData['__cb_results'] as StackVariable[]).push(elements[idx]);
+                }
+                break;
+            case 'reduce':
+                context._codeData['__cb_acc'] = result;
+                break;
+            case 'foreach':
+                break;
+            case 'find':
+                if (truthy) {
+                    const found = elements[idx];
+                    context.popExecutionStack();
+                    context.pushStackVar(found);
+                    return;
+                }
+                break;
+            case 'findindex':
+                if (truthy) {
+                    context.popExecutionStack();
+                    context.pushStackVar(context.createVariable(VariableType.vtNumber, idx));
+                    return;
+                }
+                break;
+            case 'some':
+                if (truthy) {
+                    context.popExecutionStack();
+                    context.pushStackVar(context.createVariable(VariableType.vtBoolean, true));
+                    return;
+                }
+                break;
+            case 'every':
+                if (!truthy) {
+                    context.popExecutionStack();
+                    context.pushStackVar(context.createVariable(VariableType.vtBoolean, false));
+                    return;
+                }
+                break;
+        }
+
+        context._codeData['__cb_idx'] = idx + 1;
+
+        const tick = new InterpreterNode(token.cursorPos);
+        tick.nType = InterpreterNodeType.ntArrayCallbackTick;
+        context._codeItems!.push(tick);
+    }
+
+    /** Итог метода, когда массив пройден до конца без короткого замыкания. */
+    private buildArrayCallbackResult(context: ContextInterpreter, op: string): StackVariable {
+        switch (op) {
+            case 'map':
+            case 'filter':
+                return new StackVariableArray(false, context._codeData['__cb_results'] as StackVariable[], context);
+            case 'reduce':
+                return context._codeData['__cb_acc'] as StackVariable;
+            case 'findindex':
+                return context.createVariable(VariableType.vtNumber, -1);
+            case 'some':
+                return context.createVariable(VariableType.vtBoolean, false);
+            case 'every':
+                return context.createVariable(VariableType.vtBoolean, true);
+            default:
+                //find и forEach без результата → undefined.
+                return context.createVariable(VariableType.vtUndefined, undefined);
+        }
+    }
+
+    /**
+     * Оставляет столько аргументов колбэка, сколько он объявил параметров (если нет rest),
+     * чтобы не плодить предупреждения о лишних аргументах. Колбэк всё равно видит только
+     * объявленные параметры (объекта arguments нет).
+     */
+    private trimCallbackArgs(fn: StackVariableUserFunction, args: StackVariable[]): StackVariable[] {
+        const params = fn.params;
+        for (const param of params) {
+            if ((param.nValue2 ?? null) === 'rest') {
+                return args;
+            }
+        }
+        return args.slice(0, params.length);
     }
 
     expressionAssignFinishHandler(context: ContextInterpreter, token: ParseNode) {
@@ -911,6 +1102,17 @@ export class Interpreter {
             selfResolved = selfResolved.refValue as StackVariable;
         }
 
+        //Массивные методы высшего порядка (map/filter/reduce/forEach/find/findIndex/some/
+        //every): колбэк надо выполнить через стековую машину — отдельная ветка ДО обычного
+        //funcInvoke-диспетчера. См. startArrayCallback.
+        if (selfResolved instanceof StackVariableArray) {
+            const op = Interpreter.ARRAY_CALLBACK_METHODS[funcName.toLowerCase()];
+            if (op !== undefined) {
+                this.startArrayCallback(context, selfResolved, op, parameters as StackVariable[], token);
+                return;
+            }
+        }
+
         //Метод пользовательского класса: если у self есть класс и в нём
         //(или в его родителе) объявлен метод с этим именем — вызываем его
         //как UserFunction с this = self.
@@ -1163,24 +1365,8 @@ export class Interpreter {
 
         context.popExecutionStack();
 
-        const compareVariable = context.createVariable(VariableType.vtBoolean, false);
-
-        if (variable.isNumeric) {
-            compareVariable.value = variable.value !== 0;
-        } else {
-            switch (variable.type) {
-                case VariableType.vtString:
-                    compareVariable.value = (variable.value as string).length > 0;
-                    break;
-                case VariableType.vtBoolean:
-                    compareVariable.value = variable.value;
-                    break;
-                default:
-                    compareVariable.value = !!variable.value;
-            }
-        }
-
-        context.pushStackVar(compareVariable);
+        //Истинность условия — через единую точку isTruthy (JS): NaN→ложь, []→истина.
+        context.pushStackVar(context.createVariable(VariableType.vtBoolean, Interpreter.isTruthy(variable)));
     }
 
     expressionCompareHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1255,13 +1441,12 @@ export class Interpreter {
 
     ifCompareOrHandler(context: ContextInterpreter, token: ParseNode) {
         const variable = context.popStackVar();
-
-        if (variable.type !== VariableType.vtBoolean)
-            throw new InterpreterException('Invalid variable in IF Handler', token.cursorPos);
-
         context.pushStackVar(variable);
 
-        if (variable.value === true) {
+        //JS-семантика: `a || b` коротко замыкается на ИСТИННОМ левом (по truthiness, не по
+        //строгому === true) и возвращает сам операнд. В условии операнды уже приведены к
+        //булеву через ntIFValueBOOL; в значении (`x = a || b`) — сырые.
+        if (Interpreter.isTruthy(variable)) {
             if (!context._codeItems)
                 throw new InterpreterException('codeItems not initialized', token.cursorPos);
 
@@ -1271,13 +1456,11 @@ export class Interpreter {
 
     ifCompareAndHandler(context: ContextInterpreter, token: ParseNode) {
         const variable = context.popStackVar();
-
-        if (variable.type !== VariableType.vtBoolean)
-            throw new InterpreterException('Invalid variable in IF Handler', token.cursorPos);
-
         context.pushStackVar(variable);
 
-        if (variable.value !== true) {
+        //JS-семантика: `a && b` коротко замыкается на ЛОЖНОМ левом (по truthiness) и
+        //возвращает сам операнд.
+        if (!Interpreter.isTruthy(variable)) {
             if (!context._codeItems)
                 throw new InterpreterException('codeItems not initialized', token.cursorPos);
 
@@ -1285,23 +1468,78 @@ export class Interpreter {
         }
     }
 
+    /** Истинность значения по правилам JS (для &&/||). Разворачивает Ref. */
+    /**
+     * ЕДИНАЯ точка истинности по правилам JS (зеркало PHP Interpreter::isTruthy). Все
+     * управляющие конструкции — if/while/for, !, ?:, &&/||, колбэки filter/find/some/every —
+     * идут через неё. Не полагается на castAs(vtBoolean) (у хост-объекта он null).
+     */
+    private static isTruthy(variable: StackVariable): boolean {
+        let value: StackVariable = variable;
+        if (value instanceof StackVariableRef) {
+            value = value.refValue as StackVariable;
+        }
+
+        const type = value.type;
+
+        //Число: 0, -0, NaN → ложь; иначе истина.
+        if (type === VariableType.vtNumber) {
+            const n = Number(value.value);
+            return n !== 0 && !Number.isNaN(n);
+        }
+
+        switch (type) {
+            case VariableType.vtString:
+                return (value.value as string).length > 0;
+            case VariableType.vtBoolean:
+                return Boolean(value.value);
+            case VariableType.vtNull:
+            case VariableType.vtUndefined:
+            case VariableType.vtVoid:
+                return false;
+            default:
+                //Массив (даже пустой), объект, plain-объект, функция, класс, DateTime,
+                //хост-объект — всегда истина (как JS).
+                return true;
+        }
+    }
+
     negativeIfHandler(context: ContextInterpreter, token: ParseNode) {
         //context.execStepOver();
         context.execGetVariable();
 
-        const variable = context.popStackVar(),
-            varAsBoolean = variable.castAs(VariableType.vtBoolean);
+        const variable = context.popStackVar();
 
-        if (!varAsBoolean) {
-            throw new InterpreterException('Failed cast ' + variable.typeName + ' as boolean', token.cursorPos);
-        }
-
-        const newVariable = context.createVariable(VariableType.vtBoolean, !varAsBoolean.value);
-
-        context.pushStackVar(newVariable);
+        //`!x` — отрицание истинности по JS через единую точку (![]→false, !NaN→true).
+        context.pushStackVar(context.createVariable(VariableType.vtBoolean, !Interpreter.isTruthy(variable)));
     }
 
     negativeIfFinishHandler(context: ContextInterpreter, token: ParseNode) {
+    }
+
+    typeofHandler(context: ContextInterpreter, token: ParseNode) {
+        //`typeof x` — операнд вычисляется так же, как у `!`, и снимается со стека.
+        context.execGetVariable();
+
+        let variable = context.popStackVar();
+        if (variable instanceof StackVariableRef) {
+            variable = variable.refValue as StackVariable;
+        }
+
+        //Имена ровно как в JS typeof (НЕ как typeName): "boolean", не "bool";
+        //массив/объект/null → "object"; void (внутренний) → "undefined".
+        let name: string;
+        switch (variable.type) {
+            case VariableType.vtNumber: name = 'number'; break;
+            case VariableType.vtString: name = 'string'; break;
+            case VariableType.vtBoolean: name = 'boolean'; break;
+            case VariableType.vtUndefined:
+            case VariableType.vtVoid: name = 'undefined'; break;
+            case VariableType.vtFunction: name = 'function'; break;
+            default: name = 'object'; //null, array, object, хост-объект, дата
+        }
+
+        context.pushStackVar(new StackVariableString(false, name, context));
     }
 
     ifFinishHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1429,7 +1667,7 @@ export class Interpreter {
         // ntWhile.childItems = [condition (ntForCompare), body (ntSubCode)].
         // Используем тот же ntForLoop, что и for, но с шагом 3.
         if (!token.childItems || token.childItems.length !== 2)
-            throw new InterpreterException('while handler must have 2 child items', token.cursorPos);
+            throw new InterpreterException('while handler must be 2 child items', token.cursorPos);
 
         context.pushExecutionStack();
 
@@ -1587,7 +1825,7 @@ export class Interpreter {
     ArrayPushFinishHandler(context: ContextInterpreter, token: ParseNode) {
         const variable = context.popStackVar();
 
-        if (!context._contextVariable)
+        if (!(context._contextVariable instanceof StackVariableArray))
         {
             throw new InterpreterException('ArrayPushFinish contextVariable not defined', token.cursorPos);
         }
@@ -1856,6 +2094,67 @@ export class Interpreter {
         }
 
         context._contextVariable.setProperty(arrayKey.value as string, arrayValue);
+    }
+
+    //Литерал объекта `{ key: value, ... }`. Строится тем же приёмом «повторного
+    //входа», что и литерал массива: ObjectHandler заводит кадр и пустой
+    //StackVariablePlainObject в _contextVariable, по узлу ntObjectEntry на каждый
+    //ключ кладёт значение в объект, ObjectFinish возвращает готовый объект на стек.
+    ObjectHandler(context: ContextInterpreter, token: ParseNode) {
+        if (!token.childItems)
+            throw new InterpreterException('Object childItems not initialized', token.cursorPos);
+
+        context.pushExecutionStack();
+
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        context._contextVariable = new StackVariablePlainObject(false, context);
+
+        const node = new InterpreterNode(token.cursorPos);
+        node.nType = InterpreterNodeType.ntObjectFinish;
+        node.nValue = context._stackVars.length;
+        context._codeItems.push(node);
+    }
+
+    ObjectFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const variable = context._contextVariable;
+
+        context.popExecutionStack();
+
+        context.pushStackVar(variable);
+    }
+
+    ObjectEntryHandler(context: ContextInterpreter, token: ParseNode) {
+        if (!token.childItems)
+            throw new InterpreterException('objectEntry childItems not initialized', token.cursorPos);
+
+        context.pushExecutionStack();
+
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const node = new InterpreterNode(token.cursorPos);
+        node.nType = InterpreterNodeType.ntObjectEntryFinish;
+        node.nValue = token.nValue; //имя ключа
+        context._codeItems.push(node);
+    }
+
+    ObjectEntryFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        let value = context.popStackVar();
+
+        //Развёртка Ref как у ключа массива (ArrayPushKeyValue): значение-параметр
+        //или let нельзя класть ссылкой — после выхода из функции получим undefined.
+        if (value instanceof StackVariableRef) {
+            value = value.refValue as StackVariable;
+        }
+
+        if (!(context._contextVariable instanceof StackVariablePlainObject))
+            throw new InterpreterException('context variable expected object', token.cursorPos);
+
+        context._contextVariable.setProperty(token.nValue as string, value);
+
+        context.popExecutionStack();
     }
 
     /**

@@ -1,0 +1,1 @@
+return JSON.stringify("a,b,c".split(",")) + "#" + "x-y-x".replace("x", "Z") + "#" + "x-y-x".replaceAll("x", "Z") + "#" + "ab".repeat(3) + "#" + "пример".slice(1, 4) + "#" + JSON.stringify("a.b.c".split(".", 2)) + "#" + JSON.stringify("abc".split(""));

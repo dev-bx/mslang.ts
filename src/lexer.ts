@@ -77,6 +77,8 @@ export const LexerType = {
     'ltQuestion': 65,
     //Контекстное ключевое слово `of` для for (X of iterable).
     'ltOf': 66,
+    //Унарный оператор `typeof x` — даёт строку-имя типа (JS-семантика).
+    'ltTypeof': 67,
 }
 
 export class FullTokenInfo {
@@ -654,7 +656,10 @@ export class CodeLexer extends Lexer {
 
         this._tokenValue += this.lastChar;
 
-        const allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']'];
+        //Бинарные операторы тоже завершают число/идентификатор. Раньше тут не было
+        //`% & | ^`, из-за чего `7%2`/`7&2`/`6&&1` без пробела перед оператором не лексились
+        //(число «съедало» оператор). `+ - * /` были, поэтому `7+2` работал, а `7%2` — нет.
+        const allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '%', '&', '|', '^', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']'];
 
         if (this.isDigit(this.lastChar) || this.lastChar === '-') {
             //Префиксы для не-десятичных литералов: 0x.., 0b.., 0o..
@@ -920,6 +925,11 @@ export class CodeLexer extends Lexer {
         //Контекстное ключевое слово для `for (X of iterable)`.
         if (this._tokenValue === "of") {
             this._tokenSym = LexerType.ltOf;
+            return;
+        }
+
+        if (this._tokenValue === "typeof") {
+            this._tokenSym = LexerType.ltTypeof;
             return;
         }
 

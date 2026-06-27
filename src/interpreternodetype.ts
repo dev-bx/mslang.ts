@@ -67,4 +67,10 @@ export const InterpreterNodeType = {
     //for (X of iterable) — старт и tick.
     'ntForOfStart': 1036,
     'ntForOfTick': 1037,
+    //Массивные методы с колбэком (map/filter/reduce/...) — tick и collect.
+    'ntArrayCallbackTick': 1038,
+    'ntArrayCallbackCollect': 1039,
+    //Литерал объекта: завершение всего объекта и завершение одной записи.
+    'ntObjectFinish': 1040,
+    'ntObjectEntryFinish': 1041,
 }

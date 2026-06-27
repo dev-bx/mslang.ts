@@ -1,0 +1,4 @@
+let nums = [1, 2, 3, 4, 5, 6];
+let doubled = nums.filter(function(x) { return x % 2 == 0; }).map(function(x) { return x * 2; });
+let total = doubled.reduce(function(s, x) { return s + x; }, 0);
+return JSON.stringify(doubled) + "#" + total + "#" + nums.find(function(x) { return x > 4; }) + "#" + nums.findIndex(function(x) { return x > 4; }) + "#" + nums.some(function(x) { return x > 5; }) + "#" + nums.every(function(x) { return x > 0; });

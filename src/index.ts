@@ -16,6 +16,10 @@ import {StackVariableString} from "./stackvariablestring";
 import {StackVariableBoolean} from "./stackvariableboolean";
 import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableObject} from "./stackvariableobject";
+import {StackVariablePlainObject} from "./stackvariableplainobject";
+import {NumberFunctions} from "./numberfunctions";
+import {ObjectFunctions} from "./objectfunctions";
+import {JsonFunctions} from "./jsonfunctions";
 import {StackVariableFunction} from "./stackvariablefunction";
 import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableClass} from "./stackvariableclass";
@@ -49,6 +53,10 @@ export {
     StackVariableBoolean,
     StackVariableArray,
     StackVariableObject,
+    StackVariablePlainObject,
+    NumberFunctions,
+    ObjectFunctions,
+    JsonFunctions,
     StackVariableDateTime,
     StackVariableFunction,
     StackVariableUserFunction,
