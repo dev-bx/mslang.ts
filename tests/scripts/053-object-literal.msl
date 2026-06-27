@@ -1,0 +1,1 @@
+var o = {b: 2, a: 1, "10": "x", "2": "y", nested: {k: [1, 2], s: "hi"}, t: (true && "yes"), e: {}}; return JSON.stringify(o) + "|" + o.a + "|" + o.nested.k[1] + "|" + o["10"];

@@ -153,6 +153,97 @@ export class StackVariableDateTime extends StackVariable {
         return this.makeDateTime(this.value+seconds);
     }
 
+    /** fromTimestamp */
+
+    funcInvokeFromTimestampArgs() {
+        return [
+            new FunctionParameter('seconds', VariableType.vtNumber, true),
+        ]
+    }
+
+    funcInvokeFromTimestamp(seconds: number): StackVariableDateTime {
+        return this.makeDateTime(Math.trunc(seconds));
+    }
+
+    /** format */
+
+    funcInvokeFormatArgs() {
+        return [
+            new FunctionParameter('format', VariableType.vtString, false, false, 'YYYY-MM-DD HH:mm:ss'),
+        ]
+    }
+
+    funcInvokeFormat(format: string = 'YYYY-MM-DD HH:mm:ss'): StackVariableString {
+        const ctx = this.getContext();
+        if (typeof this._value !== 'number') {
+            return new StackVariableString(false, '', ctx);
+        }
+
+        const d = new Date((this.value + this.tzOffsetSeconds()) * 1000);
+        const pad = (n: number) => String(n).padStart(2, '0');
+
+        const result = StackVariableDateTime.applyFormat(
+            format,
+            String(d.getUTCFullYear()),
+            pad(d.getUTCMonth() + 1),
+            pad(d.getUTCDate()),
+            pad(d.getUTCHours()),
+            pad(d.getUTCMinutes()),
+            pad(d.getUTCSeconds()),
+        );
+
+        return new StackVariableString(false, result, ctx);
+    }
+
+    /** parse */
+
+    funcInvokeParseArgs() {
+        return [
+            new FunctionParameter('str', VariableType.vtString, true),
+            new FunctionParameter('format', VariableType.vtString, false, false, 'YYYY-MM-DD HH:mm:ss'),
+        ]
+    }
+
+    funcInvokeParse(str: string, format: string = 'YYYY-MM-DD HH:mm:ss'): StackVariableDateTime {
+        let year = 1970, month = 1, day = 1, hour = 0, minute = 0, second = 0;
+        const get = (si: number, len: number) => parseInt(str.substring(si, si + len), 10) || 0;
+
+        let fi = 0, si = 0;
+        const flen = format.length;
+        while (fi < flen) {
+            if (format.substring(fi, fi + 4) === 'YYYY') { year = get(si, 4); fi += 4; si += 4; }
+            else if (format.substring(fi, fi + 2) === 'MM') { month = get(si, 2); fi += 2; si += 2; }
+            else if (format.substring(fi, fi + 2) === 'DD') { day = get(si, 2); fi += 2; si += 2; }
+            else if (format.substring(fi, fi + 2) === 'HH') { hour = get(si, 2); fi += 2; si += 2; }
+            else if (format.substring(fi, fi + 2) === 'mm') { minute = get(si, 2); fi += 2; si += 2; }
+            else if (format.substring(fi, fi + 2) === 'ss') { second = get(si, 2); fi += 2; si += 2; }
+            else { fi += 1; si += 1; }
+        }
+
+        const ts = Math.floor(Date.UTC(year, month - 1, day, hour, minute, second) / 1000) - this.tzOffsetSeconds();
+        return this.makeDateTime(ts);
+    }
+
+    /**
+     * Подстановка токенов шаблона `format`. Длинный токен (`YYYY`) проверяем раньше коротких;
+     * `MM` (месяц) и `mm` (минута) различаются регистром. Зеркало PHP applyFormat.
+     */
+    private static applyFormat(fmt: string, y: string, mo: string, d: string, h: string, mi: string, s: string): string {
+        let out = '';
+        const len = fmt.length;
+        let i = 0;
+        while (i < len) {
+            if (fmt.substring(i, i + 4) === 'YYYY') { out += y; i += 4; }
+            else if (fmt.substring(i, i + 2) === 'MM') { out += mo; i += 2; }
+            else if (fmt.substring(i, i + 2) === 'DD') { out += d; i += 2; }
+            else if (fmt.substring(i, i + 2) === 'HH') { out += h; i += 2; }
+            else if (fmt.substring(i, i + 2) === 'mm') { out += mi; i += 2; }
+            else if (fmt.substring(i, i + 2) === 'ss') { out += s; i += 2; }
+            else { out += fmt[i]; i += 1; }
+        }
+        return out;
+    }
+
     comparePriority(variable: StackVariable, compareType: CompareType):number|false
     {
         if (variable instanceof StackVariableDateTime)
@@ -256,7 +347,8 @@ export class StackVariableDateTime extends StackVariable {
                 return new StackVariableString(false, s, this.getContext());
             }
             case VariableType.vtBoolean:
-                return new StackVariableBoolean(false, !!this.value);
+                //JS: объект (в т.ч. Date, даже эпоха) всегда истина.
+                return new StackVariableBoolean(false, true);
             case VariableType.vtNumber:
                 return new StackVariableNumber(false, this.value);
         }

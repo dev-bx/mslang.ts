@@ -18,6 +18,12 @@ import {FunctionEntry} from "./functionentry";
 import {MathFunctions} from "./mathfunctions";
 import {StringStaticFunctions} from "./stringstaticfunctions";
 import {ArrayConstructor} from "./arrayconstructor";
+import {NumberFunctions} from "./numberfunctions";
+import {ObjectFunctions} from "./objectfunctions";
+import {JsonFunctions} from "./jsonfunctions";
+import {Base64Functions} from "./base64functions";
+import {UrlFunctions} from "./urlfunctions";
+import {HashFunctions} from "./hashfunctions";
 import {StackVariableDateTime} from "./stackvariabledatetime";
 import {ContextException, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
@@ -33,7 +39,7 @@ interface ExecutionStackItem {
     type: number;
     pos: number;
     stackVars: StackVariable[];
-    contextVariable?: StackVariableArray;
+    contextVariable?: StackVariable;
     isFunctionScope?: boolean;
     capturedScope?: Record<string, StackVariable> | null;
     currentThis?: StackVariable | null;
@@ -54,7 +60,7 @@ export class ContextInterpreter {
     _executionStack:ExecutionStackItem[];
     _type: number;
     _interpreter: Interpreter;
-    _contextVariable?: StackVariableArray; //используется для создания массивов "Array"
+    _contextVariable?: StackVariable; //аккумулятор литерала: массив "Array" или объект "{...}"
 
     /** Накопленные предупреждения времени выполнения (лишние аргументы и т.п.). */
     protected _warnings: string[] = [];
@@ -200,9 +206,29 @@ export class ContextInterpreter {
         this.setVariable('Infinity', new StackVariableNumber(true, Infinity));
         this.setVariable('Math', new MathFunctions());
         this.setVariable('String', new StringStaticFunctions());
-        this.setVariable('Array', new ArrayConstructor());
-        //Контекст нужен DateTime для таймзоны из конфига (TS setVariable, в отличие
-        //от PHP, контекст не проставляет — выставляем явно у нуждающихся глобалов).
+        const arrayCtor = new ArrayConstructor();
+        arrayCtor.setContext(this);
+        this.setVariable('Array', arrayCtor);
+        //Контекст нужен Object/JSON/DateTime (создают значения, бюджет, таймзона). TS setVariable,
+        //в отличие от PHP, контекст не проставляет — выставляем явно у нуждающихся глобалов.
+        const numberFns = new NumberFunctions();
+        numberFns.setContext(this);
+        this.setVariable('Number', numberFns);
+        const objectFns = new ObjectFunctions();
+        objectFns.setContext(this);
+        this.setVariable('Object', objectFns);
+        const json = new JsonFunctions();
+        json.setContext(this);
+        this.setVariable('JSON', json);
+        const base64 = new Base64Functions();
+        base64.setContext(this);
+        this.setVariable('Base64', base64);
+        const url = new UrlFunctions();
+        url.setContext(this);
+        this.setVariable('Url', url);
+        const hash = new HashFunctions();
+        hash.setContext(this);
+        this.setVariable('Hash', hash);
         const dateTime = new StackVariableDateTime(undefined);
         dateTime.setContext(this);
         this.setVariable('DateTime', dateTime);

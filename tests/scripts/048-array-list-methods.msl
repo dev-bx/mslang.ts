@@ -1,0 +1,5 @@
+let a = [10, 9, 1, 100, 2];
+a.sort();
+let b = [1, 2, 3, 4, 5];
+let removed = b.splice(1, 2, 99);
+return JSON.stringify(a) + "#" + JSON.stringify(b) + "#" + JSON.stringify(removed) + "#" + JSON.stringify([1, [2, [3]]].flat(2)) + "#" + Array.isArray(b) + "#" + JSON.stringify(Array.from("xy")) + "#" + JSON.stringify(a.slice(1, 3));

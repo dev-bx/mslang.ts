@@ -1,0 +1,1 @@
+return ("" + Number.parseInt("120 руб")) + "#" + Number.parseFloat("12.5px") + "#" + (1234.5).toFixed(2) + "#" + (2.5).toFixed(0) + "#" + "42".padStart(5, "0") + "#" + "x".padEnd(3, "-") + "#" + "  hi  ".trimStart() + "|" + "  hi  ".trimEnd() + "#" + Number.isInteger(5) + Number.isNaN(0 / 0) + Number.isFinite(1 / 0);

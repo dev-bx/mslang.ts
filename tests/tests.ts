@@ -1193,8 +1193,9 @@ test('051_DoubleNegativeCasting', (t) => {
     returnVal = executeReturnCode('return !![1,2];');
     assert.strictEqual(true, returnVal?.value);
 
+    // как в JS: любой массив — истина, даже пустой
     returnVal = executeReturnCode('return !![];');
-    assert.strictEqual(false, returnVal?.value);
+    assert.strictEqual(true, returnVal?.value);
 
     returnVal = executeReturnCode('return !!null;');
     assert.strictEqual(false, returnVal?.value);
@@ -2918,4 +2919,388 @@ test('078_NewArrayNegativeLengthFails', () => {
     assert.throws(() => {
         executeReturnCode('let a = new Array(-1); return a.length;');
     }, /Invalid array length/);
+});
+
+test('079_Json', () => {
+    // JSON.parse / JSON.stringify — зеркально с PHP-эталоном (гейт — cross-runtime
+    // 041-json и дифф-фаззер). JSON-строки в скриптах берём в одинарные кавычки MSLang.
+    assert.strictEqual(1, executeReturnCode(`return JSON.parse('{"a":1}').a;`)?.value);
+    assert.strictEqual(1, executeReturnCode(`return JSON.parse('{"a":1}')["a"];`)?.value);
+    assert.strictEqual(20, executeReturnCode(`return JSON.parse('[10,20,30]')[1];`)?.value);
+    assert.strictEqual('Ann', executeReturnCode(`return JSON.parse('{"u":{"name":"Ann"}}').u.name;`)?.value);
+    assert.strictEqual('{"a":1,"b":[2,3]}', executeReturnCode(`return JSON.stringify(JSON.parse('{"a":1,"b":[2,3]}'));`)?.value);
+    // ассоциативный массив → объект, список → массив
+    assert.strictEqual('{"a":1,"b":2}', executeReturnCode(`return JSON.stringify(["a" => 1, "b" => 2]);`)?.value);
+    assert.strictEqual('[1,2,3]', executeReturnCode(`return JSON.stringify([1, 2, 3]);`)?.value);
+    // пустой объект и пустой массив различимы (путь А)
+    assert.strictEqual('{}', executeReturnCode(`return JSON.stringify(JSON.parse('{}'));`)?.value);
+    assert.strictEqual('[]', executeReturnCode(`return JSON.stringify(JSON.parse('[]'));`)?.value);
+    // числа: дробь через единый форматтер, NaN/Infinity → null
+    assert.strictEqual('0.30000000000000004', executeReturnCode(`return JSON.stringify(0.1 + 0.2);`)?.value);
+    assert.strictEqual('null', executeReturnCode(`return JSON.stringify(5 / 0);`)?.value);
+    assert.strictEqual('null', executeReturnCode(`return JSON.stringify(0 / 0);`)?.value);
+    // undefined: в массиве → null, у ключа → выброшен
+    assert.strictEqual('[1,null,2]', executeReturnCode(`return JSON.stringify([1, undefined, 2]);`)?.value);
+    assert.strictEqual('{"a":1}', executeReturnCode(`return JSON.stringify(["a" => 1, "b" => undefined]);`)?.value);
+    // ошибка разбора → default; валидный null ошибкой не считается
+    assert.strictEqual('fb', executeReturnCode(`return JSON.parse('oops', "fb");`)?.value);
+    assert.strictEqual('null', executeReturnCode(`return JSON.stringify(JSON.parse('null'));`)?.value);
+    // числовые ключи объекта печатаются как JS: по возрастанию, затем строки
+    assert.strictEqual('{"1":"b","3":"a","x":"c"}', executeReturnCode(`return JSON.stringify(JSON.parse('{"3":"a","1":"b","x":"c"}'));`)?.value);
+    // кириллица — сырой UTF-8 (без \\u), слэш не экранируется
+    assert.strictEqual('"привет /x"', executeReturnCode(`return JSON.stringify("привет /x");`)?.value);
+});
+
+test('080_ObjectKeysValuesEntries', () => {
+    // Object.keys/values/entries — перечисление объекта/массива/строки в JS-порядке.
+    // Гейт — cross-runtime 042-object-keys.
+    assert.strictEqual('["a","b"]', executeReturnCode(`return JSON.stringify(Object.keys(JSON.parse('{"a":1,"b":2}')));`)?.value);
+    assert.strictEqual('[1,2]', executeReturnCode(`return JSON.stringify(Object.values(JSON.parse('{"a":1,"b":2}')));`)?.value);
+    assert.strictEqual('[["a",1],["b",2]]', executeReturnCode(`return JSON.stringify(Object.entries(JSON.parse('{"a":1,"b":2}')));`)?.value);
+    // массив: ключи — строковые индексы, значения — элементы
+    assert.strictEqual('["0","1","2"]', executeReturnCode(`return JSON.stringify(Object.keys([10, 20, 30]));`)?.value);
+    assert.strictEqual('[10,20,30]', executeReturnCode(`return JSON.stringify(Object.values([10, 20, 30]));`)?.value);
+    // числовые ключи объекта — по возрастанию, затем строковые по вставке
+    assert.strictEqual('["1","3","x"]', executeReturnCode(`return JSON.stringify(Object.keys(JSON.parse('{"3":1,"1":2,"x":3}')));`)?.value);
+    // ассоциативный массив-карта
+    assert.strictEqual('["k1","k2"]', executeReturnCode(`return JSON.stringify(Object.keys(["k1" => 1, "k2" => 2]));`)?.value);
+    // строка — по символам (код-поинты), как JS
+    assert.strictEqual('["0","1","2"]', executeReturnCode(`return JSON.stringify(Object.keys("abc"));`)?.value);
+    assert.strictEqual(6, executeReturnCode(`return Object.keys("привет").length;`)?.value);
+    // не объект/массив/строка → пусто
+    assert.strictEqual('[]', executeReturnCode(`return JSON.stringify(Object.keys(5));`)?.value);
+    // полный обход: Object.keys + for + obj[key]
+    assert.strictEqual('a=1;b=2;c=3;', executeReturnCode(`let o = JSON.parse('{"a":1,"b":2,"c":3}'); let ks = Object.keys(o); let s = ""; for (let i = 0; i < ks.length; i++) { s = s + ks[i] + "=" + o[ks[i]] + ";"; } return s;`)?.value);
+});
+
+test('081_StringMethods', () => {
+    // split/replace/replaceAll/repeat/slice — литеральные, зеркально с PHP-эталоном.
+    // Гейт — cross-runtime 043-string-methods + дифф-фаззер.
+    assert.strictEqual('["a","b","c"]', executeReturnCode(`return JSON.stringify("a,b,c".split(","));`)?.value);
+    assert.strictEqual('["a","b"]', executeReturnCode(`return JSON.stringify("a,b,c".split(",", 2));`)?.value);
+    assert.strictEqual('["a","b","c"]', executeReturnCode(`return JSON.stringify("abc".split(""));`)?.value);
+    assert.strictEqual('["abc"]', executeReturnCode(`return JSON.stringify("abc".split());`)?.value);
+    assert.strictEqual('Z-y-x', executeReturnCode(`return "x-y-x".replace("x", "Z");`)?.value);
+    assert.strictEqual('Z-y-Z', executeReturnCode(`return "x-y-x".replaceAll("x", "Z");`)?.value);
+    assert.strictEqual('Xabc', executeReturnCode(`return "abc".replace("", "X");`)?.value);
+    assert.strictEqual('ababab', executeReturnCode(`return "ab".repeat(3);`)?.value);
+    assert.strictEqual('', executeReturnCode(`return "ab".repeat(0);`)?.value);
+    assert.strictEqual('bcd', executeReturnCode(`return "abcde".slice(1, -1);`)?.value);
+    assert.strictEqual('de', executeReturnCode(`return "abcde".slice(-2);`)?.value);
+    assert.strictEqual('рим', executeReturnCode(`return "пример".slice(1, 4);`)?.value);
+
+    // repeat с отрицательным count — ошибка (как JS RangeError)
+    assert.throws(() => {
+        executeReturnCode(`return "x".repeat(-1);`);
+    }, /Invalid count value/);
+});
+
+test('082_StringPadTrim', () => {
+    // padStart/padEnd/trimStart/trimEnd — зеркально с PHP-эталоном (cross 044).
+    assert.strictEqual('00042', executeReturnCode(`return "42".padStart(5, "0");`)?.value);
+    assert.strictEqual('42000', executeReturnCode(`return "42".padEnd(5, "0");`)?.value);
+    assert.strictEqual('  5', executeReturnCode(`return "5".padStart(3);`)?.value);
+    assert.strictEqual('1231231abc', executeReturnCode(`return "abc".padStart(10, "123");`)?.value);
+    assert.strictEqual('abc', executeReturnCode(`return "abc".padStart(2);`)?.value);
+    assert.strictEqual('5', executeReturnCode(`return "5".padStart(3, "");`)?.value);
+    assert.strictEqual('hi  ', executeReturnCode(`return "  hi  ".trimStart();`)?.value);
+    assert.strictEqual('  hi', executeReturnCode(`return "  hi  ".trimEnd();`)?.value);
+});
+
+test('083_NumberFunctions', () => {
+    // Number.parseInt/parseFloat/isX + num.toFixed — зеркально с PHP-эталоном (cross 044 + фаззер).
+    assert.strictEqual(120, executeReturnCode(`return Number.parseInt("120 руб");`)?.value);
+    assert.strictEqual(26, executeReturnCode(`return Number.parseInt("0x1A");`)?.value);
+    assert.strictEqual(35, executeReturnCode(`return Number.parseInt("z", 36);`)?.value);
+    assert.strictEqual(true, executeReturnCode(`return Number.parseInt("abc").isNaN;`)?.value);
+    assert.strictEqual(12.5, executeReturnCode(`return Number.parseFloat("12.5px");`)?.value);
+    assert.strictEqual(0.5, executeReturnCode(`return Number.parseFloat(".5");`)?.value);
+    assert.strictEqual(true, executeReturnCode(`return Number.parseFloat("xyz").isNaN;`)?.value);
+    // toFixed: половина вверх (2.5→3), fp-край (1.005 реально < .005 → 1.00)
+    assert.strictEqual('3.14', executeReturnCode(`return (3.14159).toFixed(2);`)?.value);
+    assert.strictEqual('1.00', executeReturnCode(`return (1).toFixed(2);`)?.value);
+    assert.strictEqual('3', executeReturnCode(`return (2.5).toFixed(0);`)?.value);
+    assert.strictEqual('1.00', executeReturnCode(`return (1.005).toFixed(2);`)?.value);
+    // строгие проверки — строка не приводится
+    assert.strictEqual(true, executeReturnCode(`return Number.isInteger(5);`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return Number.isInteger(5.5);`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return Number.isInteger("5");`)?.value);
+    assert.strictEqual(true, executeReturnCode(`return Number.isNaN(0 / 0);`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return Number.isFinite(1 / 0);`)?.value);
+
+    // toFixed вне диапазона 0..100 — ошибка
+    assert.throws(() => {
+        executeReturnCode(`return (1).toFixed(200);`);
+    }, /between 0 and 100/);
+});
+
+test('084_ObjectMapOps', () => {
+    // Object.get/has/assign/fromEntries — операции над картами (cross 045).
+    assert.strictEqual('Moscow', executeReturnCode(`return Object.get(JSON.parse('{"a":{"b":{"c":"Moscow"}}}'), "a.b.c");`)?.value);
+    assert.strictEqual('def', executeReturnCode(`return Object.get(JSON.parse('{"a":1}'), "a.b", "def");`)?.value);
+    assert.strictEqual('y', executeReturnCode(`return Object.get(JSON.parse('{"items":[{"n":"x"},{"n":"y"}]}'), "items.1.n");`)?.value);
+    assert.strictEqual(true, executeReturnCode(`return Object.has(JSON.parse('{"a":{"b":1}}'), "a.b");`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return Object.has(JSON.parse('{"a":1}'), "a.b");`)?.value);
+    // null — допустимое значение: get вернёт null (не default), has → true
+    assert.strictEqual(VariableType.vtNull, executeReturnCode(`return Object.get(JSON.parse('{"a":null}'), "a", "def");`)?.type);
+    assert.strictEqual(true, executeReturnCode(`return Object.has(JSON.parse('{"a":null}'), "a");`)?.value);
+    // assign: правый побеждает, изменяет и возвращает target
+    assert.strictEqual('{"x":1,"y":9,"z":3}', executeReturnCode(`return JSON.stringify(Object.assign(JSON.parse('{}'), JSON.parse('{"x":1,"y":2}'), JSON.parse('{"y":9,"z":3}')));`)?.value);
+    // fromEntries: сборка объекта из пар + round-trip с entries
+    assert.strictEqual('{"a":1,"b":2}', executeReturnCode(`return JSON.stringify(Object.fromEntries([["a", 1], ["b", 2]]));`)?.value);
+    assert.strictEqual('{"x":1,"y":2}', executeReturnCode(`return JSON.stringify(Object.fromEntries(Object.entries(JSON.parse('{"x":1,"y":2}'))));`)?.value);
+});
+
+test('085_ArrayHigherOrder', () => {
+    // map/filter/reduce/forEach/find/findIndex/some/every — колбэк через стек-машину (cross 046).
+    assert.strictEqual('[2,4,6]', executeReturnCode(`return JSON.stringify([1,2,3].map(function(x){return x * 2;}));`)?.value);
+    assert.strictEqual('[2,4]', executeReturnCode(`return JSON.stringify([1,2,3,4].filter(function(x){return x % 2 == 0;}));`)?.value);
+    assert.strictEqual(10, executeReturnCode(`return [1,2,3,4].reduce(function(a,b){return a + b;}, 0);`)?.value);
+    assert.strictEqual(6, executeReturnCode(`return [1,2,3].reduce(function(a,b){return a + b;});`)?.value);
+    assert.strictEqual(3, executeReturnCode(`return [1,2,3,4].find(function(x){return x > 2;});`)?.value);
+    assert.strictEqual(2, executeReturnCode(`return [1,2,3,4].findIndex(function(x){return x > 2;});`)?.value);
+    assert.strictEqual(true, executeReturnCode(`return [1,2,3].some(function(x){return x > 2;});`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return [1,2,3].every(function(x){return x > 1;});`)?.value);
+    // индекс в колбэке
+    assert.strictEqual('[0,1,2]', executeReturnCode(`return JSON.stringify([10,20,30].map(function(x, i){return i;}));`)?.value);
+    // forEach со замыканием (запись наружу)
+    assert.strictEqual(6, executeReturnCode(`let a = [1,2,3]; let s = 0; a.forEach(function(x){s = s + x;}); return s;`)?.value);
+    // цепочка filter→map→reduce
+    assert.strictEqual(50, executeReturnCode(`let a = [1,2,3,4,5]; return a.filter(function(x){return x > 2;}).map(function(x){return x * x;}).reduce(function(s,x){return s + x;}, 0);`)?.value);
+    // вложенный map
+    assert.strictEqual('[[10,20],[20,40]]', executeReturnCode(`let a = [1,2]; return JSON.stringify(a.map(function(x){return [10,20].map(function(y){return x * y;});}));`)?.value);
+
+    // reduce пустого без начального — ошибка; map с не-функцией — ошибка
+    assert.throws(() => {
+        executeReturnCode(`let a = []; return a.reduce(function(x,y){return x + y;});`);
+    }, /Reduce of empty array/);
+    assert.throws(() => {
+        executeReturnCode(`let a = [1,2]; return a.map(5);`);
+    }, /callback is not a function/);
+});
+
+test('086_ArrayListMethods', () => {
+    // slice/splice/sort/flat + Array.isArray/from (cross 048).
+    assert.strictEqual('[2,3]', executeReturnCode(`let a=[1,2,3,4,5]; return JSON.stringify(a.slice(1,3));`)?.value);
+    assert.strictEqual('[4,5]', executeReturnCode(`let a=[1,2,3,4,5]; return JSON.stringify(a.slice(-2));`)?.value);
+    // splice: удаляет, вставляет, возвращает удалённые, изменяет массив
+    assert.strictEqual('[2,3]#[1,99,4]', executeReturnCode(`let a=[1,2,3,4]; let r=a.splice(1,2,99); return JSON.stringify(r) + "#" + JSON.stringify(a);`)?.value);
+    // sort — по строковому виду (JS-компаратор по умолчанию)
+    assert.strictEqual('[1,10,100,2,9]', executeReturnCode(`let a=[10,9,1,100,2]; a.sort(); return JSON.stringify(a);`)?.value);
+    assert.strictEqual('["apple","banana"]', executeReturnCode(`let a=["banana","apple"]; a.sort(); return JSON.stringify(a);`)?.value);
+    // flat
+    assert.strictEqual('[1,2,[3]]', executeReturnCode(`let a=[1,[2,[3]]]; return JSON.stringify(a.flat());`)?.value);
+    assert.strictEqual('[1,2,3]', executeReturnCode(`let a=[1,[2,[3]]]; return JSON.stringify(a.flat(2));`)?.value);
+    // Array.isArray / from (раньше `Array` было зарезервированным словом — теперь нет)
+    assert.strictEqual(true, executeReturnCode(`return Array.isArray([1,2]);`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return Array.isArray(5);`)?.value);
+    assert.strictEqual('["a","b","c"]', executeReturnCode(`return JSON.stringify(Array.from("abc"));`)?.value);
+    assert.strictEqual('[1,2,3]', executeReturnCode(`let a=[1,2,3]; return JSON.stringify(Array.from(a));`)?.value);
+});
+
+test('087_LogicalOperators', () => {
+    // && / || по JS: возвращают ОПЕРАНД (не булево), коротко замыкаются (cross 049).
+    assert.strictEqual(1, executeReturnCode(`return 6 && 1;`)?.value);
+    assert.strictEqual(0, executeReturnCode(`return 0 && 5;`)?.value);
+    assert.strictEqual(6, executeReturnCode(`return 6 || 1;`)?.value);
+    assert.strictEqual(5, executeReturnCode(`return 0 || 5;`)?.value);
+    assert.strictEqual('fallback', executeReturnCode(`return "" || "fallback";`)?.value);
+    assert.strictEqual('b', executeReturnCode(`return "a" && "b";`)?.value);
+    assert.strictEqual(VariableType.vtNull, executeReturnCode(`return null && 5;`)?.type);
+    // NaN — ложь (как JS)
+    assert.strictEqual(true, executeReturnCode(`return ((0/0) && 9).isNaN;`)?.value);
+    assert.strictEqual(9, executeReturnCode(`return (0/0) || 9;`)?.value);
+    // короткое замыкание: правый операнд не вычисляется
+    assert.strictEqual(0, executeReturnCode(`let c = 0; let r = false && (c = c + 1); return c;`)?.value);
+    assert.strictEqual(0, executeReturnCode(`let c = 0; let r = true || (c = c + 1); return c;`)?.value);
+    // в условии — по-прежнему работает (операнды там приводятся к булеву)
+    assert.strictEqual('yes', executeReturnCode(`if (6 && 1) { return "yes"; } return "no";`)?.value);
+    assert.strictEqual('yes', executeReturnCode(`if (0 || 5) { return "yes"; } return "no";`)?.value);
+    assert.strictEqual('both', executeReturnCode(`let x=5; let y=3; if (x > 0 && y > 0) { return "both"; } return "no";`)?.value);
+});
+
+test('088_Truthiness', () => {
+    // Единая истинность по JS из одной точки (Interpreter.isTruthy).
+    // Ложь: 0, -0, NaN, "", null, undefined, false. Истина: всё прочее,
+    // включая пустой массив [], пустой объект {}, "0", Infinity, DateTime.
+
+    // 1. !!x — приведение к булеву ровно по JS.
+    const truthy = ['1', '-5', '(1/0)', '"0"', '"x"', 'true', '[]', '[1,2]', 'JSON.parse("{}")', 'JSON.parse("{\\"a\\":1}")'];
+    for (const expr of truthy) {
+        assert.strictEqual(true, executeReturnCode(`return !!${expr};`)?.value, `!!${expr} должно быть true`);
+    }
+    const falsy = ['0', '(0/0)', '""', 'null', 'undefined', 'false'];
+    for (const expr of falsy) {
+        assert.strictEqual(false, executeReturnCode(`return !!${expr};`)?.value, `!!${expr} должно быть false`);
+    }
+
+    // 2. Две прошлые расхождения с JS, теперь поправлены, во ВСЕХ контекстах.
+    // Пустой массив [] — истина.
+    assert.strictEqual(true, executeReturnCode(`return !![];`)?.value);
+    assert.strictEqual(1, executeReturnCode(`return [] ? 1 : 0;`)?.value);
+    assert.strictEqual('yes', executeReturnCode(`if ([]) { return "yes"; } return "no";`)?.value);
+    assert.strictEqual(1, executeReturnCode(`let r=0; while ([]) { r=1; break; } return r;`)?.value);
+    assert.strictEqual('A', executeReturnCode(`return [] && "A";`)?.value);
+    assert.strictEqual(1, executeReturnCode(`return [1].filter(function(x){ return []; }).length;`)?.value);
+    // NaN — ложь.
+    assert.strictEqual(true, executeReturnCode(`return !(0/0);`)?.value);
+    assert.strictEqual(0, executeReturnCode(`return (0/0) ? 1 : 0;`)?.value);
+    assert.strictEqual('no', executeReturnCode(`if (0/0) { return "yes"; } return "no";`)?.value);
+    assert.strictEqual(0, executeReturnCode(`let r=0; while (0/0) { r=1; break; } return r;`)?.value);
+    assert.strictEqual('B', executeReturnCode(`return (0/0) || "B";`)?.value);
+    assert.strictEqual(0, executeReturnCode(`return [1].filter(function(x){ return (0/0); }).length;`)?.value);
+
+    // 3. Хост-объект (DateTime) — всегда истина, даже эпоха.
+    assert.strictEqual(true, executeReturnCode(`return !!DateTime.Now;`)?.value);
+    assert.strictEqual('ok', executeReturnCode(`if (DateTime.Now) { return "ok"; } return "no";`)?.value);
+});
+
+test('089_LooseEqualNullString', () => {
+    // Loose-equality `==`: null/undefined против строки сравнивается КАК СТРОКИ
+    // (null → ""), а не как «ложь равна ложному». Поэтому null == "" истина,
+    // но null == "0" ложь — раньше TS-зеркало ошибочно давало тут true.
+    assert.strictEqual(false, executeReturnCode(`return null == "0";`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return "0" == null;`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return undefined == "0";`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return "0" == undefined;`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return null == "0.0";`)?.value);
+
+    // Соседние случаи не задеты: null == "" истина, null == 0/false истина.
+    assert.strictEqual(true, executeReturnCode(`return null == "";`)?.value);
+    assert.strictEqual(true, executeReturnCode(`return null == 0;`)?.value);
+    assert.strictEqual(true, executeReturnCode(`return null == false;`)?.value);
+
+    // Защита приведения в `==` (НЕ истинность): "0" == false по-прежнему истина.
+    assert.strictEqual(true, executeReturnCode(`return "0" == false;`)?.value);
+
+    // Тот самый случай, что нашёл фаззер: значения приходят вычислением.
+    assert.strictEqual(false, executeReturnCode(`return (((true && "") + (1 * null)) == null);`)?.value);
+
+    // Рекурсия по массивам идёт тем же loose ==: [null] и ["0"] не равны.
+    assert.strictEqual(false, executeReturnCode(`return [null] == ["0"];`)?.value);
+});
+
+test('090_StringTypeName', () => {
+    // Имя типа строки в typeName — это 'string'. Раньше для строки ветки
+    // switch не было, и она проваливалась в запасной путь: PHP выдавал имя
+    // константы 'vtString', а TS-зеркало — 'string'. Это расходилось в тексте
+    // ошибок (например, у instanceof). Теперь обе стороны дают чистое 'string'.
+    assert.strictEqual('string', new StackVariableString(false, 'x').typeName);
+
+    // То же имя видно в тексте ошибки: правый операнд instanceof — строка.
+    // Возвращаем кусок после "got ", чтобы не зависеть от позиции в тексте.
+    const script = `var a = 5; var b = "x"; try { return a instanceof b; }`
+        + ` catch(e) { return e.message.split("got ")[1]; }`;
+    assert.strictEqual('string', executeReturnCode(script)?.value);
+});
+
+test('091_ObjectLiteral', () => {
+    // Литерал объекта `{ key: value }` → StackVariablePlainObject (как JSON.parse).
+    // Ключ — имя (a) или строка ("a"); значение — любое выражение. Доступ через
+    // .key и ["key"]; порядок ключей при печати JS-каноничный.
+    assert.strictEqual('{"a":1}', executeReturnCode(`return JSON.stringify({a:1});`)?.value);
+    assert.strictEqual(3, executeReturnCode(`var o = {a:1, b:2}; return o.a + o.b;`)?.value);
+    assert.strictEqual(5, executeReturnCode(`return {"k": 5}["k"];`)?.value);
+    assert.strictEqual('{}', executeReturnCode(`return JSON.stringify({});`)?.value);
+
+    // Вложенность объект/массив.
+    assert.strictEqual(2, executeReturnCode(`var o = {a:1, b:{c:2}}; return o.b.c;`)?.value);
+    assert.strictEqual('{"x":[1,2],"y":"hi"}', executeReturnCode(`return JSON.stringify({x:[1,2], y:"hi"});`)?.value);
+
+    // Висячая запятая допустима.
+    assert.strictEqual(1, executeReturnCode(`var o = {a:1,}; return o.a;`)?.value);
+
+    // Порядок ключей JS-каноничный: целые индексы по возрастанию, затем по вставке.
+    assert.strictEqual('{"2":"y","10":"x","b":2,"a":1}', executeReturnCode(`return JSON.stringify({b:2, a:1, "10":"x", "2":"y"});`)?.value);
+
+    // Повторный ключ — побеждает последний (как в JS).
+    assert.strictEqual('{"a":2}', executeReturnCode(`return JSON.stringify({a:1, a:2});`)?.value);
+
+    // Значение по значению, а не по ссылке: позднее изменение x не трогает o.k.
+    assert.strictEqual(5, executeReturnCode(`var x = 5; var o = {k:x}; x = 9; return o.k;`)?.value);
+
+    // Значение — выражение.
+    assert.strictEqual('{"a":3,"b":"yes"}', executeReturnCode(`return JSON.stringify({a:1+2, b: true && "yes"});`)?.value);
+
+    // Ключ — это имя буквально, а не значение переменной с тем же именем.
+    assert.strictEqual('{"k":1}', executeReturnCode(`var k = "dyn"; return JSON.stringify({k:1});`)?.value);
+
+    // Объект как аргумент функции и как ветка тернарного оператора.
+    assert.strictEqual(42, executeReturnCode(`function f(o){ return o.x; } return f({x:42});`)?.value);
+    assert.strictEqual('{"a":1}', executeReturnCode(`return JSON.stringify(true ? {a:1} : {b:2});`)?.value);
+});
+
+test('092_MapOpsTypeofIsEmpty', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // Object: removeKey/pick/omit/merge — новый объект, вход не меняется.
+    assert.strictEqual('{"a":1,"c":3}', rc(`return JSON.stringify(Object.removeKey({a:1,b:2,c:3}, "b"));`));
+    assert.strictEqual('{"a":1,"c":3}', rc(`return JSON.stringify(Object.pick({a:1,b:2,c:3}, ["a","c","zzz"]));`));
+    assert.strictEqual('{"a":1}', rc(`return JSON.stringify(Object.omit({a:1,b:2,c:3}, ["b","c"]));`));
+    assert.strictEqual('{"a":1,"b":3,"c":4}', rc(`return JSON.stringify(Object.merge({a:1,b:2}, {b:3,c:4}));`));
+    assert.strictEqual('{"a":{"x":1,"y":9,"z":3}}', rc(`return JSON.stringify(Object.merge({a:{x:1,y:2}}, {a:{y:9,z:3}}));`));
+    assert.strictEqual('{"a":1,"b":2}|{"b":2}', rc(`var o={a:1,b:2}; var r=Object.removeKey(o,"a"); return JSON.stringify(o)+"|"+JSON.stringify(r);`));
+
+    // typeof — JS-семантика (null/массив/объект → "object", "boolean" а не "bool").
+    assert.strictEqual('number', rc(`return typeof 5;`));
+    assert.strictEqual('string', rc(`return typeof "x";`));
+    assert.strictEqual('boolean', rc(`return typeof true;`));
+    assert.strictEqual('object', rc(`return typeof null;`));
+    assert.strictEqual('object', rc(`return typeof [1,2];`));
+    assert.strictEqual('object', rc(`return typeof {a:1};`));
+    assert.strictEqual('undefined', rc(`return typeof undefined;`));
+    assert.strictEqual('number!', rc(`return typeof 1 + "!";`)); //приоритет: (typeof 1) + "!"
+
+    // Object.isEmpty
+    assert.strictEqual(true, rc(`return Object.isEmpty("");`));
+    assert.strictEqual(true, rc(`return Object.isEmpty([]);`));
+    assert.strictEqual(true, rc(`return Object.isEmpty({});`));
+    assert.strictEqual(true, rc(`return Object.isEmpty(null);`));
+    assert.strictEqual(false, rc(`return Object.isEmpty(0);`));
+    assert.strictEqual(false, rc(`return Object.isEmpty({a:1});`));
+});
+
+test('093_NumberFormatEncoding', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // Number.roundTo — число; сверяем строкой/сравнением (без int/float-ловушки).
+    assert.strictEqual(true, rc(`return Number.roundTo(3.14159, 2) == 3.14;`));
+    assert.strictEqual('1', rc(`return "" + Number.roundTo(1.005, 2);`));
+    assert.strictEqual('-3', rc(`return "" + Number.roundTo(-2.5, 0);`));
+    assert.strictEqual('0', rc(`return "" + Number.roundTo(-0.001, 2);`));
+
+    // Number.format — строка с группировкой; разделители явные.
+    assert.strictEqual('1,234,567.89', rc(`return Number.format(1234567.891, 2);`));
+    assert.strictEqual('1 234 567,89', rc(`return Number.format(1234567.891, 2, ",", " ");`));
+    assert.strictEqual('-1,235', rc(`return Number.format(-1234.5, 0);`));
+    assert.strictEqual('0', rc(`return Number.format(-0.4, 0);`));
+
+    // Base64 — значения hex/base64 ASCII, и round-trip UTF-8.
+    assert.strictEqual('SGVsbG8sIFdvcmxkIQ==', rc(`return Base64.encode("Hello, World!");`));
+    assert.strictEqual('Hello, World!', rc(`return Base64.decode("SGVsbG8sIFdvcmxkIQ==");`));
+    assert.strictEqual('привет', rc(`return Base64.decode(Base64.encode("привет"));`));
+
+    // Url — encodeURIComponent-семантика.
+    assert.strictEqual('a%20b%26c%3D%D0%B4', rc(`return Url.encode("a b&c=д");`));
+    assert.strictEqual('a b&c=д', rc(`return Url.decode("a%20b%26c%3D%D0%B4");`));
+    assert.strictEqual("a-_.!~*'()", rc(`return Url.encode("a-_.!~*'()");`));
+});
+
+test('094_HashDate', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // Hash — канонические значения.
+    assert.strictEqual('900150983cd24fb0d6963f7d28e17f72', rc(`return Hash.md5("abc");`));
+    assert.strictEqual('608333adc72f545078ede3aad71bfe74', rc(`return Hash.md5("привет");`));
+    assert.strictEqual('a9993e364706816aba3e25717850c26c9cd0d89d', rc(`return Hash.sha1("abc");`));
+    assert.strictEqual('da39a3ee5e6b4b0d3255bfef95601890afd80709', rc(`return Hash.sha1("");`));
+    assert.strictEqual(true, rc(`return Hash.crc32("abc") == 891568578;`));
+
+    // DateTime.fromTimestamp / format / parse (UTC по умолчанию).
+    assert.strictEqual('1970-01-01 00:00:00', rc(`return DateTime.fromTimestamp(0).format("YYYY-MM-DD HH:mm:ss");`));
+    assert.strictEqual('2023-11-14 22:13:20', rc(`return DateTime.fromTimestamp(1700000000).format("YYYY-MM-DD HH:mm:ss");`));
+    assert.strictEqual('14.11.2023', rc(`return DateTime.fromTimestamp(1700000000).format("DD.MM.YYYY");`));
+    assert.strictEqual(true, rc(`return DateTime.parse("2023-11-14 22:13:20", "YYYY-MM-DD HH:mm:ss") == 1700000000;`));
+    assert.strictEqual('2024/03/14', rc(`return DateTime.parse("14.03.2024", "DD.MM.YYYY").format("YYYY/MM/DD");`));
+    assert.strictEqual('2020-02-29', rc(`return DateTime.parse("2020-02-29", "YYYY-MM-DD").format("YYYY-MM-DD");`));
 });

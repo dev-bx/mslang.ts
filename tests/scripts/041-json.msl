@@ -1,0 +1,1 @@
+return JSON.stringify(JSON.parse('{"name":"Аня","age":30,"tags":["a","b"],"meta":{"x":1.5,"ok":true,"n":null},"3":"c","1":"d"}')) + "#" + JSON.parse('[10,20,30]')[1] + "#" + JSON.parse('{"a":{"b":42}}').a.b + "#" + JSON.stringify(JSON.parse('{}')) + JSON.stringify(JSON.parse('[]')) + "#" + JSON.parse('bad', "fb") + "#" + JSON.stringify(0.1 + 0.2) + "#" + JSON.stringify(5 / 0);

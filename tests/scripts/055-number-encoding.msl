@@ -1,0 +1,1 @@
+return Number.format(1234567.89, 2) + "#" + ("" + Number.roundTo(2.345, 2)) + "#" + Base64.encode("Hi!") + "#" + Url.encode("a b&c") + "#" + Hash.md5("abc") + "#" + Hash.crc32("abc");

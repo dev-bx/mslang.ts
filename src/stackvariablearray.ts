@@ -458,6 +458,164 @@ export class StackVariableArray extends StackVariable {
         return false;
     }
 
+    /** slice — новый массив-срез (как JS). Отрицательные индексы от конца, end не включается. */
+    funcInvoke_sliceReturn = () => VariableType.vtArray;
+
+    funcInvoke_slice(...args: unknown[]): StackVariable {
+        const values = Array.from(this.value.values());
+        const n = values.length;
+
+        const start = StackVariableArray.argToIntOrNull(args[0]);
+        const end = StackVariableArray.argToIntOrNull(args[1]);
+        const begin = start === null ? 0 : (start < 0 ? Math.max(n + start, 0) : Math.min(start, n));
+        let stop = end === null ? n : (end < 0 ? Math.max(n + end, 0) : Math.min(end, n));
+        if (stop < begin) {
+            stop = begin;
+        }
+
+        return new StackVariableArray(false, values.slice(begin, stop), this.getContext());
+    }
+
+    /** splice — удаляет/вставляет НА МЕСТЕ, возвращает удалённые (как JS). Изменяет массив. */
+    funcInvoke_spliceReturn = () => VariableType.vtArray;
+
+    funcInvoke_splice(...args: unknown[]): StackVariable {
+        const values = Array.from(this.value.values());
+        const n = values.length;
+
+        let start = 0;
+        if (args[0] !== undefined) {
+            start = StackVariableArray.argToInt(args[0]);
+            start = start < 0 ? Math.max(n + start, 0) : Math.min(start, n);
+        }
+
+        let deleteCount = n - start;
+        if (args[1] !== undefined) {
+            deleteCount = Math.max(0, Math.min(StackVariableArray.argToInt(args[1]), n - start));
+        }
+
+        const insert: StackVariable[] = [];
+        for (let i = 2; i < args.length; i++) {
+            let item = args[i];
+            if (item instanceof StackVariableRef) {
+                item = item.refValue;
+            }
+            if (item instanceof StackVariable) {
+                insert.push(item);
+            }
+        }
+
+        const removed = values.splice(start, deleteCount, ...insert);
+        this.rebuild(values);
+
+        return new StackVariableArray(false, removed, this.getContext());
+    }
+
+    /**
+     * sort — сортировка по СТРОКОВОМУ виду (компаратор JS по умолчанию: `[10,9,1].sort()`
+     * → `[1,10,9]`). Изменяет массив и возвращает его. undefined уходят в конец.
+     */
+    funcInvoke_sortReturn = () => VariableType.vtArray;
+
+    funcInvoke_sort(): StackVariable {
+        const defined: StackVariable[] = [];
+        let undefinedCount = 0;
+        for (let value of this.value.values()) {
+            if (value instanceof StackVariableRef) {
+                value = value.refValue as StackVariable;
+            }
+            if (value.type === VariableType.vtUndefined) {
+                undefinedCount++;
+            } else {
+                defined.push(value);
+            }
+        }
+
+        defined.sort((a, b) => {
+            const sa = StackVariableArray.elementToSortString(a);
+            const sb = StackVariableArray.elementToSortString(b);
+            return sa < sb ? -1 : (sa > sb ? 1 : 0);
+        });
+
+        for (let i = 0; i < undefinedCount; i++) {
+            defined.push(new StackVariableUndefined(false));
+        }
+
+        this.rebuild(defined);
+        return this;
+    }
+
+    /** flat — разворачивает вложенные массивы до глубины depth (новый массив). */
+    funcInvoke_flatReturn = () => VariableType.vtArray;
+
+    funcInvoke_flat(...args: unknown[]): StackVariable {
+        let levels: number;
+        const depthArg = args[0];
+        if (!(depthArg instanceof StackVariable)) {
+            levels = 1;
+        } else {
+            const d = Number(depthArg.castAs(VariableType.vtNumber)?.value ?? 1);
+            levels = !Number.isFinite(d) ? Number.MAX_SAFE_INTEGER : Math.trunc(d);
+        }
+
+        return new StackVariableArray(false, this.flattenArray(Array.from(this.value.values()), levels), this.getContext());
+    }
+
+    private flattenArray(values: StackVariable[], depth: number): StackVariable[] {
+        const result: StackVariable[] = [];
+        for (let value of values) {
+            if (value instanceof StackVariableRef) {
+                value = value.refValue as StackVariable;
+            }
+            if (depth > 0 && value instanceof StackVariableArray) {
+                for (const item of this.flattenArray(Array.from(value.value.values()), depth - 1)) {
+                    result.push(item);
+                }
+            } else {
+                result.push(value);
+            }
+        }
+        return result;
+    }
+
+    /** Перестраивает хранилище под новый список значений с ключами 0..n-1. */
+    private rebuild(values: StackVariable[]): void {
+        const map = new Map<string, StackVariable>();
+        values.forEach((value, index) => map.set(String(index), value));
+        this._value = map;
+    }
+
+    private static argToIntOrNull(arg: unknown): number | null {
+        if (arg instanceof StackVariableRef) {
+            arg = arg.refValue;
+        }
+        if (arg instanceof StackVariable) {
+            const asNumber = arg.castAs(VariableType.vtNumber);
+            return asNumber ? Math.trunc(Number(asNumber.value)) : 0;
+        }
+        return null;
+    }
+
+    private static argToInt(arg: unknown): number {
+        const value = StackVariableArray.argToIntOrNull(arg);
+        return value === null ? 0 : value;
+    }
+
+    private static elementToSortString(value: StackVariable): string {
+        switch (value.type) {
+            case VariableType.vtNumber:
+                return StackVariableNumber.numberToJsString(Number(value.value));
+            case VariableType.vtString:
+                return String(value.value);
+            case VariableType.vtBoolean:
+                return value.value ? 'true' : 'false';
+            case VariableType.vtNull:
+                return 'null';
+            default:
+                return String(value.castAs(VariableType.vtString)?.value ?? '');
+        }
+    }
+
     castAs(variableType: VariableType): StackVariable|null {
         switch (variableType) {
             case VariableType.vtArray:
@@ -467,7 +625,8 @@ export class StackVariableArray extends StackVariable {
                 // а не склейку значений — для склейки есть toPrimitive() и .join().
                 return new StackVariableString(false, 'array');
             case VariableType.vtBoolean:
-                return new StackVariableBoolean(false, this.value.size !== 0);
+                //JS: массив всегда истина, даже пустой.
+                return new StackVariableBoolean(false, true);
             case VariableType.vtNumber:
                 return new StackVariableNumber(false, this.value.size > 0 ? 1 : 0);
         }

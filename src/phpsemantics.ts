@@ -13,6 +13,11 @@
  *  - NaN → true (PHP так делает, с warning'ом, но возвращает true);
  *  - пустой Map/массив → false; непустой → true;
  *  - строка "0" → false; пустая строка → false; всё остальное → true.
+ *
+ * ВНИМАНИЕ: это приведение ТОЛЬКО для loose equality `==` (`x == true`, `0 == ""`).
+ * Это НЕ истинность языка в условиях. Истинность в `if`/`while`/`?:`/`!x`/`&&`/`||`
+ * и колбэках `filter`/`find` считает `Interpreter.isTruthy` ПО JS (там NaN — ложь,
+ * пустой массив — истина). Не подменяй одно другим: значения тут специально расходятся.
  */
 export function phpToBool(v: unknown): boolean {
     if (v === null || v === undefined) return false;
@@ -57,8 +62,11 @@ export function phpLooseEqual(a: unknown, b: unknown): boolean {
     const bN = b === null || b === undefined;
 
     if (aN && bN) return true;
-    if (aN) return !phpToBool(b);
-    if (bN) return !phpToBool(a);
+    // PHP 8: null/undefined против строки сравнивается КАК СТРОКИ (null → ""),
+    // поэтому null == "" истина, но null == "0" ложь (а !toBool("0") дал бы истину).
+    // Для bool/числа/массива null ведёт себя как «ложь равна ложному» — там оставляем !toBool.
+    if (aN) return typeof b === 'string' ? b === '' : !phpToBool(b);
+    if (bN) return typeof a === 'string' ? a === '' : !phpToBool(a);
 
     // Любая сторона — bool: кастуем оба в bool и сравниваем.
     if (typeof a === 'boolean' || typeof b === 'boolean') {

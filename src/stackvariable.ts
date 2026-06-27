@@ -83,6 +83,8 @@ export class StackVariable {
                 return 'int';
             case VariableType.vtFloat:
                 return 'float';
+            case VariableType.vtString:
+                return 'string';
             case VariableType.vtBoolean:
                 return 'bool';
             case VariableType.vtArray:
@@ -371,7 +373,7 @@ export class StackVariable {
                 return this;
         }
 
-        throw new InterpreterException('Failed get primitive for ' + this.typeName, this.getContext()?.currentToken?.cursorPos);
+        throw new InterpreterException('Failed get primitive', this.getContext()?.currentToken?.cursorPos);
     }
 
 }

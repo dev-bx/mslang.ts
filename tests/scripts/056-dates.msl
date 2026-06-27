@@ -1,0 +1,1 @@
+return DateTime.fromTimestamp(1700000000).format("YYYY-MM-DD HH:mm:ss") + "#" + DateTime.parse("14.03.2024","DD.MM.YYYY").format("DD/MM/YYYY") + "#" + (DateTime.parse("2023-11-14 22:13:20","YYYY-MM-DD HH:mm:ss") == 1700000000);

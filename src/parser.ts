@@ -116,6 +116,13 @@ export const NodeType =
         'ntCompoundAssign': 70,
         //for-of цикл.
         'ntForOf': 71,
+        //Литерал объекта `{ key: value, ... }` → StackVariablePlainObject.
+        //childItems = узлы ntObjectEntry.
+        'ntObject': 72,
+        //Одна запись литерала объекта: nValue = ключ, childItems = выражение значения.
+        'ntObjectEntry': 73,
+        //Унарный префиксный `typeof x` → строка-имя типа по JS (операнд идёт следом).
+        'ntTypeof': 74,
     }
 
 export class ParseNode
@@ -212,6 +219,7 @@ export class ParseNode
             case NodeType.ntShiftRight:
             case NodeType.ntUShiftRight:
             case NodeType.ntNegativeIf:
+            case NodeType.ntTypeof:
                 return true;
         }
 
@@ -284,7 +292,6 @@ export class CodeParser {
             'return',
             'if',
             'while',
-            'array',
             'catch',
             'else',
             'exit',
@@ -435,7 +442,11 @@ export class CodeParser {
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltString:
-                    if (prevNode && [NodeType.ntPlus, NodeType.ntMinus, NodeType.ntMul, NodeType.ntDiv, NodeType.ntNegativeIf, NodeType.ntArrayPushSeparatorKey].indexOf(prevNode.nType) === -1)
+                    //Строковый литерал допустим там же, где числовой (см. ltNumeric):
+                    //после математических/битовых операторов и после `&&`/`||`. Раньше
+                    //список был уже и не включал isCompareOrAndNode, из-за чего
+                    //`a && "b"` / `5 % "x"` не парсились.
+                    if (prevNode && !prevNode.isMathNode() && !prevNode.isCompareOrAndNode() && prevNode.nType !== NodeType.ntArrayPushSeparatorKey)
                         throw new ParserNodeException("Parse string expression failed", prevNode);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntString, this.lexer.tokenValue);
@@ -697,6 +708,49 @@ export class CodeParser {
                     }
 
                     break;
+                case LexerType.ltStartCode:
+                    // `{ key: value, ... }` — литерал объекта. Распознаём ТОЛЬКО в
+                    // позиции операнда (как литерал массива `[...]`): в начале выражения,
+                    // после математического оператора/сравнения или как значение ключа
+                    // массива. В позиции оператора `{` сюда не попадает — там это блок
+                    // кода, его уже разобрал parseCode (тела if/for/функций), как и в JS.
+                    // Ключ — имя (ltIDStr) или строка (ltString); значение — выражение.
+                    if (!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode() || prevNode.nType === NodeType.ntArrayPushSeparatorKey)
+                    {
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntObject);
+                        SubNode.childItems = [];
+
+                        while (true)
+                        {
+                            this.lexer.getToken();
+
+                            if (this.lexer.tokenSym === LexerType.ltEndCode)
+                                break;
+
+                            if (this.lexer.tokenSym !== LexerType.ltIDStr && this.lexer.tokenSym !== LexerType.ltString)
+                                throw new ParserCursorException("Object literal: key expected", this.lexer.tokenCursor);
+
+                            const key = this.lexer.tokenValue;
+
+                            this.lexer.getToken();
+                            if (this.lexer.tokenSym !== LexerType.ltColon)
+                                throw new ParserCursorException("Object literal: ':' expected", this.lexer.tokenCursor);
+
+                            const EntryNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntObjectEntry, key);
+                            this.parseExpression(EntryNode, true, new LexerTypeArray(LexerType.ltComma, LexerType.ltEndCode));
+
+                            SubNode.childItems.push(EntryNode);
+
+                            if (this.lexer.tokenSym === LexerType.ltEndCode)
+                                break;
+                        }
+
+                        NodeList.push(SubNode);
+                    } else {
+                        throw new ParserNodeException("Parse lexer expression failed, found token "+this.lexer.tokenName+" expected "+StopLex.asNames.join(', '), ParentNode);
+                    }
+
+                    break;
                 case LexerType.ltAssign:
                     // Установка значения свойства объекта: obj.prop = value.
                     if (prevNode && prevNode.nType === NodeType.ntObjProp) {
@@ -757,6 +811,11 @@ export class CodeParser {
                     break;
                 case LexerType.ltNegativeIf:
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntNegativeIf);
+                    NodeList.push(SubNode);
+                    break;
+                case LexerType.ltTypeof:
+                    //Префиксный `typeof x` — как `!`: узел, операнд идёт следом.
+                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntTypeof);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltQuestion: {

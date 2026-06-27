@@ -1029,3 +1029,49 @@ test('P2_16_BitwiseNaNInfinity', () => {
     assert.strictEqual(5, executeReturnCode('return (0/0) | 5;')?.value);
     assert.strictEqual(0, executeReturnCode('return (1/0) | 0;')?.value);
 });
+
+test('P0_21_NumberToString', () => {
+    // Число → строка как JS Number.toString (единый форматтер numberToJsString).
+    // Гейт-зеркало — cross-runtime скрипт 039-number-to-string. В JS это нативный
+    // toString; правка касалась PHP-эталона, кроме -Infinity (его теряли ОБА движка).
+
+    // Раньше PHP резал до precision=14 ("0.3", "0.33333333333333").
+    assert.strictEqual('0.30000000000000004', executeReturnCode('return "" + (0.1 + 0.2);')?.value);
+    assert.strictEqual('0.3333333333333333', executeReturnCode('return "" + (1 / 3);')?.value);
+    // Раньше -Infinity терял знак и печатался "Infinity".
+    assert.strictEqual('-Infinity', executeReturnCode('return "" + (-5 / 0);')?.value);
+    assert.strictEqual('Infinity', executeReturnCode('return "" + (5 / 0);')?.value);
+    assert.strictEqual('NaN', executeReturnCode('return "" + (0 / 0);')?.value);
+    // Пороги экспоненты как в JS: |x| >= 1e21 или 0 < |x| < 1e-6, нижний 'e'.
+    assert.strictEqual('0.000001', executeReturnCode('return "" + (0.000001);')?.value);
+    assert.strictEqual('1e-7', executeReturnCode('return "" + (0.0000001);')?.value);
+    assert.strictEqual('1e+21', executeReturnCode('return "" + (1e21);')?.value);
+    assert.strictEqual('100000000000000000000', executeReturnCode('return "" + (1e20);')?.value);
+    // Минус-ноль без знака; большое целое за 2^53 — как double.
+    assert.strictEqual('0', executeReturnCode('return "" + (-0.0);')?.value);
+    assert.strictEqual('9007199254740992', executeReturnCode('return "" + (9007199254740993);')?.value);
+});
+
+test('LexerOperatorStopChars', () => {
+    // Баг лексера: `% & | ^` не завершали число/идентификатор, поэтому `7%2`/`x&1`
+    // без пробела ПЕРЕД оператором не лексились (`+ - * /` уже были стоп-символами,
+    // поэтому `7+2` работал, а `7%2` — нет). Теперь все бинарные операторы завершают токен.
+    assert.strictEqual(1, executeReturnCode('return 7%2;')?.value);
+    assert.strictEqual(2, executeReturnCode('return 7&2;')?.value);
+    assert.strictEqual(7, executeReturnCode('return 7|2;')?.value);
+    assert.strictEqual(5, executeReturnCode('return 7^2;')?.value);
+    assert.strictEqual(true, executeReturnCode('return 10%3==1;')?.value);
+    assert.strictEqual(1, executeReturnCode('let x=10; return x%3;')?.value);
+    // Экспонента не сломана: `+` — стоп-символ, но `e+N` обрабатывается отдельно.
+    assert.strictEqual(100000, executeReturnCode('return 1e+5;')?.value);
+});
+
+test('ParserStringAfterBinaryOp', () => {
+    // Баг парсера: строковый литерал не парсился после `&&`/`||` и после `% & | ^`
+    // (список разрешённых prevNode для строки был уже, чем для числа). Теперь — как у числа.
+    assert.strictEqual('b', executeReturnCode('return "a" && "b";')?.value);
+    assert.strictEqual('x', executeReturnCode('return "" || "x";')?.value);
+    assert.strictEqual('def', executeReturnCode('let a = 0; return a || "def";')?.value);
+    assert.strictEqual(1, executeReturnCode('return 5 % "2";')?.value);
+    assert.strictEqual(0, executeReturnCode('return 7 & "0";')?.value);
+});

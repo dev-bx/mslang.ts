@@ -77,6 +77,195 @@ export class StackVariableString extends StackVariable {
         return this.value.charAt(index);
     }
 
+    /** split */
+    funcInvokeSplitReturn = () => VariableType.vtArray;
+
+    funcInvokeSplitArgs = () => [
+        new FunctionParameter('separator', VariableType.vtString, false, false, undefined),
+        new FunctionParameter('limit', VariableType.vtNumber, false, false, undefined),
+    ];
+
+    funcInvokeSplit(separator?: string, limit?: number): string[] {
+        const value = this.value;
+
+        if (separator === undefined || separator === null) {
+            return [value];
+        }
+
+        //Зеркало PHP: пустой separator → по код-поинтам (Array.from), не нативный
+        //split('') по UTF-16 (он режет суррогатные пары). limit отбрасывает остаток
+        //(как JS), а нарезаем сами, чтобы совпасть с PHP array_slice.
+        let parts = separator === ''
+            ? (value === '' ? [] : Array.from(value))
+            : value.split(separator);
+
+        if (limit !== undefined && limit !== null && limit >= 0 && limit < parts.length) {
+            parts = parts.slice(0, limit);
+        }
+
+        return parts;
+    }
+
+    /** replace */
+    funcInvokeReplaceReturn = () => VariableType.vtString;
+
+    funcInvokeReplaceArgs = () => [
+        new FunctionParameter('search', VariableType.vtString, true),
+        new FunctionParameter('replacement', VariableType.vtString, true),
+    ];
+
+    funcInvokeReplace(search: string, replacement: string): string {
+        const value = this.value;
+
+        if (search === '') {
+            return replacement + value;
+        }
+
+        //indexOf/slice вручную (не нативный .replace) — у нативного replace со строкой
+        //замены работают спецсимволы $ ($&, $1). Нам нужна литеральная замена.
+        const pos = value.indexOf(search);
+        if (pos === -1) {
+            return value;
+        }
+
+        return value.slice(0, pos) + replacement + value.slice(pos + search.length);
+    }
+
+    /** replaceAll */
+    funcInvokeReplaceAllReturn = () => VariableType.vtString;
+
+    funcInvokeReplaceAllArgs = () => [
+        new FunctionParameter('search', VariableType.vtString, true),
+        new FunctionParameter('replacement', VariableType.vtString, true),
+    ];
+
+    funcInvokeReplaceAll(search: string, replacement: string): string {
+        const value = this.value;
+
+        if (search === '') {
+            const chars = value === '' ? [] : Array.from(value);
+            if (chars.length === 0) {
+                return replacement;
+            }
+            return replacement + chars.join(replacement) + replacement;
+        }
+
+        //split(search).join(replacement) — литеральная замена всех вхождений (без $-магии).
+        return value.split(search).join(replacement);
+    }
+
+    /** repeat */
+    funcInvokeRepeatReturn = () => VariableType.vtString;
+
+    funcInvokeRepeatArgs = () => [
+        new FunctionParameter('count', VariableType.vtNumber, true),
+    ];
+
+    funcInvokeRepeat(count: number): string {
+        if (count < 0) {
+            throw new InterpreterException('Invalid count value', this.getContext()?.currentToken?.cursorPos);
+        }
+
+        return this.value.repeat(count);
+    }
+
+    /** slice */
+    funcInvokeSliceReturn = () => VariableType.vtString;
+
+    funcInvokeSliceArgs = () => [
+        new FunctionParameter('start', VariableType.vtNumber, true),
+        new FunctionParameter('end', VariableType.vtNumber, false, false, undefined),
+    ];
+
+    funcInvokeSlice(start: number, end?: number): string {
+        //ToInteger (усечение к нулю) ДО логики «от конца» — иначе на отрицательном дробном
+        //индексе TS разойдётся с PHP (там int-параметр уже усечён диспетчером) и с V8.
+        start = Math.trunc(start);
+        if (end !== undefined && end !== null) {
+            end = Math.trunc(end);
+        }
+
+        //По код-поинтам (Array.from), как PHP mb_str_split и как SubString. JS-семантика:
+        //отрицательные индексы — от конца, end не включается.
+        const chars = Array.from(this.value);
+        const total = chars.length;
+
+        const begin = start < 0 ? Math.max(total + start, 0) : Math.min(start, total);
+        let stop: number;
+        if (end === undefined || end === null) {
+            stop = total;
+        } else {
+            stop = end < 0 ? Math.max(total + end, 0) : Math.min(end, total);
+        }
+        if (stop < begin) {
+            stop = begin;
+        }
+
+        return chars.slice(begin, stop).join('');
+    }
+
+    /** padStart */
+    funcInvokePadStartReturn = () => VariableType.vtString;
+
+    funcInvokePadStartArgs = () => [
+        new FunctionParameter('targetLength', VariableType.vtNumber, true),
+        new FunctionParameter('padString', VariableType.vtString, false, false, ' '),
+    ];
+
+    funcInvokePadStart(targetLength: number, padString: string = ' '): string {
+        return this.pad(targetLength, padString, true);
+    }
+
+    /** padEnd */
+    funcInvokePadEndReturn = () => VariableType.vtString;
+
+    funcInvokePadEndArgs = () => [
+        new FunctionParameter('targetLength', VariableType.vtNumber, true),
+        new FunctionParameter('padString', VariableType.vtString, false, false, ' '),
+    ];
+
+    funcInvokePadEnd(targetLength: number, padString: string = ' '): string {
+        return this.pad(targetLength, padString, false);
+    }
+
+    private pad(targetLength: number, padString: string, start: boolean): string {
+        //ToInteger длины (как PHP int-параметр и нативный padStart), иначе дробная
+        //targetLength дала бы лишний символ в цикле дополнения.
+        targetLength = Math.trunc(targetLength);
+
+        //По код-поинтам (Array.from), как PHP mb_str_split: длина и нарезка совпадают
+        //с PHP, а нативный padStart считает по UTF-16 код-юнитам.
+        const chars = Array.from(this.value);
+        const len = chars.length;
+
+        if (len >= targetLength || padString === '') {
+            return this.value;
+        }
+
+        const padChars = Array.from(padString);
+        const need = targetLength - len;
+        let pad = '';
+        for (let i = 0; i < need; i++) {
+            pad += padChars[i % padChars.length];
+        }
+
+        return start ? pad + this.value : this.value + pad;
+    }
+
+    /** trimStart — нативный trimStart режет ровно ECMAScript-набор пробелов (см. PHP JS_WHITESPACE). */
+    funcInvokeTrimStartReturn = () => VariableType.vtString;
+
+    funcInvokeTrimStart(): string {
+        return this.value.trimStart();
+    }
+
+    /** trimEnd */
+    funcInvokeTrimEndReturn = () => VariableType.vtString;
+
+    funcInvokeTrimEnd(): string {
+        return this.value.trimEnd();
+    }
+
     castAs(variableType: VariableType): StackVariable|null {
 
         if (typeof this.value === 'string')

@@ -204,7 +204,15 @@ const STACK_VAR_PAIRS = [
     ['stackvariablefunction.ts',  'StackVariableFunction.php'],
     ['stackvariabledatetime.ts',  'StackVariableDateTime.php'],
     ['stackvariableref.ts',       'StackVariableRef.php'],
+    ['arrayconstructor.ts',       'ArrayConstructor.php'],
+    ['stackvariableplainobject.ts', 'StackVariablePlainObject.php'],
     ['mathfunctions.ts',          'MathFunctions.php'],
+    ['numberfunctions.ts',        'NumberFunctions.php'],
+    ['objectfunctions.ts',        'ObjectFunctions.php'],
+    ['jsonfunctions.ts',          'JsonFunctions.php'],
+    ['base64functions.ts',        'Base64Functions.php'],
+    ['urlfunctions.ts',           'UrlFunctions.php'],
+    ['hashfunctions.ts',          'HashFunctions.php'],
 ];
 
 for (const [tsFile, phpFile] of STACK_VAR_PAIRS) {

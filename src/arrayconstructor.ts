@@ -1,5 +1,6 @@
 import {StackVariable} from "./stackvariable";
 import {StackVariableArray} from "./stackvariablearray";
+import {StackVariableString} from "./stackvariablestring";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableRef} from "./stackvariableref";
 import {VariableType} from "./variabletype";
@@ -75,5 +76,41 @@ export class ArrayConstructor extends StackVariable implements BuiltinConstructo
             items.push(item);
         }
         return new StackVariableArray(false, items, context);
+    }
+
+    /** `Array.isArray(x)` — true, если x — массив. */
+    funcInvoke_isArrayReturn = () => VariableType.vtBoolean;
+
+    funcInvoke_isArray(...args: unknown[]): boolean {
+        let value = args[0];
+        if (value instanceof StackVariableRef) {
+            value = value.refValue;
+        }
+        return value instanceof StackVariable && value.type === VariableType.vtArray;
+    }
+
+    /** `Array.from(x)` — массив из массива (копия) или строки (по символам). Прочее → []. */
+    funcInvoke_fromReturn = () => VariableType.vtArray;
+
+    funcInvoke_from(...args: unknown[]): StackVariable {
+        let value = args[0];
+        if (value instanceof StackVariableRef) {
+            value = value.refValue;
+        }
+
+        const items: StackVariable[] = [];
+        if (value instanceof StackVariable) {
+            if (value.type === VariableType.vtArray) {
+                for (const item of (value.value as Map<string, StackVariable>).values()) {
+                    items.push(item);
+                }
+            } else if (value.type === VariableType.vtString) {
+                for (const char of Array.from(String(value.value))) {
+                    items.push(new StackVariableString(false, char, this.getContext()));
+                }
+            }
+        }
+
+        return new StackVariableArray(false, items, this.getContext());
     }
 }
