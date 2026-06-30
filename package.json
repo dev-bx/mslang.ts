@@ -1,6 +1,6 @@
 {
   "name": "devbx.mslang",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "MSLang — встраиваемый язык скриптов для Bitrix DevBx (TypeScript-реализация, зеркало PHP-версии)",
   "type": "module",
   "sideEffects": false,
@@ -26,6 +26,7 @@
     "build": "npm run clean && node scripts/sync-version.mjs && tsc && vite build",
     "typecheck": "tsc -p tsconfig.typecheck.json",
     "version:sync": "node scripts/sync-version.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
     "preview": "vite preview",
     "test": "tsx tests/tests.ts",
     "test:bugs": "tsx tests/bugs.ts",
