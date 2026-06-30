@@ -1,0 +1,7 @@
+class O {}
+var task = new O(); task.url = "http://x/tasks/9";
+var user = new O(); user.email = "a@b.io";
+var single = new O(); single.x = 5;
+function F() { this.n = 7; this.m = function() { return 1; }; }
+var f = new F();
+return JSON.stringify(single) + "#" + JSON.stringify({"task": task, "user": user}) + "#" + JSON.stringify(f);
