@@ -12,11 +12,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # нужна история и базовый коммит PR — для проверки «версия поднята»
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
+
+      - name: Версия языка поднята?
+        if: github.event_name == 'pull_request'
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if git diff --quiet "$base" HEAD -- src/; then
+            echo "src/ не менялся — бамп версии не требуется."
+            exit 0
+          fi
+          if git log "$base..HEAD" --format='%B' | grep -qiF '[skip version]'; then
+            echo "Найден маркер [skip version] — пропускаю проверку."
+            exit 0
+          fi
+          old=$(git show "$base:package.json" | grep -oP '"version":\s*"\K[0-9]+\.[0-9]+\.[0-9]+')
+          new=$(grep -oP '"version":\s*"\K[0-9]+\.[0-9]+\.[0-9]+' package.json)
+          if [ "$old" = "$new" ]; then
+            echo "::error::Изменён src/, но version в package.json не поднят (всё ещё $old). Запусти: npm run version:bump -- patch (или minor/major). Правка без смены поведения языка — добавь [skip version] в сообщение коммита."
+            exit 1
+          fi
+          echo "version: $old → $new — ок."
 
       - run: npm ci
 
