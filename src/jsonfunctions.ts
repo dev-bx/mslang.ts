@@ -6,6 +6,7 @@ import {StackVariableNumber} from "./stackvariablenumber.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableArray} from "./stackvariablearray.js";
+import {StackVariableObject} from "./stackvariableobject.js";
 import {StackVariablePlainObject} from "./stackvariableplainobject.js";
 import {StackVariableRef} from "./stackvariableref.js";
 import {ObjectFunctions} from "./objectfunctions.js";
@@ -147,13 +148,19 @@ export class JsonFunctions extends StackVariable {
             case VariableType.vtArray:
                 return this.stringifyArray(value);
 
-            case VariableType.vtObject:
-                if (value instanceof StackVariablePlainObject) {
-                    const rec = value.value as Record<string, unknown>;
+            case VariableType.vtObject: {
+                //Объект со словарём свойств (литерал из JSON.parse, экземпляр класса
+                //new O(), впрыснутый хост-объект через setVariable) — перечисляем его
+                //свойства. Значения-функции и undefined внутри stringifyEntries отсеются
+                //сами: методы и функции в JSON не попадают, как в JS. Прочие vtObject —
+                //namespace-объекты (Math/JSON), DateTime, Env, хост, что считает
+                //getProperty на лету, — словаря свойств не имеют, печатаем пустой объект.
+                const rec = value instanceof StackVariableObject ? value.value : null;
+                if (rec && typeof rec === 'object') {
                     return this.stringifyEntries(Object.keys(rec).map(k => [k, rec[k] as StackVariable]));
                 }
-                //Прочие хост-объекты: перечислимых свойств нет — пустой объект.
                 return '{}';
+            }
 
             default:
                 return 'null';

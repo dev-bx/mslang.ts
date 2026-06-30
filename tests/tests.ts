@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     StackVariable, VariableType, StackVariableBoolean, StackVariableNumber, CodeLexer, CodeParser,
-    LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString, ParseNode
+    LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString,
+    StackVariableObject, ParseNode
 } from "../src";
 
 class FieldsObject extends StackVariable {
@@ -2949,6 +2950,27 @@ test('079_Json', () => {
     assert.strictEqual('{"1":"b","3":"a","x":"c"}', executeReturnCode(`return JSON.stringify(JSON.parse('{"3":"a","1":"b","x":"c"}'));`)?.value);
     // кириллица — сырой UTF-8 (без \\u), слэш не экранируется
     assert.strictEqual('"привет /x"', executeReturnCode(`return JSON.stringify("привет /x");`)?.value);
+    // экземпляр класса (new O()) перечисляется как объект, а не схлопывается в {}
+    // (баг: TASK-json-stringify-host-objects)
+    assert.strictEqual('{"url":"x"}', executeReturnCode(`class O {} var t = new O(); t.url = "x"; return JSON.stringify(t);`)?.value);
+    // вложенный литерал с экземплярами классов — сценарий ноды БП action.mail.send
+    assert.strictEqual(
+        '{"task":{"url":"http://x/tasks/9"},"user":{"email":"a@b.io"}}',
+        executeReturnCode(`class O {} var task = new O(); task.url = "http://x/tasks/9"; var user = new O(); user.email = "a@b.io"; return JSON.stringify({"task": task, "user": user});`)?.value,
+    );
+    // метод (значение-функция) на экземпляре в объект не попадает — как в JS
+    assert.strictEqual('{"n":7}', executeReturnCode(`function F() { this.n = 7; this.m = function() { return 1; }; } var f = new F(); return JSON.stringify(f);`)?.value);
+    // впрыснутый хост-объект (setVariable + StackVariableObject) — как $.in.<нода> в CRM
+    {
+        const context = createCodeContext(`return JSON.stringify({"task": task, "user": user});`);
+        const task = new StackVariableObject(false, {});
+        task.registerProperty('url', new StackVariableString(false, 'http://x/tasks/9'));
+        const user = new StackVariableObject(false, {});
+        user.registerProperty('email', new StackVariableString(false, 'a@b.io'));
+        context.setVariable('task', task);
+        context.setVariable('user', user);
+        assert.strictEqual('{"task":{"url":"http://x/tasks/9"},"user":{"email":"a@b.io"}}', context.exec(true)?.value);
+    }
 });
 
 test('080_ObjectKeysValuesEntries', () => {
