@@ -458,6 +458,31 @@ export class StackVariableArray extends StackVariable {
         return false;
     }
 
+    /**
+     * unique — новый массив без повторов: у каждого значения остаётся только первое
+     * вхождение (порядок сохраняется). Сравнение — как в includes: тип и значение должны
+     * совпасть. Исходный массив не меняется.
+     */
+    funcInvoke_uniqueReturn = () => VariableType.vtArray;
+
+    funcInvoke_unique(): StackVariable {
+        const result: StackVariable[] = [];
+
+        for (let value of this.value.values()) {
+            if (value instanceof StackVariableRef) {
+                value = value.refValue as StackVariable;
+            }
+
+            const isDuplicate = result.some(existing => existing.type === value.type && existing.value === value.value);
+
+            if (!isDuplicate) {
+                result.push(value);
+            }
+        }
+
+        return new StackVariableArray(false, result, this.getContext());
+    }
+
     /** slice — новый массив-срез (как JS). Отрицательные индексы от конца, end не включается. */
     funcInvoke_sliceReturn = () => VariableType.vtArray;
 

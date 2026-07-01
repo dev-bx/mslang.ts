@@ -3326,3 +3326,15 @@ test('094_HashDate', () => {
     assert.strictEqual('2024/03/14', rc(`return DateTime.parse("14.03.2024", "DD.MM.YYYY").format("YYYY/MM/DD");`));
     assert.strictEqual('2020-02-29', rc(`return DateTime.parse("2020-02-29", "YYYY-MM-DD").format("YYYY-MM-DD");`));
 });
+
+test('095_ArrayUnique', () => {
+    // unique() — новый массив без повторов, первое вхождение сохраняется, порядок не меняется.
+    assert.strictEqual('[1,2,3,4]', executeReturnCode(`return JSON.stringify([1,2,2,3,1,4].unique());`)?.value);
+    assert.strictEqual('["a","b","c"]', executeReturnCode(`return JSON.stringify(["a","b","a","c","b"].unique());`)?.value);
+    // сравнение строгое по типу: число 1 и строка "1" — разные значения.
+    assert.strictEqual('[1,"1"]', executeReturnCode(`return JSON.stringify([1,"1",1].unique());`)?.value);
+    // исходный массив не меняется.
+    assert.strictEqual('[1,1,2]#[1,2]', executeReturnCode(`let a=[1,1,2]; let u=a.unique(); return JSON.stringify(a) + "#" + JSON.stringify(u);`)?.value);
+    // пустой массив.
+    assert.strictEqual('[]', executeReturnCode(`return JSON.stringify([].unique());`)?.value);
+});
