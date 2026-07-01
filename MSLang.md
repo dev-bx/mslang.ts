@@ -76,6 +76,38 @@ return value;
 for (i = 0; i < n; i++) sum = sum + i;
 ```
 
+## Функции и стрелочные функции
+
+```mslang
+// объявление и function-выражение
+function add(a, b = 2) { return a + b; }
+let mul = function(a, b) { return a * b; };
+
+// стрелочные функции: тело-выражение — неявный return
+let twice = x => x * 2;            // один параметр — можно без скобок
+let sum = (a, b) => a + b;         // список параметров — в скобках
+let answer = () => 42;             // без параметров
+let calc = (a, b = 2) => { ... };  // тело-блок — с явным return; default и ...rest работают
+
+// стрелка возвращает стрелку (каррирование) и замыкается на переменные
+let makeAdd = n => x => x + n;
+let add5 = makeAdd(5);             // add5(37) → 42
+
+// литерал объекта в теле-выражении — в скобках (как в JS)
+let box = x => ({v: x});
+```
+
+`this` внутри стрелочной функции — **лексический** (как в JS): берётся из места создания и не зависит от способа вызова. Стрелка, созданная в методе класса, видит `this` этого метода — удобно для колбэков:
+
+```mslang
+class Cart {
+	constructor(rate) { this.rate = rate; }
+	totals(prices) { return prices.map(p => p * this.rate); }
+}
+```
+
+Ограничения (как в JS): `new` на стрелке — ошибка `is not a constructor`. Особенность MSLang: внутри литерала массива `=>` остаётся разделителем ключа (`[x => 1]` — это ключ со значением переменной `x`), поэтому стрелку в массиве оборачивают в скобки: `[(x => 1), 2]`, `['fn' => (x => x + 1)]`.
+
 ## Массивы
 
 ```mslang
@@ -106,14 +138,15 @@ b.values()            // [10, 20]
 [1,2,3].count()       // 3
 
 // методы высшего порядка (колбэк-функция; колбэк получает (элемент, индекс, массив))
-a.map(function(x){ return x * 2; })           // [2, 4, 6]
-a.filter(function(x){ return x % 2 == 0; })   // [2]
-a.reduce(function(acc, x){ return acc + x; }, 0)  // сумма
-a.forEach(function(x){ /* побочный эффект */ })
-a.find(function(x){ return x > 1; })          // первый подходящий элемент (иначе undefined)
-a.findIndex(function(x){ return x > 1; })     // индекс первого подходящего (иначе -1)
-a.some(function(x){ return x > 2; })          // есть ли хоть один
-a.every(function(x){ return x > 0; })         // все ли подходят
+a.map(x => x * 2)             // [2, 4, 6]
+a.filter(x => x % 2 == 0)     // [2]
+a.reduce((acc, x) => acc + x, 0)  // сумма
+a.forEach(x => { /* побочный эффект */ })
+a.find(x => x > 1)            // первый подходящий элемент (иначе undefined)
+a.findIndex(x => x > 1)       // индекс первого подходящего (иначе -1)
+a.some(x => x > 2)            // есть ли хоть один
+a.every(x => x > 0)           // все ли подходят
+// колбэк можно писать и как function-выражение: a.map(function(x){ return x * 2; })
 
 // списочные методы (без колбэка)
 a.slice(1, 3)              // новый срез (как JS); a не меняется
@@ -419,7 +452,7 @@ ctx.setVariable('greet', new StackVariableFunction(fn, null));
 - Регулярные выражения — нет.
 - Импорт модулей — нет.
 
-(`switch/case`, пользовательские функции, `try/catch/finally`, `throw`, `new Error()`, классы — `class Name [extends Parent] { ... }`, `new`, `this`, `super(...)`, `super.method(...)`, `instanceof`, иерархии ошибок через `class MyError extends Error`, function-конструктор старого JS-стиля — уже реализованы.)
+(`switch/case`, пользовательские функции, стрелочные функции с лексическим `this`, `try/catch/finally`, `throw`, `new Error()`, классы — `class Name [extends Parent] { ... }`, `new`, `this`, `super(...)`, `super.method(...)`, `instanceof`, иерархии ошибок через `class MyError extends Error`, function-конструктор старого JS-стиля — уже реализованы.)
 
 ## Лимиты выполнения
 

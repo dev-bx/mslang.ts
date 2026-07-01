@@ -2337,10 +2337,11 @@ export class Interpreter {
         const name = String(token.nValue);
 
         //function-выражение: `x = function() { ... }` или `this.greet = function() {...}`.
-        //Парсер ставит метку nValue2 = 'expr'. Имя может быть пустым (anonymous)
-        //или непустым (named expression). Здесь мы НЕ регистрируем функцию
-        //в _variables — она используется как значение и попадает на стек.
-        if (token.nValue2 === 'expr') {
+        //Парсер ставит метку nValue2 = 'expr' (или 'arrow' у стрелочной функции
+        //`x => тело`). Имя может быть пустым (anonymous) или непустым (named
+        //expression). Здесь мы НЕ регистрируем функцию в _variables — она
+        //используется как значение и попадает на стек.
+        if (token.nValue2 === 'expr' || token.nValue2 === 'arrow') {
             const func = this.buildUserFunction(context, token);
             context.pushStackVar(func);
             return;
@@ -2367,9 +2368,10 @@ export class Interpreter {
         for (const node of nodes) {
             if (!(node instanceof ParseNode)) continue;
             if (node.nType === NodeType.ntFunctionDef) {
-                //function-выражения (`x = function() {...}`) не hoist'им — они
-                //живут как обычные значения и присваиваются по месту.
-                if (node.nValue2 === 'expr') continue;
+                //function-выражения (`x = function() {...}`) и стрелочные функции
+                //(`x => тело`) не hoist'им — они живут как обычные значения и
+                //вычисляются по месту.
+                if (node.nValue2 === 'expr' || node.nValue2 === 'arrow') continue;
                 const name = String(node.nValue);
                 if (name === '') continue;
                 const func = this.buildUserFunction(context, node);
@@ -2485,7 +2487,18 @@ export class Interpreter {
         //Замыкание: запоминаем снимок переменных области, где функция объявлена.
         //Обычное копирование (Object.assign) — мутации внешних переменных после
         //объявления внутрь функции не пробрасываются.
-        func.setCapturedScope(Object.assign({}, context._variables));
+        //Снимок сливается с _currentCapturedScope (то, что уже захватила
+        //объемлющая функция) — иначе функция третьего уровня вложенности
+        //теряет переменные «деда»: `a => b => c => a + b + c`. Локальные
+        //переменные затеняют внешние захваты.
+        func.setCapturedScope(Object.assign({}, context._currentCapturedScope ?? {}, context._variables));
+
+        //Стрелочная функция: this лексический — запоминаем this и владельца
+        //метода из места создания. invokeUserFunction подставит их при вызове
+        //вместо динамических (см. setArrowBinding).
+        if (defNode.nValue2 === 'arrow') {
+            func.setArrowBinding(context._currentThis, context._currentMethodOwner);
+        }
 
         return func;
     }
@@ -2564,7 +2577,7 @@ export class Interpreter {
                     if (arg instanceof StackVariableRef) {
                         arg = arg.refValue as StackVariable;
                     }
-                    if (arg.type === VariableType.vtObject || arg.type === VariableType.vtArray) {
+                    if (arg.type === VariableType.vtObject || arg.type === VariableType.vtArray || arg.type === VariableType.vtFunction) {
                         restItems.push(arg);
                     } else {
                         restItems.push(context.createVariable(arg.type, arg.value));
@@ -2582,8 +2595,8 @@ export class Interpreter {
                 if (arg instanceof StackVariableRef) {
                     arg = arg.refValue as StackVariable;
                 }
-                //Объекты и массивы — по ссылке, остальное — копия (как в JavaScript).
-                if (arg.type === VariableType.vtObject || arg.type === VariableType.vtArray) {
+                //Объекты, массивы и функции — по ссылке, остальное — копия (как в JavaScript).
+                if (arg.type === VariableType.vtObject || arg.type === VariableType.vtArray || arg.type === VariableType.vtFunction) {
                     boundValues.push(arg);
                 } else {
                     boundValues.push(context.createVariable(arg.type, arg.value));
@@ -2597,18 +2610,26 @@ export class Interpreter {
         //Передаём в pushFunctionScope снимок переменных области, где функция была определена.
         context.pushFunctionScope(func.capturedScope);
 
-        //Если функция вызывается как метод/конструктор — выставляем this уже после
-        //того, как pushFunctionScope сбросил его в null. Так внутри тела `ntThis`
-        //видит именно переданный instance.
-        if (thisValue !== null) {
-            context._currentThis = thisValue;
-        }
+        if (func.isArrow) {
+            //Стрелочная функция: this и владелец метода — лексические, взяты из
+            //места создания (setArrowBinding). Динамические thisValue/ownerClass
+            //(вызов как метод объекта, колбэк и т.п.) игнорируются, как в JS.
+            context._currentThis = func.capturedThis;
+            context._currentMethodOwner = func.capturedMethodOwner;
+        } else {
+            //Если функция вызывается как метод/конструктор — выставляем this уже после
+            //того, как pushFunctionScope сбросил его в null. Так внутри тела `ntThis`
+            //видит именно переданный instance.
+            if (thisValue !== null) {
+                context._currentThis = thisValue;
+            }
 
-        //Кто владеет этим телом — нужно для super(...) и super.method(...),
-        //чтобы знать, какой класс считать «родителем». pushFunctionScope сбросил
-        //это в null, поэтому выставляем явно тут.
-        if (ownerClass !== null) {
-            context._currentMethodOwner = ownerClass;
+            //Кто владеет этим телом — нужно для super(...) и super.method(...),
+            //чтобы знать, какой класс считать «родителем». pushFunctionScope сбросил
+            //это в null, поэтому выставляем явно тут.
+            if (ownerClass !== null) {
+                context._currentMethodOwner = ownerClass;
+            }
         }
         context._isCtorTDZ = isCtorTDZ;
 
@@ -3024,6 +3045,12 @@ export class Interpreter {
         //смотрели на один и тот же класс), привязываем instance к этой
         //обёртке и вызываем функцию как ctor.
         if (constructor instanceof StackVariableUserFunction) {
+            //Стрелочная функция конструктором быть не может (как в JS):
+            //у неё лексический this, собственного instance она не создаёт.
+            if (constructor.isArrow) {
+                throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos);
+            }
+
             const wrapperClass = constructor.getOrCreateWrapperClass();
             const instance = new StackVariableObject(false, {});
             instance.setClass(wrapperClass);
@@ -3398,8 +3425,11 @@ export class Interpreter {
 
         //Для примитивов — копия (как для параметров функций), чтобы потом
         //присваивание исходной переменной не утащило за собой нашу.
+        //Функции — ссылочный тип (как объекты/массивы и как в makeConstCopy):
+        //копирование через createVariable завернуло бы пользовательскую функцию
+        //в хост-обёртку StackVariableFunction и сломало бы её вызов.
         const type = value.type;
-        if (type !== VariableType.vtObject && type !== VariableType.vtArray) {
+        if (type !== VariableType.vtObject && type !== VariableType.vtArray && type !== VariableType.vtFunction) {
             value = context.createVariable(type, value.value);
         }
 

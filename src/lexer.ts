@@ -353,13 +353,16 @@ export class CodeLexer extends Lexer {
     }
 
     /**
-     * Расширение Lexer.saveState — добавляет токен-state (символ + значение).
-     * Зеркало PHP CodeLexer::saveState.
+     * Расширение Lexer.saveState — добавляет токен-state (символ + значение +
+     * курсор токена). Зеркало PHP CodeLexer::saveState/Lexer::saveState
+     * (в PHP курсор лежит в базовом Lexer; в TS поле _tokenCursor объявлено
+     * здесь, поэтому и сохраняется здесь — поведение то же).
      */
     saveState(): Record<string, unknown> {
         const state = super.saveState();
         state.tokenSym = this._tokenSym;
         state.tokenValue = this._tokenValue;
+        state.tokenCursor = this._tokenCursor;
         return state;
     }
 
@@ -367,6 +370,9 @@ export class CodeLexer extends Lexer {
         super.restoreState(state);
         if ('tokenSym' in state) this._tokenSym = state.tokenSym as number;
         if ('tokenValue' in state) this._tokenValue = state.tokenValue as string;
+        //Курсор восстанавливаем безусловно (включая undefined) — как PHP:
+        //иначе после lookahead-отката позиции ошибок укажут не на тот токен.
+        this._tokenCursor = state.tokenCursor as (TokenCursor | undefined);
     }
 
     /**

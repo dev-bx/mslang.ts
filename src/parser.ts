@@ -127,7 +127,8 @@ export const NodeType =
 
 export class ParseNode
 {
-    private _cursorPos: TokenCursor
+    //Курсор может отсутствовать (конец файла) — зеркало PHP `?TokenCursor`.
+    private _cursorPos: TokenCursor | undefined
     private _nType:number = NodeType.ntNotSet
     private _nValue: unknown
     private _nValue2: unknown
@@ -136,7 +137,7 @@ export class ParseNode
     // и выражение присваивания). Эталон PHP, см. ParseNode.php и CodeParser.php.
     private _childItems: Array<ParseNode|ParseNode[]>|null = null
 
-    constructor(cursorPos: TokenCursor, nType?:number, nValue?: unknown) {
+    constructor(cursorPos: TokenCursor | undefined, nType?:number, nValue?: unknown) {
 
         this._cursorPos = cursorPos;
 
@@ -562,6 +563,27 @@ export class CodeParser {
                             this.parseExpression(SubNode, true, StopLex);
                             getNextToken = false;
                         }
+                        else if (this.lexer.tokenSym === LexerType.ltArraySeparator
+                            && ParentNode.nType !== NodeType.ntArrayPush
+                            && !NodeList.length)
+                        {
+                            //Стрелочная функция с одним параметром без скобок: `x => тело`.
+                            //Срабатывает только в начале выражения. Внутри литерала
+                            //массива (ntArrayPush) `=>` остаётся разделителем ключа
+                            //`[ключ => значение]` — стрелку там оборачивают в скобки:
+                            //`[(x => 1)]`.
+                            SubNode.nType = NodeType.ntFunctionDef;
+                            SubNode.nValue = '';
+                            SubNode.nValue2 = 'arrow';
+                            SubNode.childItems = [];
+
+                            const paramNode = new ParseNode(SubNode.cursorPos, NodeType.ntFuncDefParam);
+                            paramNode.nValue = saveToken;
+                            paramNode.childItems = [];
+                            SubNode.childItems.push(paramNode);
+
+                            getNextToken = this.parseArrowFunctionBody(SubNode, StopLex);
+                        }
                         else
                         {
                             SubNode.nType = NodeType.ntContextVariable;
@@ -632,7 +654,36 @@ export class CodeParser {
                         break;
                     }
 
-                    if (prevNode && !prevNode.isMathNode() && !prevNode.isCompareOrAndNode())
+                    //Стрелочная функция со списком параметров в скобках:
+                    //`(a, b) => тело`, `() => тело`, `(x) => тело`. Распознаём
+                    //заглядыванием вперёд: ищем парную `)` и смотрим, стоит ли
+                    //сразу за ней `=>`. Работает только в начале выражения и не
+                    //внутри литерала массива — там `[('k') => 1]` остаётся ключом.
+                    if (ParentNode.nType !== NodeType.ntArrayPush && !NodeList.length && this.isArrowFunctionAhead())
+                    {
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFunctionDef);
+                        SubNode.nValue = '';
+                        SubNode.nValue2 = 'arrow';
+                        SubNode.childItems = [];
+
+                        this.parseFunctionDefParams(SubNode);
+
+                        this.lexer.getToken();
+                        if (this.lexer.tokenSym !== LexerType.ltArraySeparator)
+                        {
+                            throw new ParserCursorException("Arrow function: '=>' expected", this.lexer.tokenCursor);
+                        }
+
+                        getNextToken = this.parseArrowFunctionBody(SubNode, StopLex);
+                        NodeList.push(SubNode);
+                        break;
+                    }
+
+                    //Скобочное подвыражение допустимо в начале выражения, после
+                    //оператора и как значение ассоциативного ключа
+                    //(ntArrayPushSeparatorKey: `['k' => (1 + 2)]`) — тот же список
+                    //исключений, что у литералов ltNumeric/ltString/ltBracketOpen.
+                    if (prevNode && !prevNode.isMathNode() && !prevNode.isCompareOrAndNode() && prevNode.nType !== NodeType.ntArrayPushSeparatorKey)
                         throw new ParserNodeException("Parse expression failed", prevNode);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
@@ -1617,7 +1668,8 @@ export class CodeParser {
      *
      * Структура узла:
      *   ntFunctionDef
-     *     nValue = имя
+     *     nValue = имя ('' у анонимных и стрелочных)
+     *     nValue2 = undefined | 'expr' (function-выражение) | 'arrow' (стрелочная функция)
      *     childItems = [ntFuncDefParam..., тело...]
      *
      *   ntFuncDefParam
@@ -1662,58 +1714,7 @@ export class CodeParser {
             throw new ParserCursorException("Function: '(' expected", this.lexer.tokenCursor);
         }
 
-        this.lexer.getToken();
-        if (this.lexer.tokenSym !== LexerType.ltRPar) {
-            //разбираем список параметров через запятую.
-            const endParam = LexerTypeArray.one(LexerType.ltComma).cloneAdd(LexerType.ltRPar);
-            while (true) {
-                //Rest-параметр: `function f(a, ...args) { ... }`. Возможен
-                //только как последний параметр.
-                let tokSym = this.lexer.tokenSym;
-                const isRest = tokSym === LexerType.ltArrayUnpack;
-                if (isRest) {
-                    this.lexer.getToken();
-                    tokSym = this.lexer.tokenSym;
-                }
-                if (tokSym !== LexerType.ltIDStr) {
-                    throw new ParserCursorException("Function: parameter name expected", this.lexer.tokenCursor);
-                }
-
-                const paramNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncDefParam);
-                paramNode.nValue = this.lexer.tokenValue;
-                paramNode.childItems = [];
-                if (isRest) {
-                    paramNode.nValue2 = 'rest';
-                }
-
-                this.lexer.getToken();
-
-                if (isRest) {
-                    if (this.lexer.tokenSym !== LexerType.ltRPar) {
-                        throw new ParserCursorException("Function: rest parameter must be last and have no default", this.lexer.tokenCursor);
-                    }
-                    funcNode.childItems.push(paramNode);
-                    break;
-                }
-
-                if (this.lexer.tokenSym === LexerType.ltAssign) {
-                    //необязательный default: function f(a, b = 5)
-                    const defaultExpr = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
-                    this.parseExpression(defaultExpr, true, endParam);
-                    paramNode.childItems.push(defaultExpr);
-                }
-
-                funcNode.childItems.push(paramNode);
-
-                if (this.lexer.tokenSym === LexerType.ltRPar) {
-                    break;
-                }
-                if (this.lexer.tokenSym !== LexerType.ltComma) {
-                    throw new ParserCursorException("Function: ',' or ')' expected after parameter", this.lexer.tokenCursor);
-                }
-                this.lexer.getToken();
-            }
-        }
+        this.parseFunctionDefParams(funcNode);
 
         this.lexer.getToken();
         if (this.lexer.tokenSym !== LexerType.ltStartCode) {
@@ -1727,6 +1728,154 @@ export class CodeParser {
         }
 
         NodeList.push(funcNode);
+    }
+
+    /**
+     * Парсит список параметров определения функции: `(a, b = 5, ...rest)`.
+     * На входе лексер стоит на `(`, на выходе — на закрывающей `)`.
+     * Каждый параметр добавляется в childItems узла funcNode как `ntFuncDefParam`.
+     * Общий для обычных функций (parseFunctionDef) и стрелочных.
+     *
+     * Зеркало PHP-эталона `CodeParser::parseFunctionDefParams`.
+     */
+    protected parseFunctionDefParams(funcNode: ParseNode): void {
+        if (!funcNode.childItems) {
+            funcNode.childItems = [];
+        }
+        const funcChildItems = funcNode.childItems;
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym === LexerType.ltRPar) {
+            return;
+        }
+
+        //разбираем список параметров через запятую.
+        const endParam = LexerTypeArray.one(LexerType.ltComma).cloneAdd(LexerType.ltRPar);
+        while (true) {
+            //Rest-параметр: `function f(a, ...args) { ... }`. Возможен
+            //только как последний параметр.
+            let tokSym = this.lexer.tokenSym;
+            const isRest = tokSym === LexerType.ltArrayUnpack;
+            if (isRest) {
+                this.lexer.getToken();
+                tokSym = this.lexer.tokenSym;
+            }
+            if (tokSym !== LexerType.ltIDStr) {
+                throw new ParserCursorException("Function: parameter name expected", this.lexer.tokenCursor);
+            }
+
+            const paramNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncDefParam);
+            paramNode.nValue = this.lexer.tokenValue;
+            paramNode.childItems = [];
+            if (isRest) {
+                paramNode.nValue2 = 'rest';
+            }
+
+            this.lexer.getToken();
+
+            if (isRest) {
+                if (this.lexer.tokenSym !== LexerType.ltRPar) {
+                    throw new ParserCursorException("Function: rest parameter must be last and have no default", this.lexer.tokenCursor);
+                }
+                funcChildItems.push(paramNode);
+                break;
+            }
+
+            if (this.lexer.tokenSym === LexerType.ltAssign) {
+                //необязательный default: function f(a, b = 5)
+                const defaultExpr = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
+                this.parseExpression(defaultExpr, true, endParam);
+                paramNode.childItems.push(defaultExpr);
+            }
+
+            funcChildItems.push(paramNode);
+
+            if (this.lexer.tokenSym === LexerType.ltRPar) {
+                break;
+            }
+            if (this.lexer.tokenSym !== LexerType.ltComma) {
+                throw new ParserCursorException("Function: ',' or ')' expected after parameter", this.lexer.tokenCursor);
+            }
+            this.lexer.getToken();
+        }
+    }
+
+    /**
+     * Заглядывание вперёд из позиции `(`: ищем парную закрывающую `)` (с учётом
+     * вложенных скобок) и проверяем, стоит ли сразу за ней `=>` — тогда это
+     * стрелочная функция, а не скобочное подвыражение. Лексер откатывается
+     * в исходное состояние в любом случае.
+     *
+     * Зеркало PHP-эталона `CodeParser::isArrowFunctionAhead`.
+     */
+    protected isArrowFunctionAhead(): boolean {
+        const stateBefore = this.lexer.saveState();
+        let depth = 1;
+        let isArrow = false;
+        while (true) {
+            this.lexer.getToken();
+            if (this.lexer.tokenSym === LexerType.ltEof) {
+                break;
+            }
+            if (this.lexer.tokenSym === LexerType.ltLPar) {
+                depth++;
+            } else if (this.lexer.tokenSym === LexerType.ltRPar) {
+                depth--;
+                if (depth === 0) {
+                    this.lexer.getToken();
+                    isArrow = this.lexer.tokenSym === LexerType.ltArraySeparator;
+                    break;
+                }
+            }
+        }
+        this.lexer.restoreState(stateBefore);
+
+        return isArrow;
+    }
+
+    /**
+     * Парсит тело стрелочной функции. На входе лексер стоит на `=>`, параметры
+     * уже собраны в childItems узла funcNode.
+     *
+     * Тело-блок `{ ... }` парсится как у обычной функции. Тело-выражение
+     * заворачивается в синтезированный узел `ntReturn` (неявный return) и
+     * тянется до стоп-токена внешнего контекста (`;`, `,`, `)` — что передал
+     * вызывающий parseExpression). Как в JS, `{` после `=>` — всегда блок;
+     * литерал объекта пишется в скобках: `x => ({a: 1})`.
+     *
+     * Возвращает значение для getNextToken внешнего цикла parseExpression:
+     * true — тело-блок, лексер остался на `}`, следующий токен нужно прочитать;
+     * false — тело-выражение, лексер уже стоит на стоп-токене.
+     *
+     * Зеркало PHP-эталона `CodeParser::parseArrowFunctionBody`.
+     */
+    protected parseArrowFunctionBody(funcNode: ParseNode, StopLex: LexerTypeArray): boolean {
+        if (!funcNode.childItems) {
+            funcNode.childItems = [];
+        }
+        const funcChildItems = funcNode.childItems;
+
+        this.lexer.getToken();
+        if (this.lexer.tokenSym === LexerType.ltStartCode) {
+            const bodyList: Array<ParseNode | ParseNode[]> = [];
+            this.parseCode(bodyList, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+            for (const bodyItem of bodyList) {
+                funcChildItems.push(bodyItem);
+            }
+
+            return true;
+        }
+
+        //На конце файла курсор токена пуст (зеркало PHP: там он null) — геттер
+        //tokenCursor в TS в этом случае бросает, поэтому читаем поле безопасно;
+        //дальше parseExpression даст ту же парс-ошибку, что и PHP.
+        const returnNode = new ParseNode(
+            this.lexer.tokenSym === LexerType.ltEof ? undefined : this.lexer.tokenCursor,
+            NodeType.ntReturn);
+        this.parseExpression(returnNode, false, StopLex);
+        funcChildItems.push(returnNode);
+
+        return false;
     }
 
     /**
