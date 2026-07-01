@@ -1,0 +1,34 @@
+class Cart {
+	constructor(rate) {
+		this.rate = rate;
+	}
+	totals(prices) {
+		return prices.map(p => p * this.rate);
+	}
+}
+
+function compose(f, g) {
+	return x => g(f(x));
+}
+
+let cart = new Cart(2);
+let doubled = cart.totals([1, 2, 3]);
+
+let inc = x => x + 1;
+let sq = x => x * x;
+let incThenSq = compose(inc, sq);
+
+let odds = [1, 2, 3, 4, 5].filter(n => n % 2 == 1);
+let sum = odds.reduce((acc, n) => acc + n, 0);
+
+let make = n => x => x + n;
+let add10 = make(10);
+
+let sorted = [5, 3, 8, 1].sort((a, b) => a - b);
+
+let block = (a, b = 2) => {
+	let t = a * b;
+	return t + 2;
+};
+
+return JSON.stringify([doubled, incThenSq(3), sum, add10(32), sorted, block(20)]);

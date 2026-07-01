@@ -38,6 +38,25 @@ export class StackVariableUserFunction extends StackVariable {
      */
     private _wrapperClass: StackVariableClass | null = null;
 
+    /**
+     * true — стрелочная функция (`x => тело`): this внутри неё лексический,
+     * при вызове берётся из _capturedThis, а не из способа вызова.
+     */
+    private _isArrow: boolean = false;
+
+    /**
+     * this, захваченный в месте создания стрелочной функции. null — стрелка
+     * создана вне метода/конструктора: обращение к this внутри неё даст ту же
+     * ошибку, что и вне метода.
+     */
+    private _capturedThis: StackVariable | null = null;
+
+    /**
+     * Владелец метода в месте создания стрелки — чтобы super.method(...)
+     * внутри неё работал так же, как в окружающем методе.
+     */
+    private _capturedMethodOwner: StackVariableClass | null = null;
+
     constructor(name: string, params: ParseNode[], body: ParseNode[]) {
         //isConst=true важно для popExecutionStack: при автокопировании переменных
         //обратно const-функции пропускаются (иначе setValue упал бы).
@@ -76,6 +95,29 @@ export class StackVariableUserFunction extends StackVariable {
 
     get capturedScope(): Record<string, StackVariable> {
         return this._capturedScope;
+    }
+
+    /**
+     * Помечает функцию как стрелочную и запоминает лексический this
+     * и владельца метода из места создания.
+     * Вызывается при создании стрелки (см. Interpreter.buildUserFunction).
+     */
+    setArrowBinding(capturedThis: StackVariable | null, capturedMethodOwner: StackVariableClass | null): void {
+        this._isArrow = true;
+        this._capturedThis = capturedThis;
+        this._capturedMethodOwner = capturedMethodOwner;
+    }
+
+    get isArrow(): boolean {
+        return this._isArrow;
+    }
+
+    get capturedThis(): StackVariable | null {
+        return this._capturedThis;
+    }
+
+    get capturedMethodOwner(): StackVariableClass | null {
+        return this._capturedMethodOwner;
     }
 
     /**

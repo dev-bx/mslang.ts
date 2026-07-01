@@ -3338,3 +3338,140 @@ test('095_ArrayUnique', () => {
     // пустой массив.
     assert.strictEqual('[]', executeReturnCode(`return JSON.stringify([].unique());`)?.value);
 });
+test('096_ArrowBasics', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // Один параметр без скобок; тело-выражение — неявный return.
+    assert.strictEqual('42', rc(`let f = x => x * 2; return "" + f(21);`));
+    // Список параметров в скобках.
+    assert.strictEqual('42', rc(`let f = (a, b) => a + b; return "" + f(40, 2);`));
+    // Без параметров.
+    assert.strictEqual('42', rc(`let f = () => 42; return "" + f();`));
+    // Один параметр в скобках.
+    assert.strictEqual('42', rc(`let f = (x) => x + 1; return "" + f(41);`));
+    // Тело-блок с явным return.
+    assert.strictEqual('42', rc(`let f = (a) => { let t = a * 2; return t + 2; }; return "" + f(20);`));
+    // Тело-блок без return — результат undefined.
+    assert.strictEqual(true, rc(`let f = (a) => { let t = a; }; return f(1) == undefined;`));
+    // Параметр со значением по умолчанию и rest-параметр.
+    assert.strictEqual('42', rc(`let f = (a, b = 2) => a + b; return "" + f(40);`));
+    assert.strictEqual('3', rc(`let f = (...xs) => xs.length; return "" + f(1, 2, 3);`));
+    // typeof стрелки — function; const-объявление тоже работает.
+    assert.strictEqual('function', rc(`let f = x => x; return typeof f;`));
+    assert.strictEqual('42', rc(`const f = x => x + 1; return "" + f(41);`));
+    // Литерал объекта в теле-выражении пишется в скобках (как в JS).
+    assert.strictEqual('7', rc(`let f = x => ({v: x}); let o = f(7); return "" + o.v;`));
+    // Стрелка в объектном литерале.
+    assert.strictEqual('42', rc(`let o = {inc: x => x + 1}; let g = o.inc; return "" + g(41);`));
+});
+
+test('096_ArrowCallbacks', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // Тело стрелки-аргумента тянется до запятой — второй аргумент не съедается.
+    assert.strictEqual('42', rc(`function ap(fn, v) { return fn(v); } return "" + ap(x => x + 1, 41);`));
+    // Массивные методы высшего порядка.
+    assert.strictEqual('[10,20,30]', rc(`return JSON.stringify([1,2,3].map(v => v * 10));`));
+    assert.strictEqual('[1,3]', rc(`return JSON.stringify([1,2,3,4].filter(x => x % 2 == 1));`));
+    assert.strictEqual('16', rc(`return "" + [1,2,3].reduce((acc, v) => acc + v, 10);`));
+    assert.strictEqual('[1,3,5,8]', rc(`return JSON.stringify([5,3,8,1].sort((a, b) => a - b));`));
+    assert.strictEqual('3', rc(`return "" + [2,4,3,6].find(x => x % 2 == 1);`));
+});
+
+test('096_ArrowLexicalThis', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // this внутри стрелки — из окружающего метода (лексический).
+    assert.strictEqual(
+        '11:12',
+        rc(`class A { constructor() { this.x = 10; } run() { let r = [1,2].map(v => v + this.x); return r[0] + ":" + r[1]; } } return new A().run();`),
+    );
+    // Тело-блок видит this так же.
+    assert.strictEqual('42', rc(`class T { constructor() { this.n = 2; } m() { let f = () => { return this.n * 21; }; return f(); } } let t = new T(); return "" + t.m();`));
+    // Динамический this игнорируется: стрелка, созданная в методе B,
+    // держит this экземпляра B даже при вызове как свойство другого объекта.
+    assert.strictEqual(
+        '5',
+        rc(`class B { constructor() { this.x = 5; } mk() { return () => this.x; } } class C { constructor() { this.x = 99; } } let b = new B(); let c = new C(); c.g = b.mk(); return "" + c.g();`),
+    );
+    // Стрелка, созданная вне метода, this не имеет — та же ошибка, что вне метода.
+    assert.strictEqual(
+        true,
+        rc(`let f = v => this; let r = "no-err"; try { f(1); } catch (e) { r = e.message; } return r.indexOf("is not available") >= 0;`),
+    );
+});
+
+test('096_ArrowClosures', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // Замыкание: стрелка видит переменные места создания.
+    assert.strictEqual('42', rc(`function make(n) { return x => x + n; } let add5 = make(5); return "" + add5(37);`));
+    // Каррирование: стрелка возвращает стрелку.
+    assert.strictEqual('42', rc(`let f = a => b => a + b; let g = f(40); return "" + g(2);`));
+    // Транзитивный захват: третий уровень видит переменную «деда»
+    // (снимок замыкания сливается с захватом объемлющей функции).
+    assert.strictEqual('6', rc(`let f = a => b => c => a + b + c; let g1 = f(1); let g2 = g1(2); return "" + g2(3);`));
+    assert.strictEqual('6', rc(`let f = function(a) { return function(b) { return function(c) { return a + b + c; }; }; }; let g1 = f(1); let g2 = g1(2); return "" + g2(3);`));
+    // Тело-блок меняет внешнюю переменную.
+    assert.strictEqual('2', rc(`let n = 0; let f = () => { n = n + 1; return n; }; f(); f(); return "" + n;`));
+});
+
+test('096_ArrowArrayKeys', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // Внутри литерала массива `=>` остаётся разделителем ключа:
+    // голый идентификатор слева — динамический ключ, а не стрелка.
+    assert.strictEqual('300', rc(`let x = 'k'; let a = [x => 100, 'kk' => 200]; return '' + (a['k'] + a['kk']);`));
+    // Скобки слева от `=>` в массиве — тоже ключ (живое поведение).
+    assert.strictEqual('1', rc(`return '' + [('k') => 1]['k'];`));
+    // Стрелка внутри массива пишется в скобках.
+    assert.strictEqual('42', rc(`let a = [(x => x * 2), 3]; let g = a[0]; return "" + g(21);`));
+    // Стрелка как значение ассоциативного ключа — в скобках.
+    assert.strictEqual('42', rc(`let a = ['fn' => (x => x + 1)]; let g = a['fn']; return '' + g(41);`));
+    // Скобочное подвыражение как значение ассоциативного ключа.
+    assert.strictEqual('3', rc(`return '' + ['k' => (1 + 2)]['k'];`));
+});
+
+test('096_ArrowNewThrows', () => {
+    // Стрелка — не конструктор (как в JS). Сообщение проверяем вхождением:
+    // префикс [строка:столбец] у ошибок new-времени в движках различается
+    // (PHP InterpreterNode не несёт позицию токена).
+    const message = String(executeReturnCode(`let f = x => x; let r = ""; try { let o = new f(1); } catch (e) { r = e.message; } return r;`)?.value);
+    assert.ok(message.indexOf('"f" is not a constructor') >= 0, message);
+});
+
+test('096_ArrowParseErrors', () => {
+    // `=>` после выражения (не одиночного идентификатора в начале) — ошибка разбора.
+    assert.throws(() => {
+        executeReturnCode('return 1 + x => 2;');
+    }, /ltArraySeparator/);
+    // Пустое тело-выражение — ошибка разбора.
+    assert.throws(() => {
+        executeReturnCode('let f = x => ;');
+    }, /Parse expression failed/);
+    // Обрыв текста сразу после `=>` — та же ошибка, без внутренних падений.
+    assert.throws(() => {
+        executeReturnCode('let f = x =>');
+    }, /Parse expression failed/);
+    // Заглядывание вперёд у `(` не сдвигает позицию ошибки: незакрытая
+    // скобка и пустые скобки указывают на исходный токен.
+    assert.throws(() => {
+        executeReturnCode('let x = (1 + 2;\nreturn x;');
+    }, /\[1:9\] Parse lexer expression failed, found token ltSemicolon expected ltRPar/);
+    assert.throws(() => {
+        executeReturnCode('x = ();');
+    }, /\[1:5\] Parse expression failed/);
+});
+
+test('096_FunctionValueByReference', () => {
+    const rc = (s: string) => executeReturnCode(s)?.value;
+
+    // Сопутствующий багфикс: значение-функция в let/var/const хранится по ссылке
+    // (раньше let-инициализация заворачивала её в хост-обёртку и вызов падал).
+    assert.strictEqual('42', rc(`let f = function(x) { return x * 2; }; return "" + f(21);`));
+    assert.strictEqual('42', rc(`var f = function(x) { return x * 2; }; return "" + f(21);`));
+    // Функция, переданная аргументом, остаётся вызываемой.
+    assert.strictEqual('42', rc(`function ap(fn, v) { return fn(v); } return "" + ap(function(x) { return x + 1; }, 41);`));
+    // Присвоение функции другой переменной — та же функция.
+    assert.strictEqual('42', rc(`let f = (a) => a; let g = f; return "" + g(42);`));
+});
