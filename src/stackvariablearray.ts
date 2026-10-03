@@ -65,7 +65,7 @@ export class StackVariableArray extends StackVariable {
                         v = new StackVariableObject(false, v);
                         break;
                     case "undefined":
-                        v = new StackVariableUndefined(false);
+                        v = new StackVariableNull(false);
                         break;
                     default:
                         throw new InterpreterException('Incompatible array value ' + typeof v, this.getContext()?.currentToken?.cursorPos);
@@ -130,7 +130,7 @@ export class StackVariableArray extends StackVariable {
             } else if (newLen > currentLen) {
                 // Расширение: добиваем undefined, продолжая числовую нумерацию.
                 for (let i = currentLen; i < newLen; i++) {
-                    this.value.set(this._nextNumKey.toString(), new StackVariableUndefined(false));
+                    this.value.set(this._nextNumKey.toString(), new StackVariableNull(false));
                     this._nextNumKey++;
                 }
             }
@@ -275,7 +275,7 @@ export class StackVariableArray extends StackVariable {
             return value;
         }
 
-        return new StackVariableUndefined(false);
+        return new StackVariableNull(false);
     }
 
     /** join */
@@ -366,7 +366,7 @@ export class StackVariableArray extends StackVariable {
 
     funcInvoke_shift() {
         if (!this.value.size) {
-            return new StackVariableUndefined(false);
+            return new StackVariableNull(false);
         }
 
         const oldValue = this.value;
@@ -563,7 +563,7 @@ export class StackVariableArray extends StackVariable {
         });
 
         for (let i = 0; i < undefinedCount; i++) {
-            defined.push(new StackVariableUndefined(false));
+            defined.push(new StackVariableNull(false));
         }
 
         this.rebuild(defined);

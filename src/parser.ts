@@ -1397,7 +1397,7 @@ export class CodeParser {
                 NodeList.push(Node);
 
                 //`return;` без значения разрешён внутри пользовательских функций —
-                //тогда результат функции = undefined.
+                //тогда результат функции = null.
                 if (inline)
                 {
                     this.parseExpression(Node, true, endLineType.cloneAdd(LexerType.ltSemicolon), true);

@@ -4,6 +4,7 @@ import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableUndefined} from "./stackvariableundefined";
+import {StackVariableNull} from "./stackvariablenull";
 import {InterpreterException} from "./exceptions";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 
@@ -289,7 +290,7 @@ export class StackVariableString extends StackVariable {
                 if (typeof this._value === 'string')
                     return new StackVariableNumber(false, this._value.length);
 
-                return new StackVariableUndefined();
+                return new StackVariableNull(false);
             }
         },
     }

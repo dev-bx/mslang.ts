@@ -948,7 +948,7 @@ test('Feat32_EnvConfig', () => {
     c2.setConfigValue('appName', 'shop');
     assert.strictEqual('shop', c2.exec(true)?.value);
 
-    const c3 = createCodeContext('return Env.nope == undefined;');
+    const c3 = createCodeContext('return Env.nope == null;');
     assert.strictEqual(true, c3.exec(true)?.value);
 });
 
@@ -984,10 +984,10 @@ test('P1_19_IndexAccessLogic', () => {
     assert.throws(() => executeReturnCode('let n = 5; return n[0];'), /Cannot read offset/);
     assert.throws(() => executeReturnCode('let t = true; return t[0];'), /Cannot read offset/);
     assert.strictEqual('b', executeReturnCode('return "abc"[1];')?.value);
-    assert.strictEqual(undefined, executeReturnCode('return "abc"[5];')?.value);
+    assert.strictEqual(null, executeReturnCode('return "abc"[5];')?.value);
     assert.strictEqual(20, executeReturnCode('let a = [10,20,30]; return a[1];')?.value);
     assert.strictEqual(20, executeReturnCode('let a = [10,20,30]; let i = 1.0; return a[i];')?.value);
-    assert.strictEqual(undefined, executeReturnCode('let a = [10,20,30]; let i = 1.5; return a[i];')?.value);
+    assert.strictEqual(null, executeReturnCode('let a = [10,20,30]; let i = 1.5; return a[i];')?.value);
 });
 
 test('P1_17_LayerThrowsInterpreterException', () => {

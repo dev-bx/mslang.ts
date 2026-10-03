@@ -198,7 +198,6 @@ export class ContextInterpreter {
     }
 
     registerConst() {
-        this.setVariable('undefined', new StackVariableUndefined(true));
         this.setVariable('null', new StackVariableNull(true));
         this.setVariable('true', new StackVariableBoolean(true, true));
         this.setVariable('false', new StackVariableBoolean(true, false));
@@ -896,7 +895,7 @@ export class ContextInterpreter {
         let returnVal = funcEntry.invokeArguments(callFuncArgs);
 
         if (!(returnVal instanceof StackVariable)) {
-            returnVal = new StackVariableUndefined(false);
+            returnVal = new StackVariableNull(false);
         }
 
         return returnVal;

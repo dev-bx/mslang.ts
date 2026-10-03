@@ -4,12 +4,13 @@ import {StackVariableNumber} from "./stackvariablenumber.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableUndefined} from "./stackvariableundefined.js";
+import {StackVariableNull} from "./stackvariablenull";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 
 /**
  * Глобал `Env` — доступ скрипта к конфигу контекста (read-only). Хост кладёт
  * значения через ContextInterpreter.setConfig*, скрипт читает их как `Env.key`.
- * Неизвестный ключ → undefined. Зеркало PHP StackVariableEnv.
+ * Неизвестный ключ → null. Зеркало PHP StackVariableEnv.
  */
 export class StackVariableEnv extends StackVariable {
     constructor(context: ContextInterpreter | null = null) {
@@ -36,6 +37,6 @@ export class StackVariableEnv extends StackVariable {
             return new StackVariableString(false, value);
         }
 
-        return new StackVariableUndefined(false);
+        return new StackVariableNull(false);
     }
 }

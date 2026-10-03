@@ -72,7 +72,7 @@ class FxRates {
     }
     rateOf(code) {
         let r = this.rates[code];
-        if (r == undefined || r == null) {
+        if (r == null) {
             throw new Error("FxRates.rateOf: unknown currency " + code);
         }
         return r;

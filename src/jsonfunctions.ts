@@ -27,7 +27,7 @@ export class JsonFunctions extends StackVariable {
 
     /**
      * `JSON.parse(text [, default])` — разбирает строку JSON в значение языка.
-     * При ошибке разбора возвращает `default` (если задан), иначе `undefined`.
+     * При ошибке разбора возвращает `default` (если задан), иначе `null`.
      * Валидный `"null"` ошибкой не считается (JSON.parse его не бросает). Метод без
      * объявленных параметров: диспетчер отдаёт сырые StackVariable, так `default`
      * остаётся значением, а не приводится к строке.
@@ -48,7 +48,7 @@ export class JsonFunctions extends StackVariable {
         try {
             decoded = JSON.parse(text);
         } catch {
-            return def instanceof StackVariable ? def : new StackVariableUndefined(false);
+            return def instanceof StackVariable ? def : new StackVariableNull(false);
         }
 
         return this.jsonToStackVariable(decoded);
@@ -64,13 +64,13 @@ export class JsonFunctions extends StackVariable {
         const valueVar = args[0];
 
         if (!(valueVar instanceof StackVariable)) {
-            return new StackVariableUndefined(false);
+            return new StackVariableNull(false);
         }
 
         const result = this.stringifyValue(valueVar);
 
         return result === null
-            ? new StackVariableUndefined(false)
+            ? new StackVariableNull(false)
             : new StackVariableString(false, result, this.getContext());
     }
 
@@ -106,7 +106,7 @@ export class JsonFunctions extends StackVariable {
             return object;
         }
 
-        return new StackVariableUndefined(false);
+        return new StackVariableNull(false);
     }
 
     /**

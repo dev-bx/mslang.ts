@@ -577,8 +577,8 @@ export class Interpreter {
             case 'every':
                 return context.createVariable(VariableType.vtBoolean, true);
             default:
-                //find и forEach без результата → undefined.
-                return context.createVariable(VariableType.vtUndefined, undefined);
+                //find и forEach без результата → null.
+                return context.createVariable(VariableType.vtNull, null);
         }
     }
 
@@ -1137,7 +1137,7 @@ export class Interpreter {
         // scope, и после выхода из короткоживущего scope ломается чужой вызов
         // (баг исправлен в 5c6d5ad, страж — Bug_FuncEntryCache_ProxyOnDeadScope).
         // Поэтому Ref здесь без context, а отсутствующее свойство отдаём обычным
-        // StackVariableUndefined, а не записываемым Ref.
+        // значением null, а не записываемым Ref.
         if (getVar instanceof StackVariable) {
             const refProp = new StackVariableRef({
                 get: () => variable.getProperty(propname) as object,
@@ -1157,8 +1157,8 @@ export class Interpreter {
             return;
         }
 
-        // Нет ни свойства, ни функции — отдаём undefined.
-        context.pushStackVar(new StackVariableUndefined(false));
+        // Нет ни свойства, ни функции — отдаём null.
+        context.pushStackVar(new StackVariableNull(false));
     }
 
     contextVariableHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1700,8 +1700,8 @@ export class Interpreter {
             throw new InterpreterException('return childItems not initialized', token.cursorPos);
 
         if (!token.childItems.length) {
-            //`return;` без значения — отдаём undefined и сразу отматываем стек.
-            const variable = new StackVariableUndefined(false);
+            //`return;` без значения — отдаём null и сразу отматываем стек.
+            const variable = new StackVariableNull(false);
             this.unwindReturn(context, variable);
             return;
         }
@@ -1874,15 +1874,15 @@ export class Interpreter {
 
         // Зеркало PHP (раздельные двери offsetGet/getProperty), сведённое в один
         // обработчик: строка индексируема (str[i] → символ, как JS); массив/объект —
-        // через getProperty; скаляр (число/булево/null/undefined) индексировать
-        // нельзя — "Cannot read offset" (а не молчаливый undefined).
+        // через getProperty; скаляр (число/булево/null) индексировать
+        // нельзя — "Cannot read offset" (а не молчаливый null).
         if (accessTo.type === VariableType.vtString) {
             const idx = Number(variable.value);
             const chars = Array.from(accessTo.value as string);
             if (Number.isInteger(idx) && idx >= 0 && idx < chars.length) {
                 context.pushStackVar(new StackVariableString(false, chars[idx], context));
             } else {
-                context.pushStackVar(context.createVariable(VariableType.vtUndefined, undefined));
+                context.pushStackVar(context.createVariable(VariableType.vtNull, null));
             }
             return;
         }
@@ -1900,7 +1900,7 @@ export class Interpreter {
         const propertyValue = accessTo.getProperty(key as string);
 
         if (!propertyValue) {
-            context.pushStackVar(context.createVariable(VariableType.vtUndefined, undefined));
+            context.pushStackVar(context.createVariable(VariableType.vtNull, null));
         } else {
             if (propertyValue instanceof StackVariable) {
                 context.pushStackVar(propertyValue);
@@ -2425,7 +2425,7 @@ export class Interpreter {
                 //Уже объявлена (let/const до или сам var повторно) — пропускаем,
                 //runtime varDeclHandler сам перезапишет значение при выполнении.
                 if (!(name in context._variables)) {
-                    context._variables[name] = new StackVariableUndefined(false);
+                    context._variables[name] = new StackVariableNull(false);
                 }
                 continue;
             }
@@ -2668,10 +2668,10 @@ export class Interpreter {
     }
 
     /**
-     * Завершение функции без явного `return` — возвращаем undefined и снимаем scope.
+     * Завершение функции без явного `return` — возвращаем null и снимаем scope.
      */
     userFuncFinishHandler(context: ContextInterpreter, token: ParseNode) {
-        const variable = new StackVariableUndefined(false);
+        const variable = new StackVariableNull(false);
         context.popFunctionScope();
         context.pushStackVar(variable);
     }
@@ -2689,7 +2689,7 @@ export class Interpreter {
     ): StackVariable {
         const children = paramNode.childItems ?? [];
         if (children.length === 0) {
-            return new StackVariableUndefined(false);
+            return new StackVariableNull(false);
         }
 
         const wrap = children[0];
@@ -3218,7 +3218,7 @@ export class Interpreter {
             //У родителей нет конструктора — super() становится no-op (поля
             //не выставляются), но TDZ-флаг всё равно снимаем: super был вызван.
             context._isCtorTDZ = false;
-            context.pushStackVar(new StackVariableUndefined(false));
+            context.pushStackVar(new StackVariableNull(false));
             return;
         }
         const ctorOwner = found[0];
@@ -3402,7 +3402,7 @@ export class Interpreter {
                     token.cursorPos,
                 );
             }
-            const value = new StackVariableUndefined(false);
+            const value = new StackVariableNull(false);
             this.writeVarDecl(context, name, kind, value, token);
             return;
         }

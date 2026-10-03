@@ -811,7 +811,7 @@ test('034_MissingOperatorsAndKeywords', (t) => {
     assert.strictEqual(true, returnVal?.value);
 
     // 5. undefined при доступе к несуществующему свойству
-    returnVal = executeReturnCode('a = []; return a.foo == undefined;');
+    returnVal = executeReturnCode('a = []; return a.foo == null;');
     assert.strictEqual(true, returnVal?.value);
 });
 
@@ -1235,10 +1235,10 @@ test('057_UnaryCoercion', () => {
     assert.strictEqual(3, executeReturnCode('return -(2 - 5);')?.value);
 });
 
-test('058_NullVsUndefined', (t) => {
+test('058_AbsentIsNull', (t) => {
     let returnVal;
 
-    returnVal = executeReturnCode('a = []; return a.foo == undefined;');
+    returnVal = executeReturnCode('a = []; return a.foo == null;');
     assert.strictEqual(true, returnVal?.value);
 
     returnVal = executeReturnCode('a = []; return a.foo == null;');
@@ -1486,25 +1486,25 @@ test('069_UserFuncBasic', (t) => {
     assert.strictEqual(5, returnVal?.value);
 });
 
-test('069_UserFuncNoReturnGivesUndefined', (t) => {
+test('069_UserFuncNoReturnGivesNull', (t) => {
     const returnVal = executeReturnCode(`
         function nothing(a) {
             a = a + 1;
         }
         return nothing(10);
     `);
-    assert.strictEqual(VariableType.vtUndefined, returnVal?.type);
+    assert.strictEqual(VariableType.vtNull, returnVal?.type);
 });
 
 test('069_UserFuncBareReturn', (t) => {
-    //\`return;\` без значения — undefined.
+    //\`return;\` без значения — null.
     const returnVal = executeReturnCode(`
         function f() {
             return;
         }
         return f();
     `);
-    assert.strictEqual(VariableType.vtUndefined, returnVal?.type);
+    assert.strictEqual(VariableType.vtNull, returnVal?.type);
 });
 
 test('069_UserFuncDirectRecursion', (t) => {
@@ -2504,9 +2504,9 @@ test('077_LetSimple', () => {
     assert.strictEqual(5, r?.value);
 });
 
-test('077_LetWithoutInitIsUndefined', () => {
+test('077_LetWithoutInitIsNull', () => {
     const r = executeReturnCode('let x; return x;');
-    assert.strictEqual(VariableType.vtUndefined, r?.type);
+    assert.strictEqual(VariableType.vtNull, r?.type);
 });
 
 test('077_LetMultipleInOneStatement', () => {
@@ -2619,9 +2619,9 @@ test('077_VarSimple', () => {
     assert.strictEqual(5, r?.value);
 });
 
-test('077_VarHoistingReturnsUndefined', () => {
+test('077_VarHoistingReturnsNull', () => {
     const r = executeReturnCode('function f() { return x; var x = 42; } return f();');
-    assert.strictEqual(VariableType.vtUndefined, r?.type);
+    assert.strictEqual(VariableType.vtNull, r?.type);
 });
 
 test('077_VarInsideIfLeaksOut', () => {
@@ -2874,9 +2874,9 @@ test('079_Json', () => {
     assert.strictEqual('0.30000000000000004', executeReturnCode(`return JSON.stringify(0.1 + 0.2);`)?.value);
     assert.strictEqual('null', executeReturnCode(`return JSON.stringify(5 / 0);`)?.value);
     assert.strictEqual('null', executeReturnCode(`return JSON.stringify(0 / 0);`)?.value);
-    // undefined: в массиве → null, у ключа → выброшен
-    assert.strictEqual('[1,null,2]', executeReturnCode(`return JSON.stringify([1, undefined, 2]);`)?.value);
-    assert.strictEqual('{"a":1}', executeReturnCode(`return JSON.stringify(["a" => 1, "b" => undefined]);`)?.value);
+    // функция: в массиве → null, у ключа → выброшен
+    assert.strictEqual('[1,null,2]', executeReturnCode(`return JSON.stringify([1, null, 2]);`)?.value);
+    assert.strictEqual('{"a":1}', executeReturnCode(`return JSON.stringify(["a" => 1, "b" => (x => x)]);`)?.value);
     // ошибка разбора → default; валидный null ошибкой не считается
     assert.strictEqual('fb', executeReturnCode(`return JSON.parse('oops', "fb");`)?.value);
     assert.strictEqual('null', executeReturnCode(`return JSON.stringify(JSON.parse('null'));`)?.value);
@@ -2997,9 +2997,9 @@ test('084_ObjectMapOps', () => {
     assert.strictEqual('y', executeReturnCode(`return Object.get(JSON.parse('{"items":[{"n":"x"},{"n":"y"}]}'), "items.1.n");`)?.value);
     assert.strictEqual(true, executeReturnCode(`return Object.has(JSON.parse('{"a":{"b":1}}'), "a.b");`)?.value);
     assert.strictEqual(false, executeReturnCode(`return Object.has(JSON.parse('{"a":1}'), "a.b");`)?.value);
-    // null — допустимое значение: get вернёт null (не default), has → true
-    assert.strictEqual(VariableType.vtNull, executeReturnCode(`return Object.get(JSON.parse('{"a":null}'), "a", "def");`)?.type);
-    assert.strictEqual(true, executeReturnCode(`return Object.has(JSON.parse('{"a":null}'), "a");`)?.value);
+    // null — то же отсутствие: get вернёт default, has → false
+    assert.strictEqual('def', executeReturnCode(`return Object.get(JSON.parse('{"a":null}'), "a", "def");`)?.value);
+    assert.strictEqual(false, executeReturnCode(`return Object.has(JSON.parse('{"a":null}'), "a");`)?.value);
     // assign: правый побеждает, изменяет и возвращает target
     assert.strictEqual('{"x":1,"y":9,"z":3}', executeReturnCode(`return JSON.stringify(Object.assign(JSON.parse('{}'), JSON.parse('{"x":1,"y":2}'), JSON.parse('{"y":9,"z":3}')));`)?.value);
     // fromEntries: сборка объекта из пар + round-trip с entries
@@ -3128,7 +3128,6 @@ test('089_LooseEqualNullString', () => {
     // Раньше `==` жил по правилам PHP (null == 0, "0" == false — истина).
     assert.strictEqual(false, executeReturnCode('return null == "0";')?.value, 'null == "0"');
     assert.strictEqual(false, executeReturnCode('return "0" == null;')?.value, '"0" == null');
-    assert.strictEqual(false, executeReturnCode('return undefined == "0";')?.value, 'undefined == "0"');
     assert.strictEqual(false, executeReturnCode('return null == "";')?.value, 'null == ""');
     assert.strictEqual(false, executeReturnCode('return null == 0;')?.value, 'null == 0');
     assert.strictEqual(false, executeReturnCode('return null == false;')?.value, 'null == false');
@@ -3137,7 +3136,6 @@ test('089_LooseEqualNullString', () => {
     assert.strictEqual(false, executeReturnCode('return 1 == "1";')?.value, '1 == "1"');
     assert.strictEqual(false, executeReturnCode('return "1" == "01";')?.value, '"1" == "01"');
     assert.strictEqual(true, executeReturnCode('return null == null;')?.value, 'null == null');
-    assert.strictEqual(true, executeReturnCode('return undefined == null;')?.value, 'undefined == null');
     assert.strictEqual(false, executeReturnCode('return [null] == ["0"];')?.value, '[null] == ["0"]');
     assert.strictEqual(true, executeReturnCode('return 1 != "1";')?.value, '1 != "1"');
     assert.strictEqual(true, executeReturnCode('return null != 0;')?.value, 'null != 0');
@@ -3211,7 +3209,7 @@ test('092_MapOpsTypeofIsEmpty', () => {
     assert.strictEqual('object', rc(`return typeof null;`));
     assert.strictEqual('object', rc(`return typeof [1,2];`));
     assert.strictEqual('object', rc(`return typeof {a:1};`));
-    assert.strictEqual('undefined', rc(`return typeof undefined;`));
+    assert.strictEqual('object', rc(`let x; return typeof x;`)); // отсутствие — null, его typeof — "object"
     assert.strictEqual('number!', rc(`return typeof 1 + "!";`)); //приоритет: (typeof 1) + "!"
 
     // Object.isEmpty
@@ -3292,8 +3290,8 @@ test('096_ArrowBasics', () => {
     assert.strictEqual('42', rc(`let f = (x) => x + 1; return (f(41)).toString();`));
     // Тело-блок с явным return.
     assert.strictEqual('42', rc(`let f = (a) => { let t = a * 2; return t + 2; }; return (f(20)).toString();`));
-    // Тело-блок без return — результат undefined.
-    assert.strictEqual(true, rc(`let f = (a) => { let t = a; }; return f(1) == undefined;`));
+    // Тело-блок без return — результат null.
+    assert.strictEqual(true, rc(`let f = (a) => { let t = a; }; return f(1) == null;`));
     // Параметр со значением по умолчанию и rest-параметр.
     assert.strictEqual('42', rc(`let f = (a, b = 2) => a + b; return (f(40)).toString();`));
     assert.strictEqual('3', rc(`let f = (...xs) => xs.length; return (f(1, 2, 3)).toString();`));
@@ -3479,4 +3477,20 @@ test('098_StrictOperators', () => {
     assert.strictEqual('Operator + is not defined for string and number', errorOf('return "a" + 1;')?.getRawMessage());
     assert.strictEqual('Operator < is not defined for null and number', errorOf('return null < 1;')?.getRawMessage());
     assert.strictEqual('Operator -- is not defined for bool', errorOf('let x = true; x--; return x;')?.getRawMessage());
+});
+
+test('099_AbsenceIsNull', () => {
+    // Одно значение отсутствия — null: неинициализированная переменная, нет
+    // свойства или индекса, путь через отсутствующее звено, функция без return.
+    for (const script of ['let x; return x;', 'let o = {a: 1}; return o.b;', 'let o = {a: 1}; return o.b.c;', 'let o = null; return o.a.b;', 'let a = [1]; return a[5];', 'return "ab"[5];', 'function f() { } return f();', 'function f() { return; } return f();', 'let f = x => { let t = x; }; return f(1);', 'return [1, 2].forEach(x => x);', 'return [1, 2].find(x => x > 5);', 'return JSON.parse("{oops");', 'return Env.nope;', 'return new Array(2)[0];', 'function f() { return x; var x = 1; } return f();']) {
+        assert.strictEqual(VariableType.vtNull, (executeReturnCode(script) as StackVariable).type, script);
+    }
+    // Литерала undefined больше нет — это неизвестное имя.
+    assert.strictEqual('UnknownName', errorOf('return undefined;')?.getErrorCode());
+    // Голое неизвестное имя — ошибка, а путь от известного корня — null.
+    assert.strictEqual('UnknownName', errorOf('return nope.a;')?.getErrorCode());
+    // Object.get / Object.has: null — то же отсутствие.
+    assert.strictEqual('d', executeReturnCode('return Object.get({a: null}, "a", "d");')?.value);
+    assert.strictEqual(false, executeReturnCode('return Object.has({a: null}, "a");')?.value);
+    assert.strictEqual(true, executeReturnCode('return Object.has({a: 0}, "a");')?.value);
 });
