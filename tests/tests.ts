@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {
     StackVariable, VariableType, StackVariableBoolean, StackVariableNumber, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString,
@@ -3598,4 +3601,23 @@ test('103_RegisterFunction', () => {
     context.registerFunction('Math', new StackVariableNumber(false, 9), true);
 
     assert.deepStrictEqual([2, 3, 9], (context.exec(true) as StackVariableArray).convertToNativeArray());
+});
+
+test('104_Ast', () => {
+    // Публичный AST сверяется с общими фикстурами tests/ast/*.msl + *.json (те же файлы
+    // проверяет PHP-эталон — JSON двух движков совпадает, включая места `loc`).
+    const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ast');
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.msl')).sort();
+    assert.ok(files.length > 0, 'Нет фикстур AST в ' + dir);
+
+    for (const file of files) {
+        const expected = JSON.parse(fs.readFileSync(path.join(dir, file.replace(/\.msl$/, '.json')), 'utf-8'));
+        const actual = JSON.parse(JSON.stringify(Script.parse(fs.readFileSync(path.join(dir, file), 'utf-8')).toAst()));
+        assert.deepStrictEqual(actual, expected, file);
+    }
+
+    // Выражение — корень Expression, программа — Program; версия формата — 1.
+    const root = Script.parseExpression('1').toAst();
+    assert.deepStrictEqual(['Expression', 1], [root.type, root.version]);
+    assert.strictEqual('Program', Script.parseProgram('return 1;').toAst().type);
 });

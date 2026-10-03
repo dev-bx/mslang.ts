@@ -3,6 +3,7 @@
 import {ParseNode} from "./parser";
 import {Interpreter} from "./interpreter";
 import {ContextInterpreter} from "./contextinterpreter";
+import {AstBuilder, type AstExpressionRoot, type AstProgram} from "./astbuilder";
 
 export type ParsedScriptKind = 'expression' | 'program';
 
@@ -32,6 +33,15 @@ export class ParsedScript {
 
     getSource(): string {
         return this.source;
+    }
+
+    /** Публичный AST (см. AstBuilder и AST.md): `Expression` для выражения, `Program` для программы. */
+    toAst(): AstExpressionRoot | AstProgram {
+        const builder = new AstBuilder();
+
+        return this.kind === ParsedScript.KIND_EXPRESSION
+            ? builder.expression(this.nodes[0])
+            : builder.program(this.nodes);
     }
 
     /**
