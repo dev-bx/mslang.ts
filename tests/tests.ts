@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {
     StackVariable, VariableType, StackVariableBoolean, StackVariableNumber, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString,
-    StackVariableObject, ParseNode, MSLangException, Script, ParsedScript
+    StackVariableObject, ParseNode, MSLangException, Script, ParsedScript, FunctionParameter
 } from "../src";
 
 class FieldsObject extends StackVariable {
@@ -3705,4 +3705,13 @@ test('107_ArrayKeysNumeric', () => {
     assert.deepStrictEqual([0, 1], (executeReturnCode('return [10, 20].keys();') as StackVariableArray).convertToNativeArray());
     assert.deepStrictEqual(['a', 5, '05', -2], (executeReturnCode('return ["a" => 1, 5 => 2, "05" => 3, -2 => 4].keys();') as StackVariableArray).convertToNativeArray());
     assert.strictEqual(true, executeReturnCode('return [10, 20].keys()[1] == 1;')?.value);
+});
+
+test('108_FunctionParameterDefaultType', () => {
+    // Тип параметра без явного указания — null («любой»), как ?int $_type = null в эталоне.
+    assert.strictEqual(null, new FunctionParameter('x').getType());
+    // Значение по умолчанию без типа — понятная ошибка описания функции, а не сырой TypeError.
+    const context = createCodeContext('return 1;');
+    assert.throws(() => new FunctionParameter('x', null, false, false, 5).createVariableDefaultValue(context),
+        (e: unknown) => e instanceof MSLangException && e.message === 'Parameter "x" has a default value but no type');
 });

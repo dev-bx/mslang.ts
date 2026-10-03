@@ -1,5 +1,6 @@
 import type {ContextInterpreter} from "./contextinterpreter.js";
 import {VariableType} from "./variabletype.js";
+import {MSLangException} from "./exceptions";
 
 export class FunctionParameter {
 
@@ -9,12 +10,13 @@ export class FunctionParameter {
     _defaultValue
     _isPassedByReference
 
-    constructor(name: string, type: VariableType = VariableType.vtUndefined, isRequired = false, isPassedByReference = false, defaultValue: unknown = null) {
+    // Тип по умолчанию — null («любой»), как PHP `?int $_type = null` (раньше было vtUndefined).
+    constructor(name: string, type: VariableType | null = null, isRequired = false, isPassedByReference = false, defaultValue: unknown = null) {
 
         this._name = name;
         this._type = type;
         this._isRequired = isRequired;
-        this._isPassedByReference = isPassedByReference; // @TODO
+        this._isPassedByReference = isPassedByReference;
         this._defaultValue = defaultValue;
 
     }
@@ -24,7 +26,7 @@ export class FunctionParameter {
         return this._name;
     }
 
-    getType()
+    getType(): VariableType | null
     {
         return this._type;
     }
@@ -53,7 +55,12 @@ export class FunctionParameter {
         if (value === null)
             return context.createVariable(VariableType.vtNull, null);
 
-        return context.createVariable(this.getType(), value);
+        // Значение по умолчанию без типа создать нельзя — ошибка описания функции хостом.
+        const type = this.getType();
+        if (type === null)
+            throw new MSLangException('Parameter "' + this._name + '" has a default value but no type');
+
+        return context.createVariable(type, value);
     }
 
 }

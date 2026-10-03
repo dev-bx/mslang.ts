@@ -2143,7 +2143,7 @@ export class CodeParser {
     /**
      * Парсит объявление переменных: `let name [= expr] [, name [= expr]]* ;`.
      * `var` и `const` — аналогично с одной разницей: для `const` инициализатор
-     * обязателен, без него сразу даём ParserException.
+     * обязателен, без него сразу даём ParserCursorException.
      *
      * На входе: tokenSym = ltLet | ltVar | ltConst.
      * На выходе: лексер стоит на `;` (если inline-форма) или на следующем
