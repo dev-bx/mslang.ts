@@ -128,6 +128,15 @@ export const NodeType =
         'ntLogicalAnd': 75,
         //Логическое ИЛИ `a || b`: устроено как ntLogicalAnd.
         'ntLogicalOr': 76,
+        //Маркер `??` в плоском списке выражения; пост-обработка сворачивает его в ntNullish.
+        'ntCompareNullish': 77,
+        //`a ?? b`: левое значение, если оно не null, иначе правое (считается только тогда).
+        'ntNullish': 78,
+        //Охранник безопасного обращения `?.` перед ntObjProp / ntBracketGetKey / ntSelfFuncCall:
+        //значение слева null — обращение пропускается целиком, результат null.
+        'ntOptionalChain': 79,
+        //`exists(x)` — true, если значение есть (не null); неизвестное голое имя — false.
+        'ntExists': 80,
     }
 
 export class ParseNode
@@ -234,7 +243,8 @@ export class ParseNode
 
     isCompareOrAndNode()
     {
-        return this.nType === NodeType.ntCompareOr || this.nType === NodeType.ntCompareAnd;
+        return this.nType === NodeType.ntCompareOr || this.nType === NodeType.ntCompareAnd
+            || this.nType === NodeType.ntCompareNullish;
     }
 
     /**
@@ -783,7 +793,9 @@ export class CodeParser {
                             if (this.lexer.tokenSym === LexerType.ltEndCode)
                                 break;
 
-                            if (this.lexer.tokenSym !== LexerType.ltIDStr && this.lexer.tokenSym !== LexerType.ltString)
+                            //Ключ — имя или строка; `exists` (ключевое слово) тоже годится как имя ключа.
+                            if (this.lexer.tokenSym !== LexerType.ltIDStr && this.lexer.tokenSym !== LexerType.ltString
+                                && this.lexer.tokenSym !== LexerType.ltExists)
                                 throw new ParserCursorException("Object literal: key expected", this.lexer.tokenCursor);
 
                             const key = this.lexer.tokenValue;
@@ -810,6 +822,12 @@ export class CodeParser {
                 case LexerType.ltAssign:
                     // Установка значения свойства объекта: obj.prop = value.
                     if (prevNode && prevNode.nType === NodeType.ntObjProp) {
+                        //`a?.b = 1` — как в JS, ошибка: безопасное обращение только читает.
+                        const guard = NodeList[NodeList.length - 2];
+                        if (guard && guard.nType === NodeType.ntOptionalChain) {
+                            throw new ParserCursorException("Cannot assign to '?.' expression", this.lexer.tokenCursor);
+                        }
+
                         SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntObjSetPropValue, prevNode.nValue);
 
                         NodeList.pop();
@@ -831,7 +849,7 @@ export class CodeParser {
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntIFValue);
                     //Тернарный `?` тоже останавливает правую часть сравнения,
                     //иначе `n > 5 ? a : b` парсилось бы как `n > (5 ? a : b)`.
-                    this.parseExpression(SubNode, true, new LexerTypeArray(...StopLex, LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltQuestion));
+                    this.parseExpression(SubNode, true, new LexerTypeArray(...StopLex, LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltNullish, LexerType.ltQuestion));
                     NodeList.push(SubNode);
 
                     getNextToken = false;
@@ -849,6 +867,51 @@ export class CodeParser {
                         throw new ParserNodeException('Invalid token', prevNode);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareOr);
+                    NodeList.push(SubNode);
+                    break;
+                case LexerType.ltNullish:
+                    if (!prevNode || prevNode.isCompareOrAndNode())
+                        throw new ParserCursorException("'??' requires a left operand", this.lexer.tokenCursor);
+
+                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareNullish);
+                    NodeList.push(SubNode);
+                    break;
+                case LexerType.ltOptionalChain:
+                    //`a?.b`, `a?.[i]`, `a?.m()`: перед обращением ставим охранник ntOptionalChain.
+                    if (!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode())
+                        throw new ParserCursorException("'?.' requires a left operand", this.lexer.tokenCursor);
+
+                    NodeList.push(new ParseNode(this.lexer.tokenCursor, NodeType.ntOptionalChain));
+
+                    this.lexer.getToken();
+                    if (this.lexer.tokenSym === LexerType.ltIDStr) {
+                        NodeList.push(new ParseNode(this.lexer.tokenCursor, NodeType.ntObjProp, this.lexer.tokenValue));
+                        break;
+                    }
+                    if (this.lexer.tokenSym === LexerType.ltBracketOpen) {
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntBracketGetKey);
+                        this.parseExpression(SubNode, true, LexerTypeArray.one(LexerType.ltBracketClose));
+                        NodeList.push(SubNode);
+
+                        this.lexer.getToken();
+                        if (this.lexer.tokenSym === LexerType.ltAssign) {
+                            throw new ParserCursorException("Cannot assign to '?.' expression", this.lexer.tokenCursor);
+                        }
+                        getNextToken = false;
+                        break;
+                    }
+                    throw new ParserCursorException("'?.' expects property name or '['", this.lexer.tokenCursor);
+                case LexerType.ltExists:
+                    //`exists(x)` — операнд, как литерал: допустим в начале выражения и после оператора.
+                    if (prevNode && !prevNode.isMathNode() && !prevNode.isCompareOrAndNode() && prevNode.nType !== NodeType.ntArrayPushSeparatorKey)
+                        throw new ParserNodeException("Parse expression failed", prevNode);
+
+                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntExists);
+                    this.lexer.getToken();
+                    if (this.lexer.tokenSym !== LexerType.ltLPar) {
+                        throw new ParserCursorException("'exists' expects '('", this.lexer.tokenCursor);
+                    }
+                    this.parseExpression(SubNode, true, LexerTypeArray.one(LexerType.ltRPar));
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltInstanceof:
@@ -1025,6 +1088,7 @@ export class CodeParser {
                     //  Class::method(args)  — ntFuncNameSpaceCall
                     if (
                         nextNode.nType === NodeType.ntObjProp
+                        || nextNode.nType === NodeType.ntOptionalChain
                         || nextNode.nType === NodeType.ntBracketGetKey
                         || nextNode.nType === NodeType.ntSelfFuncCall
                         || nextNode.nType === NodeType.ntFuncCall
@@ -1059,9 +1123,9 @@ export class CodeParser {
     }
 
     /**
-     * Сворачивает плоские маркеры `&&` / `||` в узлы ntLogicalAnd / ntLogicalOr с
-     * приоритетом: `&&` связывает сильнее `||`, одинаковые операторы — слева
-     * направо. Раньше маркеры исполнялись подряд, и ранний выход перескакивал в
+     * Сворачивает плоские маркеры `&&` / `||` / `??` в узлы ntLogicalAnd / ntLogicalOr /
+     * ntNullish с приоритетом: `&&` связывает сильнее `||`, `??` — слабее всех;
+     * одинаковые операторы — слева направо. Раньше маркеры исполнялись подряд, и ранний выход перескакивал в
      * конец ВСЕГО выражения: `false && x || true` давало false.
      */
     protected groupLogical(NodeList: ParseNode[]): ParseNode[]
@@ -1096,7 +1160,7 @@ export class CodeParser {
 
     /**
      * segments — операнды (на один больше, чем операторов), operators — маркеры
-     * ntCompareAnd / ntCompareOr между ними.
+     * ntCompareAnd / ntCompareOr / ntCompareNullish между ними.
      */
     private buildLogical(segments: ParseNode[][], operators: ParseNode[]): ParseNode
     {
@@ -1106,7 +1170,7 @@ export class CodeParser {
 
         //Делим по САМОМУ слабому оператору, по последнему его вхождению — тогда
         //цепочка одинаковых операторов складывается слева направо.
-        for (const weakest of [NodeType.ntCompareOr, NodeType.ntCompareAnd]) {
+        for (const weakest of [NodeType.ntCompareNullish, NodeType.ntCompareOr, NodeType.ntCompareAnd]) {
             for (let i = operators.length - 1; i >= 0; i--) {
                 if (operators[i].nType !== weakest) {
                     continue;
@@ -1114,7 +1178,8 @@ export class CodeParser {
 
                 const node = new ParseNode(
                     operators[i].cursorPos,
-                    weakest === NodeType.ntCompareOr ? NodeType.ntLogicalOr : NodeType.ntLogicalAnd,
+                    weakest === NodeType.ntCompareNullish ? NodeType.ntNullish
+                        : weakest === NodeType.ntCompareOr ? NodeType.ntLogicalOr : NodeType.ntLogicalAnd,
                 );
                 node.childItems = [
                     this.buildLogical(segments.slice(0, i + 1), operators.slice(0, i)),

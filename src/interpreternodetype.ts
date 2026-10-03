@@ -78,4 +78,6 @@ export const InterpreterNodeType = {
     'ntLogicalFinish': 1042,
     //Финиш правого операнда && / ||: проверка boolean и результат выражения.
     'ntLogicalRightFinish': 1043,
+    //Финиш `exists(x)`: снимает значение аргумента и кладёт boolean «значение есть».
+    'ntExistsFinish': 1044,
 }

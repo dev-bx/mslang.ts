@@ -3508,3 +3508,36 @@ test('100_Length', () => {
     // У значений без длины — null (свойства нет), а не ошибка.
     assert.strictEqual(VariableType.vtNull, (executeReturnCode('return {a: 1}.length;') as StackVariable).type);
 });
+
+test('101_PresenceCheck', () => {
+    // `??` — правое значение только для null; `?.` — безопасное обращение (null слева —
+    // обращение пропускается вместе с аргументами); `exists(x)` — есть ли значение.
+    assert.strictEqual(1, executeReturnCode('return null ?? 1;')?.value, 'return null ?? 1;');
+    assert.strictEqual(0, executeReturnCode('return 0 ?? 1;')?.value, 'return 0 ?? 1;');
+    assert.strictEqual(false, executeReturnCode('return false ?? true;')?.value, 'return false ?? true;');
+    assert.strictEqual('', executeReturnCode('return "" ?? "x";')?.value, 'return "" ?? "x";');
+    assert.strictEqual('def', executeReturnCode('let o = {a: null}; return o.a ?? "def";')?.value, 'let o = {a: null}; return o.a ?? "def";');
+    assert.strictEqual(3, executeReturnCode('return null ?? null ?? 3;')?.value, 'return null ?? null ?? 3;');
+    assert.strictEqual(0, executeReturnCode('let c = 0; function hit() { c = c + 1; return 5; } let r = 1 ?? hit(); return c;')?.value, 'let c = 0; function hit() { c = c + 1; return 5; } let r = 1 ?? hit(); return c;');
+    assert.strictEqual(3, executeReturnCode('return 1 + 2 ?? 5;')?.value, 'return 1 + 2 ?? 5;');
+    assert.strictEqual(true, executeReturnCode('return true || false ?? 1;')?.value, 'return true || false ?? 1;');
+    assert.strictEqual(7, executeReturnCode('let a = {b: {c: 7}}; return a?.b?.c;')?.value, 'let a = {b: {c: 7}}; return a?.b?.c;');
+    assert.strictEqual(6, executeReturnCode('let a = [5, 6]; return a?.[1];')?.value, 'let a = [5, 6]; return a?.[1];');
+    assert.strictEqual('none', executeReturnCode('let a = null; return a?.[0] ?? "none";')?.value, 'let a = null; return a?.[0] ?? "none";');
+    assert.strictEqual('ABC', executeReturnCode('let s = "abc"; return s?.ToUpper();')?.value, 'let s = "abc"; return s?.ToUpper();');
+    assert.strictEqual(0, executeReturnCode('let a = null; let c = 0; function hit() { c = c + 1; return 1; } let r = a?.m(hit()); return c;')?.value, 'let a = null; let c = 0; function hit() { c = c + 1; return 1; } let r = a?.m(hit()); return c;');
+    assert.strictEqual(1, executeReturnCode('return true?1:2;')?.value, 'return true?1:2;');
+    assert.strictEqual(false, executeReturnCode('return exists(nope);')?.value, 'return exists(nope);');
+    assert.strictEqual(false, executeReturnCode('let x = null; return exists(x);')?.value, 'let x = null; return exists(x);');
+    assert.strictEqual(true, executeReturnCode('let x = 0; return exists(x);')?.value, 'let x = 0; return exists(x);');
+    assert.strictEqual(false, executeReturnCode('let o = {a: {}}; return exists(o.a.b);')?.value, 'let o = {a: {}}; return exists(o.a.b);');
+    assert.strictEqual(true, executeReturnCode('return !exists(nope) && exists(1 + 1);')?.value, 'return !exists(nope) && exists(1 + 1);');
+    assert.strictEqual(1, executeReturnCode('let o = {exists: 1}; return o.exists;')?.value, 'let o = {exists: 1}; return o.exists;');
+    for (const script of ['let a = null; return a?.b;', 'let a = null; return a?.b.c;', 'let a = null; return a?.[0];', 'let a = null; return a?.m(1);']) {
+        assert.strictEqual(VariableType.vtNull, (executeReturnCode(script) as StackVariable).type, script);
+    }
+    assert.strictEqual('ParseError', errorOf('let a = null; a?.b = 1;')?.getErrorCode(), 'let a = null; a?.b = 1;');
+    assert.strictEqual('ParseError', errorOf('return exists 5;')?.getErrorCode(), 'return exists 5;');
+    assert.strictEqual('ParseError', errorOf('return ?? 1;')?.getErrorCode(), 'return ?? 1;');
+    assert.strictEqual('UnknownName', errorOf('return exists(nope.a);')?.getErrorCode(), 'return exists(nope.a);');
+});

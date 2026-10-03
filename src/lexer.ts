@@ -79,6 +79,12 @@ export const LexerType = {
     'ltOf': 66,
     //Унарный оператор `typeof x` — даёт строку-имя типа (JS-семантика).
     'ltTypeof': 67,
+    //`a ?? b` — значение слева, если оно не null, иначе справа.
+    'ltNullish': 68,
+    //`?.` — безопасное обращение: `a?.b`, `a?.[i]`, `a?.m()`.
+    'ltOptionalChain': 69,
+    //`exists(x)` — есть ли значение (не null; неизвестное имя — тоже «нет»).
+    'ltExists': 70,
 }
 
 export class FullTokenInfo {
@@ -511,6 +517,18 @@ export class CodeLexer extends Lexer {
                 this._tokenSym = LexerType.ltBitXor;
                 return;
             case '?':
+                if (this.whoNextCh() === '?') {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltNullish;
+                    return;
+                }
+                //`?.` — безопасное обращение, но `a ?.5 : 1` — тернарный оператор с
+                //числом .5 (как в JS: за `?.` не может идти цифра).
+                if (this.whoNextCh() === '.' && !this.isDigit(this.whoNextCh(1))) {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltOptionalChain;
+                    return;
+                }
                 this._tokenSym = LexerType.ltQuestion;
                 return;
         }
@@ -665,7 +683,8 @@ export class CodeLexer extends Lexer {
         //Бинарные операторы тоже завершают число/идентификатор. Раньше тут не было
         //`% & | ^`, из-за чего `7%2`/`7&2`/`6&&1` без пробела перед оператором не лексились
         //(число «съедало» оператор). `+ - * /` были, поэтому `7+2` работал, а `7%2` — нет.
-        const allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '%', '&', '|', '^', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']'];
+        //`?` — тоже граница: `a?.b`, `a??b`, `x?1:2` без пробелов.
+        const allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '%', '&', '|', '^', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']', '?'];
 
         if (this.isDigit(this.lastChar) || this.lastChar === '-') {
             //Префиксы для не-десятичных литералов: 0x.., 0b.., 0o..
@@ -936,6 +955,12 @@ export class CodeLexer extends Lexer {
 
         if (this._tokenValue === "typeof") {
             this._tokenSym = LexerType.ltTypeof;
+            return;
+        }
+
+        //`exists` — ключевое слово только как имя, не как свойство: `obj.exists` — обычное поле.
+        if (this._tokenValue === "exists" && !isObjProp) {
+            this._tokenSym = LexerType.ltExists;
             return;
         }
 

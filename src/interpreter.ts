@@ -138,6 +138,10 @@ export class Interpreter {
 
         this.registerNodeHandler(NodeType.ntNegativeIf, this.negativeIfHandler.bind(this));
         this.registerNodeHandler(NodeType.ntTypeof, this.typeofHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntNullish, this.logicalHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntOptionalChain, this.optionalChainHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntExists, this.existsHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntExistsFinish, this.existsFinishHandler.bind(this));
 
         this.registerNodeHandler(InterpreterNodeType.ntIFFinish, this.ifFinishHandler.bind(this));
         this.registerNodeHandler(NodeType.ntSubCode, this.subCodeHandler.bind(this));
@@ -1359,6 +1363,56 @@ export class Interpreter {
         return type === VariableType.vtUndefined || type === VariableType.vtVoid ? VariableType.vtNull : type;
     }
 
+    /** Отсутствие значения — null (и undefined/void, если их подсунул хост). */
+    private static isAbsent(variable: StackVariable): boolean {
+        return Interpreter.equalityType(Interpreter.unref(variable)) === VariableType.vtNull;
+    }
+
+    /**
+     * Охранник `?.` (зеркало PHP optionalChainHandler): значение слева (вершина стека) —
+     * null → снимаем его, кладём null и пропускаем следующий узел-обращение целиком
+     * (с аргументами метода). Иначе — ничего.
+     */
+    optionalChainHandler(context: ContextInterpreter, token: ParseNode) {
+        const receiver = context._stackVars[context._stackVars.length - 1];
+        if (receiver === undefined)
+            throw new InterpreterException("'?.' without left operand", token.cursorPos);
+
+        if (Interpreter.isAbsent(receiver)) {
+            context.popStackVar();
+            context.pushStackVar(context.createVariable(VariableType.vtNull, null));
+            context._pos++;
+        }
+    }
+
+    /**
+     * `exists(x)`: голое неизвестное имя — false без ошибки; иначе выражение
+     * вычисляется, и результат — «значение не null».
+     */
+    existsHandler(context: ContextInterpreter, token: ParseNode) {
+        const children = token.nodeChildren();
+
+        if (children.length === 1 && children[0].nType === NodeType.ntContextVariable
+            && !context.getVariable(String(children[0].nValue))) {
+            context.pushStackVar(context.createVariable(VariableType.vtBoolean, false));
+            return;
+        }
+
+        context.pushExecutionStack();
+        context._codeItems = children;
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntExistsFinish;
+        context._codeItems.push(finish);
+    }
+
+    existsFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const value = context.popStackVar();
+        context.popExecutionStack();
+
+        context.pushStackVar(context.createVariable(VariableType.vtBoolean, !Interpreter.isAbsent(value)));
+    }
+
     private static unref(variable: StackVariable): StackVariable {
         return variable instanceof StackVariableRef ? variable.refValue as StackVariable : variable;
     }
@@ -1457,6 +1511,18 @@ export class Interpreter {
     }
 
     logicalFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        //`a ?? b`: есть значение слева — оно и результат, правое не считается.
+        if (token.nValue === NodeType.ntNullish) {
+            const left = Interpreter.unref(context.popStackVar());
+            if (!Interpreter.isAbsent(left)) {
+                context.popExecutionStack();
+                context.pushStackVar(left);
+                return;
+            }
+            this.queueLogicalRight(context, token);
+            return;
+        }
+
         const isAnd = token.nValue === NodeType.ntLogicalAnd;
         const left = Interpreter.requireBoolean(context.popStackVar(), token, isAnd ? '&&' : '||');
 
@@ -1468,6 +1534,11 @@ export class Interpreter {
             return;
         }
 
+        this.queueLogicalRight(context, token);
+    }
+
+    /** Ставит на выполнение правый операнд `&&` / `||` / `??` и его финиш. */
+    private queueLogicalRight(context: ContextInterpreter, token: ParseNode) {
         const right = token.childItems?.[0];
         if (!(right instanceof ParseNode) || !context._codeItems)
             throw new InterpreterException('Logical operator invalid', token.cursorPos);
@@ -1480,6 +1551,13 @@ export class Interpreter {
     }
 
     logicalRightFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        if (token.nValue === NodeType.ntNullish) {
+            const value = Interpreter.unref(context.popStackVar());
+            context.popExecutionStack();
+            context.pushStackVar(value);
+            return;
+        }
+
         const right = Interpreter.requireBoolean(context.popStackVar(), token, token.nValue === NodeType.ntLogicalAnd ? '&&' : '||');
 
         context.popExecutionStack();
