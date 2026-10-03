@@ -1,6 +1,5 @@
 import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
-import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableNull} from "./stackvariablenull";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 

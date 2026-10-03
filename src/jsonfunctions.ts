@@ -4,7 +4,6 @@ import {StackVariableNull} from "./stackvariablenull.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
 import {StackVariableString} from "./stackvariablestring.js";
-import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableArray} from "./stackvariablearray.js";
 import {StackVariableObject} from "./stackvariableobject.js";
 import {StackVariablePlainObject} from "./stackvariableplainobject.js";

@@ -1059,9 +1059,7 @@ test('044_ArrayUnpackOperator', (t) => {
     assert.strictEqual('1,2,3,4', returnVal?.value);
 });
 
-test('045_CoercionToNumber', (t) => {
-    let returnVal;
-
+test('045_CoercionToNumber', () => {
     // null и boolean к числу не приводятся: арифметика с ними — TypeMismatch.
     for (const script of ['return null + 5;', 'return true + 5;', 'return false + 5;', 'return 5 - null;', 'return true * 2;']) {
         assert.strictEqual('TypeMismatch', errorOf(script)?.getErrorCode(), script);

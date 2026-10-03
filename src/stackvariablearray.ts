@@ -5,7 +5,6 @@ import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableObject} from "./stackvariableobject.js";
-import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableNull} from "./stackvariablenull.js";
 import {StackVariableRef} from "./stackvariableref.js";
 import {InterpreterException} from "./exceptions";

@@ -1,7 +1,6 @@
 import {StackVariable} from "./stackvariable";
 import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableString} from "./stackvariablestring";
-import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableNull} from "./stackvariablenull";
 import {StackVariableRef} from "./stackvariableref";
 import {VariableType} from "./variabletype";

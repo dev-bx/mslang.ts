@@ -3,7 +3,6 @@ import {VariableType} from "./variabletype.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
-import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableNull} from "./stackvariablenull";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 

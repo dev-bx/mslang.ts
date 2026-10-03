@@ -3,7 +3,6 @@ import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableArray} from "./stackvariablearray.js";
 import {StackVariableRef} from "./stackvariableref.js";
-import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableNull} from "./stackvariablenull";
 import {StackVariablePlainObject} from "./stackvariableplainobject.js";
 
