@@ -517,7 +517,7 @@ function makeSummary(bmp, bytes) {
     let hi = 0;
     while (hi < 14) {
         if (hi > 0) { header = header + ","; }
-        header = header + bytes[hi];
+        header = header + bytes[hi].toString();
         hi = hi + 1;
     }
 
@@ -556,21 +556,21 @@ function makeSummary(bmp, bytes) {
     // 3) Центр и 4 угла framebuffer-а.
     function pixelAt(bmp2, x, y) {
         let pi = (y * bmp2.width + x) * 3;
-        return bmp2.pixels[pi + 2] + "," + bmp2.pixels[pi + 1] + "," + bmp2.pixels[pi + 0];
+        return bmp2.pixels[pi + 2].toString() + "," + bmp2.pixels[pi + 1].toString() + "," + bmp2.pixels[pi + 0].toString();
     }
     let cx = Math.floor(w / 2);
     let cy = Math.floor(h / 2);
 
     let parts = [];
-    parts.push("width=" + w);
-    parts.push("height=" + h);
-    parts.push("filesize=" + bytes.length);
-    parts.push("header14=" + header);
-    parts.push("nonBg=" + nonBg);
-    parts.push("sumR=" + sumR);
-    parts.push("sumG=" + sumG);
-    parts.push("sumB=" + sumB);
-    parts.push("weight=" + weight);
+    parts.push("width=" + (w).toString());
+    parts.push("height=" + (h).toString());
+    parts.push("filesize=" + (bytes.length).toString());
+    parts.push("header14=" + (header).toString());
+    parts.push("nonBg=" + (nonBg).toString());
+    parts.push("sumR=" + (sumR).toString());
+    parts.push("sumG=" + (sumG).toString());
+    parts.push("sumB=" + (sumB).toString());
+    parts.push("weight=" + (weight).toString());
     parts.push("center=" + pixelAt(bmp, cx, cy));
     parts.push("tl=" + pixelAt(bmp, 0, 0));
     parts.push("tr=" + pixelAt(bmp, w - 1, 0));

@@ -1,1 +1,2 @@
-return NaN == true;
+// == без приведения: NaN не равен ни true, ни самому себе.
+return [NaN == true, NaN == NaN, NaN != NaN];

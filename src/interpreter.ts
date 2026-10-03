@@ -17,6 +17,7 @@ import {ErrorCode, InterpreterException, MSLangException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {StackVariableObject} from "./stackvariableobject";
 import {StackVariablePlainObject} from "./stackvariableplainobject";
+import {StackVariableDateTime} from "./stackvariabledatetime";
 import {ContextType} from "./contexttype";
 import type {ContextInterpreter} from "./contextinterpreter";
 import {InterpreterNode} from "./interpreternode";
@@ -296,37 +297,8 @@ export class Interpreter {
             current = current.refValue as StackVariable;
         }
 
-        let newVar: StackVariable;
-        if (op === '+'
-            && (current.type === VariableType.vtString || rightVar.type === VariableType.vtString)
-        ) {
-            const lt = current.castAs(VariableType.vtString);
-            const rt = rightVar.castAs(VariableType.vtString);
-            if (!lt || !rt) throw new InterpreterException('Failed cast to string in +=', token.cursorPos);
-            newVar = context.createVariable(VariableType.vtString, String(lt.value) + String(rt.value));
-        } else {
-            const lt = current.castAs(VariableType.vtNumber);
-            if (!lt) throw new InterpreterException('Failed ' + current.typeName + ' cast as number', token.cursorPos);
-            const rt = rightVar.castAs(VariableType.vtNumber);
-            if (!rt) throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
-
-            const l = lt.value as number;
-            const r = rt.value as number;
-            let value: number;
-            switch (op) {
-                case '+': value = l + r; break;
-                case '-': value = l - r; break;
-                case '*': value = l * r; break;
-                case '/':
-                    if (r === 0) throw new InterpreterException('Division by zero', token.cursorPos);
-                    value = l / r; break;
-                case '%':
-                    if (r === 0) throw new InterpreterException('Modulo by zero', token.cursorPos);
-                    value = l % r; break;
-                default: throw new InterpreterException('Unknown compound-assign op ' + op, token.cursorPos);
-            }
-            newVar = context.createVariable(VariableType.vtNumber, value);
-        }
+        //`x op= y` — ровно `x = x op y`: та же арифметика, что у бинарного оператора.
+        const newVar = this.arithmetic(context, token, op, current, rightVar);
 
         context.setVariable(name, newVar);
         context.pushStackVar(newVar);
@@ -674,146 +646,52 @@ export class Interpreter {
     }
 
     plusHandler(context: ContextInterpreter, token: ParseNode) {
-        // Зеркало PHP applyStringOrNumericBinaryOperator для оператора '+'.
-        // 1) Унарный '+': берём правый, приводим к числу.
-        // 2) Если хоть один операнд — строка, кастуем оба к строке и склеиваем.
-        // 3) Иначе делаем toPrimitive у обоих.
-        // 4) Если после этого хоть один — строка, склейка.
-        // 5) Иначе арифметическое сложение через приведение к числу.
-        context.execGetVariable();
-
-        let rightVar = context.popStackVar();
-
-        if (!context._stackVars.length) {
-            const rightTmp = rightVar.castAs(VariableType.vtNumber);
-            if (!rightTmp)
-                throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
-
-            context.pushStackVar(context.createVariable(VariableType.vtNumber, rightTmp.value));
-            return;
-        }
-
-        let leftVar = context.popStackVar();
-
-        // снимаем возможные ссылки, кастуя в собственный тип
-        leftVar = leftVar.castAs(leftVar.type) ?? leftVar;
-        rightVar = rightVar.castAs(rightVar.type) ?? rightVar;
-
-        // если хоть одна сторона — строка, сразу кастуем оба к строке
-        if (leftVar.type === VariableType.vtString || rightVar.type === VariableType.vtString) {
-            leftVar = leftVar.castAs(VariableType.vtString) ?? leftVar;
-            rightVar = rightVar.castAs(VariableType.vtString) ?? rightVar;
-        }
-
-        // приводим к примитиву (массивы → строка, объекты → строка, и т.п.)
-        leftVar = leftVar.toPrimitive();
-        rightVar = rightVar.toPrimitive();
-
-        // после toPrimitive ещё раз проверяем — мог появиться строковый операнд
-        if (leftVar.type === VariableType.vtString || rightVar.type === VariableType.vtString) {
-            const leftStr = leftVar.castAs(VariableType.vtString);
-            if (!leftStr)
-                throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as string', token.cursorPos);
-
-            const rightStr = rightVar.castAs(VariableType.vtString);
-            if (!rightStr)
-                throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as string', token.cursorPos);
-
-            context.pushStackVar(context.createVariable(VariableType.vtString, (leftStr.value as string) + (rightStr.value as string)));
-            return;
-        }
-
-        // оба операнда — не строки, считаем как числа. После toPrimitive они
-        // уже Number (boolean/null в toPrimitive дают Number), поэтому проверяем
-        // isNumeric и берём value напрямую — зеркало PHP (бросает 'Type error').
-        if (!leftVar.isNumeric || !rightVar.isNumeric)
-            throw new InterpreterException('Type error', token.cursorPos);
-
-        context.pushStackVar(context.createVariable(VariableType.vtNumber, (leftVar.value as number) + (rightVar.value as number)));
+        this.binaryArithmeticHandler(context, token, '+');
     }
 
     minusHandler(context: ContextInterpreter, token: ParseNode) {
-        context.execGetVariable();
-
-        const rightVar = context.popStackVar();
-        const rightVarTmp = rightVar.castAs(VariableType.vtNumber);
-        let variable;
-
-        if (!rightVarTmp)
-            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
-
-        if (!context._stackVars.length) {
-            variable = context.createVariable(VariableType.vtNumber, -rightVarTmp.value);
-            context.pushStackVar(variable);
-            return;
-        }
-
-        const leftVar = context.popStackVar(),
-            leftVarTmp = leftVar.castAs(VariableType.vtNumber);
-
-        if (!leftVarTmp)
-            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
-
-        variable = context.createVariable(VariableType.vtNumber, leftVarTmp.value - rightVarTmp.value);
-
-        context.pushStackVar(variable);
+        this.binaryArithmeticHandler(context, token, '-');
     }
 
     mulHandler(context: ContextInterpreter, token: ParseNode) {
-        context.execGetVariable();
-
-        const rightVar = context.popStackVar();
-        const leftVar = context.popStackVar();
-
-        const leftTmp = leftVar.castAs(VariableType.vtNumber);
-        if (!leftTmp)
-            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
-
-        const rightTmp = rightVar.castAs(VariableType.vtNumber);
-        if (!rightTmp)
-            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
-
-        const variable = context.createVariable(VariableType.vtNumber, leftTmp.value * rightTmp.value);
-
-        context.pushStackVar(variable);
+        this.binaryArithmeticHandler(context, token, '*');
     }
 
     divHandler(context: ContextInterpreter, token: ParseNode) {
-        context.execGetVariable();
-
-        const rightVar = context.popStackVar();
-        const leftVar = context.popStackVar();
-
-        const leftTmp = leftVar.castAs(VariableType.vtNumber);
-        if (!leftTmp)
-            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
-
-        const rightTmp = rightVar.castAs(VariableType.vtNumber);
-        if (!rightTmp)
-            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
-
-        const variable = context.createVariable(VariableType.vtNumber, leftTmp.value / rightTmp.value);
-
-        context.pushStackVar(variable);
+        this.binaryArithmeticHandler(context, token, '/');
     }
 
     modHandler(context: ContextInterpreter, token: ParseNode) {
+        this.binaryArithmeticHandler(context, token, '%');
+    }
+
+    /**
+     * Общий шаблон арифметического оператора (зеркало PHP binaryArithmeticHandler):
+     * правый операнд вычисляется здесь, левый уже лежит на стеке. Пустой стек —
+     * унарная форма (`-x`, `+x`), она определена только для числа.
+     */
+    protected binaryArithmeticHandler(context: ContextInterpreter, token: ParseNode, operator: string) {
         context.execGetVariable();
 
-        const rightVar = context.popStackVar(),
-            leftVar = context.popStackVar();
+        const rightVar = context.popStackVar();
 
-        const leftTmp = leftVar.castAs(VariableType.vtNumber);
-        if (!leftTmp)
-            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
+        if (!context._stackVars.length) {
+            const value = Interpreter.numericOperand(token, operator, rightVar);
 
-        const rightTmp = rightVar.castAs(VariableType.vtNumber);
-        if (!rightTmp)
-            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
+            switch (operator) {
+                case '+':
+                    context.pushStackVar(context.createVariable(VariableType.vtNumber, value));
+                    return;
+                case '-':
+                    context.pushStackVar(context.createVariable(VariableType.vtNumber, -value));
+                    return;
+            }
+            throw new InterpreterException('Invalid expression', token.cursorPos);
+        }
 
-        const variable = context.createVariable(VariableType.vtNumber, (leftTmp.value as number) % (rightTmp.value as number));
+        const leftVar = context.popStackVar();
 
-        context.pushStackVar(variable);
+        context.pushStackVar(this.arithmetic(context, token, operator, leftVar, rightVar));
     }
 
     //Битовые операции 64-битные (зеркало PHP, где int 64-битный), а не 32-битные
@@ -822,27 +700,27 @@ export class Interpreter {
     //беззнаковое 32-битное представление. Результат >2^53 теряет точность при
     //возврате в number — это предел модели (для типичных значений безопасно).
     bitAndHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) & toInt64(b))));
+        this.bitwiseBinaryHandler(context, token, '&', (a, b) => Number(BigInt.asIntN(64, toInt64(a) & toInt64(b))));
     }
 
     bitOrHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) | toInt64(b))));
+        this.bitwiseBinaryHandler(context, token, '|', (a, b) => Number(BigInt.asIntN(64, toInt64(a) | toInt64(b))));
     }
 
     bitXorHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) ^ toInt64(b))));
+        this.bitwiseBinaryHandler(context, token, '^', (a, b) => Number(BigInt.asIntN(64, toInt64(a) ^ toInt64(b))));
     }
 
     shiftLeftHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) << (toInt64(b) & 31n))));
+        this.bitwiseBinaryHandler(context, token, '<<', (a, b) => Number(BigInt.asIntN(64, toInt64(a) << (toInt64(b) & 31n))));
     }
 
     shiftRightHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => Number(BigInt.asIntN(64, toInt64(a) >> (toInt64(b) & 31n))));
+        this.bitwiseBinaryHandler(context, token, '>>', (a, b) => Number(BigInt.asIntN(64, toInt64(a) >> (toInt64(b) & 31n))));
     }
 
     uShiftRightHandler(context: ContextInterpreter, token: ParseNode) {
-        this.bitwiseBinaryHandler(context, token, (a, b) => Number(((toInt64(a) & 0xFFFFFFFFn) >> (toInt64(b) & 31n)) & 0xFFFFFFFFn));
+        this.bitwiseBinaryHandler(context, token, '>>>', (a, b) => Number(((toInt64(a) & 0xFFFFFFFFn) >> (toInt64(b) & 31n)) & 0xFFFFFFFFn));
     }
 
     /**
@@ -850,21 +728,15 @@ export class Interpreter {
      * стека, кастит их к числу, проверяет тип, применяет op и возвращает
      * результат. Точечный фикс операции делается в передаваемом замыкании.
      */
-    private bitwiseBinaryHandler(context: ContextInterpreter, token: ParseNode, op: (a: number, b: number) => number) {
+    private bitwiseBinaryHandler(context: ContextInterpreter, token: ParseNode, operator: string, op: (a: number, b: number) => number) {
         context.execGetVariable();
 
         const rightVar = context.popStackVar(),
             leftVar = context.popStackVar();
 
-        const leftTmp = leftVar.castAs(VariableType.vtNumber);
-        if (!leftTmp)
-            throw new InterpreterException('Failed ' + leftVar.typeName + ' cast as number', token.cursorPos);
+        const [l, r] = Interpreter.numericOperands(token, operator, leftVar, rightVar);
 
-        const rightTmp = rightVar.castAs(VariableType.vtNumber);
-        if (!rightTmp)
-            throw new InterpreterException('Failed ' + rightVar.typeName + ' cast as number', token.cursorPos);
-
-        const result = op(leftTmp.value as number, rightTmp.value as number);
+        const result = op(l, r);
         const variable = context.createVariable(VariableType.vtNumber, result);
 
         context.pushStackVar(variable);
@@ -872,8 +744,9 @@ export class Interpreter {
 
     shortIncrementHandler(context: ContextInterpreter, token: ParseNode) {
         if (context._stackVars.length) {
-            const variable = context.popStackVar(),
-                variableAsNumber = variable.castAs(VariableType.vtNumber);
+            const variable = context.popStackVar();
+            Interpreter.numericOperand(token, '++', variable);
+            const variableAsNumber = variable.castAs(VariableType.vtNumber);
 
             if (!variableAsNumber) {
                 throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
@@ -891,8 +764,9 @@ export class Interpreter {
         } else {
             context.execGetVariable();
 
-            const variable = context.popStackVar(),
-                variableAsNumber = variable.castAs(VariableType.vtNumber);
+            const variable = context.popStackVar();
+            Interpreter.numericOperand(token, '++', variable);
+            const variableAsNumber = variable.castAs(VariableType.vtNumber);
 
             if (!variableAsNumber) {
                 throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
@@ -909,8 +783,9 @@ export class Interpreter {
 
     shortDecrementHandler(context: ContextInterpreter, token: ParseNode) {
         if (context._stackVars.length) {
-            const variable = context.popStackVar(),
-                variableAsNumber = variable.castAs(VariableType.vtNumber);
+            const variable = context.popStackVar();
+            Interpreter.numericOperand(token, '--', variable);
+            const variableAsNumber = variable.castAs(VariableType.vtNumber);
 
             if (!variableAsNumber) {
                 throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
@@ -928,8 +803,9 @@ export class Interpreter {
         } else {
             context.execGetVariable();
 
-            const variable = context.popStackVar(),
-                variableAsNumber = variable.castAs(VariableType.vtNumber);
+            const variable = context.popStackVar();
+            Interpreter.numericOperand(token, '--', variable);
+            const variableAsNumber = variable.castAs(VariableType.vtNumber);
 
             if (!variableAsNumber) {
                 throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
@@ -1412,35 +1288,154 @@ export class Interpreter {
     }
 
     compareVariable(compareType: CompareType, leftCompare: StackVariable, rightCompare: StackVariable, compareResult: StackVariable, cursorPosition?: TokenCursor) {
-        // Refs прозрачно разворачиваем — иначе instanceof-проверки внутри
-        // comparePriority/compare (например, у StackVariableDateTime) видят
-        // прокси StackVariableRef и не узнают исходный тип.
-        if (leftCompare instanceof StackVariableRef)
-            leftCompare = (leftCompare as unknown as { refValue: StackVariable }).refValue;
-        if (rightCompare instanceof StackVariableRef)
-            rightCompare = (rightCompare as unknown as { refValue: StackVariable }).refValue;
+        const left = Interpreter.unref(leftCompare);
+        const right = Interpreter.unref(rightCompare);
 
-        const leftPriority = leftCompare.comparePriority(rightCompare, compareType),
-            rightPriority = rightCompare.comparePriority(leftCompare, compareType);
-
-        if (leftPriority === false && rightPriority === false) {
-            throw new InterpreterException('Invalid compare types ' + leftCompare.typeName + ' and ' + rightCompare.typeName, cursorPosition)
-        }
-
-        if (leftPriority >= rightPriority) {
-            compareResult.value = leftCompare.compare(rightCompare, compareType)
+        if (compareType === CompareType.ctEqual || compareType === CompareType.ctNotEqual) {
+            const equal = Interpreter.valuesEqual(left, right);
+            compareResult.value = compareType === CompareType.ctEqual ? equal : !equal;
             return;
         }
 
-        if ((compareType & CompareType.ctGreat) === CompareType.ctGreat) {
-            compareType &= ~CompareType.ctGreat;
-            compareType |= CompareType.ctLess;
-        } else if ((compareType & CompareType.ctLess) === CompareType.ctLess) {
-            compareType &= ~CompareType.ctLess;
-            compareType |= CompareType.ctGreat;
+        //Порядок определён только для двух чисел и для двух дат. Строки, null,
+        //boolean и смешанные пары — ошибка TypeMismatch, а не приведение.
+        let l: number, r: number;
+        if (left.type === VariableType.vtNumber && right.type === VariableType.vtNumber) {
+            l = left.value as number;
+            r = right.value as number;
+        } else if (left instanceof StackVariableDateTime && right instanceof StackVariableDateTime) {
+            l = left.value as number;
+            r = right.value as number;
+        } else {
+            throw Interpreter.typeMismatch(cursorPosition, Interpreter.compareOperatorName(compareType), left, right);
         }
 
-        compareResult.value = rightCompare.compare(leftCompare, compareType)
+        switch (compareType) {
+            case CompareType.ctLess: compareResult.value = l < r; return;
+            case CompareType.ctGreat: compareResult.value = l > r; return;
+            case CompareType.ctLess | CompareType.ctEqual: compareResult.value = l <= r; return;
+            case CompareType.ctGreat | CompareType.ctEqual: compareResult.value = l >= r; return;
+        }
+        throw new InterpreterException('Invalid compare type', cursorPosition);
+    }
+
+    /**
+     * ЕДИНАЯ точка равенства для `==`, `!=` и `switch`/`case` (зеркало PHP
+     * Interpreter::valuesEqual): без приведения типов. Разные типы не равны никогда;
+     * числа — по значению (NaN не равен ничему), строки и boolean — по значению,
+     * null равен только null, даты — по моменту времени; массивы, объекты и
+     * функции — по ссылке.
+     */
+    static valuesEqual(leftVariable: StackVariable, rightVariable: StackVariable): boolean {
+        const left = Interpreter.unref(leftVariable);
+        const right = Interpreter.unref(rightVariable);
+
+        if (left instanceof StackVariableDateTime || right instanceof StackVariableDateTime) {
+            return left instanceof StackVariableDateTime && right instanceof StackVariableDateTime
+                && left.value === right.value;
+        }
+
+        const type = Interpreter.equalityType(left);
+        if (type !== Interpreter.equalityType(right)) {
+            return false;
+        }
+
+        switch (type) {
+            case VariableType.vtNull:
+                return true;
+            case VariableType.vtNumber:
+            case VariableType.vtString:
+            case VariableType.vtBoolean:
+                return left.value === right.value;
+            default:
+                return left === right;
+        }
+    }
+
+    /** Отсутствие значения (null / undefined / void) в равенстве — один тип. */
+    private static equalityType(variable: StackVariable): VariableType {
+        const type = variable.type;
+
+        return type === VariableType.vtUndefined || type === VariableType.vtVoid ? VariableType.vtNull : type;
+    }
+
+    private static unref(variable: StackVariable): StackVariable {
+        return variable instanceof StackVariableRef ? variable.refValue as StackVariable : variable;
+    }
+
+    private static compareOperatorName(compareType: CompareType): string {
+        switch (compareType) {
+            case CompareType.ctLess: return '<';
+            case CompareType.ctGreat: return '>';
+            case CompareType.ctLess | CompareType.ctEqual: return '<=';
+            case CompareType.ctGreat | CompareType.ctEqual: return '>=';
+            case CompareType.ctEqual: return '==';
+        }
+        return '!=';
+    }
+
+    /**
+     * Ошибка «операция не определена для этих типов» — одна форма текста для
+     * сравнений, арифметики, битовых операций, `++`/`--` и унарного минуса.
+     */
+    private static typeMismatch(cursorPosition: TokenCursor | undefined, operator: string, left: StackVariable, right?: StackVariable): InterpreterException {
+        const types = right === undefined
+            ? Interpreter.unref(left).typeName
+            : Interpreter.unref(left).typeName + ' and ' + Interpreter.unref(right).typeName;
+
+        return new InterpreterException('Operator ' + operator + ' is not defined for ' + types, cursorPosition, ErrorCode.TypeMismatch);
+    }
+
+    /** Оба операнда арифметики — числа, иначе TypeMismatch. */
+    private static numericOperands(token: ParseNode | null, operator: string, left: StackVariable, right: StackVariable): [number, number] {
+        const l = Interpreter.unref(left);
+        const r = Interpreter.unref(right);
+
+        if (l.type !== VariableType.vtNumber || r.type !== VariableType.vtNumber) {
+            throw Interpreter.typeMismatch(token?.cursorPos, operator, l, r);
+        }
+
+        return [l.value as number, r.value as number];
+    }
+
+    /** Операнд унарной арифметики (`-x`, `+x`, `++`, `--`) — число, иначе TypeMismatch. */
+    private static numericOperand(token: ParseNode | null, operator: string, variable: StackVariable): number {
+        const v = Interpreter.unref(variable);
+
+        if (v.type !== VariableType.vtNumber) {
+            throw Interpreter.typeMismatch(token?.cursorPos, operator, v);
+        }
+
+        return v.value as number;
+    }
+
+    /**
+     * Бинарная арифметика `+ - * / %` — общая для выражений и составного
+     * присваивания (зеркало PHP Interpreter::arithmetic). `+` складывает два числа
+     * или склеивает две строки; остальные — только числа. Числовая модель —
+     * IEEE-754/JS.
+     */
+    private arithmetic(context: ContextInterpreter, token: ParseNode | null, operator: string, left: StackVariable, right: StackVariable): StackVariable {
+        const l = Interpreter.unref(left);
+        const r = Interpreter.unref(right);
+
+        if (operator === '+' && l.type === VariableType.vtString && r.type === VariableType.vtString) {
+            return context.createVariable(VariableType.vtString, (l.value as string) + (r.value as string));
+        }
+
+        const [a, b] = Interpreter.numericOperands(token, operator, l, r);
+
+        let value: number;
+        switch (operator) {
+            case '+': value = a + b; break;
+            case '-': value = a - b; break;
+            case '*': value = a * b; break;
+            case '/': value = a / b; break;
+            case '%': value = a % b; break;
+            default: throw new InterpreterException('Invalid operation [' + operator + ']', token?.cursorPos);
+        }
+
+        return context.createVariable(VariableType.vtNumber, value);
     }
 
     logicalHandler(context: ContextInterpreter, token: ParseNode) {
@@ -2235,7 +2230,7 @@ export class Interpreter {
             if (caseNode.nType === NodeType.ntCase) {
                 const caseLiteral = this.evalCaseLiteral(context, caseNode, token);
 
-                if (switchValue.compare(caseLiteral, CompareType.ctEqual)) {
+                if (Interpreter.valuesEqual(switchValue, caseLiteral)) {
                     matchIndex = i;
                     break;
                 }

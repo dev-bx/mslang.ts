@@ -1,1 +1,2 @@
-return null == 0;
+// == без приведения: null равен только null.
+return [null == 0, null == null];

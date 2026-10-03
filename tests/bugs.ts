@@ -41,6 +41,17 @@ function executeReturnCode(text: string) {
     return createCodeContext(text).exec(true);
 }
 
+// Код ошибки, которую бросил скрипт, или null, если не бросил.
+function errorCodeOf(text: string): string | null {
+    try {
+        executeReturnCode(text);
+    } catch (e) {
+        if (e instanceof MSLangException) return e.getErrorCode();
+        throw e;
+    }
+    return null;
+}
+
 // --- КРИТИЧНЫЕ ---
 
 // Баг 1: нет обработчика ntWhile — любой while падает при выполнении.
@@ -346,7 +357,7 @@ test('Bug18b_PushParameterToGlobalArray', () => {
         function add(x) { arr.push(x); }
         add(7);
         add(8);
-        return arr.length + "/" + arr[0] + "/" + arr[1];
+        return arr.length.toString() + "/" + arr[0].toString() + "/" + arr[1].toString();
     `);
     assert.strictEqual('2/7/8', r?.value);
 });
@@ -360,7 +371,7 @@ test('Bug18b_PushParameterToFieldArrayInsideMethod', () => {
         let a = new A();
         a.add(7);
         a.add(8);
-        return a.arr[0] + "/" + a.arr[1];
+        return a.arr[0].toString() + "/" + a.arr[1].toString();
     `);
     assert.strictEqual('7/8', r?.value);
 });
@@ -374,7 +385,7 @@ test('Bug18b_IndexAssignParameterInMethod', () => {
         let a = new A();
         a.setIdx(0, 7);
         a.setIdx(1, 8);
-        return a.arr[0] + "/" + a.arr[1];
+        return a.arr[0].toString() + "/" + a.arr[1].toString();
     `);
     assert.strictEqual('7/8', r?.value);
 });
@@ -383,7 +394,7 @@ test('Bug18b_ArrayLiteralWithParameters', () => {
     const r = executeReturnCode(`
         function makeArr(x, y) { return [x, y]; }
         let a = makeArr(7, 8);
-        return a.length + "/" + a[0] + "/" + a[1];
+        return a.length.toString() + "/" + a[0].toString() + "/" + a[1].toString();
     `);
     assert.strictEqual('2/7/8', r?.value);
 });
@@ -593,7 +604,10 @@ test('Feat24_CompoundAssign', () => {
     assert.strictEqual(5,  executeReturnCode('let a = 20; a /= 4; return a;')?.value);
     assert.strictEqual(2,  executeReturnCode('let a = 17; a %= 5; return a;')?.value);
     assert.strictEqual('abcd', executeReturnCode('let s = "ab"; s += "cd"; return s;')?.value);
-    assert.strictEqual('x5',   executeReturnCode('let s = "x";  s += 5;    return s;')?.value);
+    assert.strictEqual('TypeMismatch', errorCodeOf('let s = "x";  s += 5;    return s;'));
+    assert.strictEqual('x5',   executeReturnCode('let s = "x";  s += (5).toString(); return s;')?.value);
+    // `x op= y` — ровно `x = x op y`: деление на ноль даёт Infinity, а не ошибку.
+    assert.strictEqual(true, executeReturnCode('let a = 1; a /= 0; return a == 1 / 0;')?.value);
 });
 
 test('Feat25_Ternary', () => {
@@ -645,7 +659,7 @@ test('Feat30_ArrayFillIncludes', () => {
 
 test('Feat31_RestParameters', () => {
     assert.strictEqual(15, executeReturnCode('function sum(...args) { let s = 0; for (let v of args) { s += v; } return s; } return sum(1, 2, 3, 4, 5);')?.value);
-    assert.strictEqual('test:3', executeReturnCode('function info(name, ...rest) { return name + ":" + rest.length; } return info("test", 1, 2, 3);')?.value);
+    assert.strictEqual('test:3', executeReturnCode('function info(name, ...rest) { return name + ":" + rest.length.toString(); } return info("test", 1, 2, 3);')?.value);
     assert.strictEqual(0, executeReturnCode('function f(...a) { return a.length; } return f();')?.value);
 });
 
@@ -713,12 +727,14 @@ test('P0_04_ModuloFloat', () => {
 });
 
 test('P0_05_StringToNumberJS', () => {
-    // Строка → число по правилам JS Number(): hex/bin/Infinity, trim, пустая → 0.
-    assert.strictEqual(26,    executeReturnCode('return "0x1A" - 0;')?.value);
-    assert.strictEqual(false, executeReturnCode('return ("Infinity" - 0).isFinite;')?.value);
-    assert.strictEqual(0,     executeReturnCode('return "" - 0;')?.value);
-    assert.strictEqual(5,     executeReturnCode('return "  5  " - 0;')?.value);
-    assert.strictEqual(true,  executeReturnCode('return ("abc" - 0).isNaN;')?.value);
+    // Строка в арифметике к числу не приводится; приведение — явное, через Number.parseInt/parseFloat.
+    for (const script of ['return "0x1A" - 0;', 'return "" - 0;', 'return "  5  " - 0;', 'return "abc" - 0;']) {
+        assert.strictEqual('TypeMismatch', errorCodeOf(script), script);
+    }
+    assert.strictEqual(26,    executeReturnCode('return Number.parseInt("0x1A");')?.value);
+    assert.strictEqual(false, executeReturnCode('return Number.parseFloat("Infinity").isFinite;')?.value);
+    assert.strictEqual(5,     executeReturnCode('return Number.parseFloat("  5  ");')?.value);
+    assert.strictEqual(true,  executeReturnCode('return Number.parseFloat("abc").isNaN;')?.value);
 });
 
 test('P0_06_ArrayMembershipStrict', () => {
@@ -759,7 +775,8 @@ test('P0_10_DateTimeTimeIsNumber', () => {
 
 test('P0_11_VoidCoercion', () => {
     // Возврат без значения (void): к числу → NaN, к булеву → false.
-    assert.strictEqual(true, executeReturnCode('function f() {} return (f() + 1).isNaN;')?.value);
+    // Арифметика с результатом функции без return — TypeMismatch.
+    assert.strictEqual('TypeMismatch', errorCodeOf('function f() {} return f() + 1;'));
     // Результат функции без return — не условие: if на нём — ошибка NotBoolean.
     assert.throws(() => executeReturnCode('function f() {} if (f()) { return "t"; } return "f";'),
         (e: unknown) => e instanceof MSLangException && e.getErrorCode() === 'NotBoolean');
@@ -897,7 +914,7 @@ test('P1_07_ErrorMessageHasLineColPrefix', () => {
 
 test('P1_13_ObjectCastsToStringBracket', () => {
     // str += obj → '[object]' (StackVariableObject.castAs), а не падение (P1-13).
-    const r = executeReturnCode('class C { constructor() { this.x = 1; } } let o = new C(); let s = "v:"; s += o; return s;');
+    const r = executeReturnCode('class C { constructor() { this.x = 1; } } let o = new C(); let s = "v:"; s += o.toString(); return s;');
     assert.strictEqual('v:[object]', r?.value);
 });
 
@@ -1003,17 +1020,17 @@ test('P2_03_CharCodeAtCharAtNegative', () => {
 
 test('P2_04_IndexOfNonNumericKey', () => {
     // P2-4: нечисловой ключ из indexOf приводится как PHP (int): ведущие цифры или 0.
-    const r = executeReturnCode("a=[]; a['k']='v'; a['12x']='w'; a['t']='z'; return a.indexOf('v')+','+a.indexOf('w')+','+a.indexOf('z');");
+    const r = executeReturnCode("a=[]; a['k']='v'; a['12x']='w'; a['t']='z'; return a.indexOf('v').toString()+','+a.indexOf('w').toString()+','+a.indexOf('z').toString();");
     assert.strictEqual('0,12,0', r?.value);
 });
 
 test('P2_05_PlusNumericBranch', () => {
-    // P2-5: численная ветка plusHandler — toPrimitive приводит boolean/null к Number,
-    // поэтому isNumeric-проверка не падает, а 'Type error' остаётся мёртвой ветвью (как в PHP).
+    // P2-5: `+` складывает два числа или склеивает две строки; прочие пары — TypeMismatch.
     assert.strictEqual(5, executeReturnCode('return 2 + 3;')?.value);
-    assert.strictEqual(6, executeReturnCode('return 5 + true;')?.value);
-    assert.strictEqual(5, executeReturnCode('return 5 + null;')?.value);
-    assert.strictEqual('a1', executeReturnCode("return 'a' + 1;")?.value);
+    assert.strictEqual('a1', executeReturnCode("return 'a' + '1';")?.value);
+    for (const script of ['return 5 + true;', 'return 5 + null;', "return 'a' + 1;"]) {
+        assert.strictEqual('TypeMismatch', errorCodeOf(script), script);
+    }
 });
 
 test('P2_06_ArrayNullRawValue', () => {
@@ -1039,20 +1056,20 @@ test('P0_21_NumberToString', () => {
     // toString; правка касалась PHP-эталона, кроме -Infinity (его теряли ОБА движка).
 
     // Раньше PHP резал до precision=14 ("0.3", "0.33333333333333").
-    assert.strictEqual('0.30000000000000004', executeReturnCode('return "" + (0.1 + 0.2);')?.value);
-    assert.strictEqual('0.3333333333333333', executeReturnCode('return "" + (1 / 3);')?.value);
+    assert.strictEqual('0.30000000000000004', executeReturnCode('return ((0.1 + 0.2)).toString();')?.value);
+    assert.strictEqual('0.3333333333333333', executeReturnCode('return ((1 / 3)).toString();')?.value);
     // Раньше -Infinity терял знак и печатался "Infinity".
-    assert.strictEqual('-Infinity', executeReturnCode('return "" + (-5 / 0);')?.value);
-    assert.strictEqual('Infinity', executeReturnCode('return "" + (5 / 0);')?.value);
-    assert.strictEqual('NaN', executeReturnCode('return "" + (0 / 0);')?.value);
+    assert.strictEqual('-Infinity', executeReturnCode('return ((-5 / 0)).toString();')?.value);
+    assert.strictEqual('Infinity', executeReturnCode('return ((5 / 0)).toString();')?.value);
+    assert.strictEqual('NaN', executeReturnCode('return ((0 / 0)).toString();')?.value);
     // Пороги экспоненты как в JS: |x| >= 1e21 или 0 < |x| < 1e-6, нижний 'e'.
-    assert.strictEqual('0.000001', executeReturnCode('return "" + (0.000001);')?.value);
-    assert.strictEqual('1e-7', executeReturnCode('return "" + (0.0000001);')?.value);
-    assert.strictEqual('1e+21', executeReturnCode('return "" + (1e21);')?.value);
-    assert.strictEqual('100000000000000000000', executeReturnCode('return "" + (1e20);')?.value);
+    assert.strictEqual('0.000001', executeReturnCode('return ((0.000001)).toString();')?.value);
+    assert.strictEqual('1e-7', executeReturnCode('return ((0.0000001)).toString();')?.value);
+    assert.strictEqual('1e+21', executeReturnCode('return ((1e21)).toString();')?.value);
+    assert.strictEqual('100000000000000000000', executeReturnCode('return ((1e20)).toString();')?.value);
     // Минус-ноль без знака; большое целое за 2^53 — как double.
-    assert.strictEqual('0', executeReturnCode('return "" + (-0.0);')?.value);
-    assert.strictEqual('9007199254740992', executeReturnCode('return "" + (9007199254740993);')?.value);
+    assert.strictEqual('0', executeReturnCode('return ((-0.0)).toString();')?.value);
+    assert.strictEqual('9007199254740992', executeReturnCode('return ((9007199254740993)).toString();')?.value);
 });
 
 test('LexerOperatorStopChars', () => {
@@ -1075,6 +1092,7 @@ test('ParserStringAfterBinaryOp', () => {
     assert.strictEqual(true, executeReturnCode('return true && "b" == "b";')?.value);
     assert.strictEqual(true, executeReturnCode('return false || "x" == "x";')?.value);
     assert.strictEqual(false, executeReturnCode('let a = false; return a || "def" == "x";')?.value);
-    assert.strictEqual(1, executeReturnCode('return 5 % "2";')?.value);
-    assert.strictEqual(0, executeReturnCode('return 7 & "0";')?.value);
+    // Строка после `%` / `&` разбирается; ошибка — уже при исполнении (TypeMismatch, не ParseError).
+    assert.strictEqual('TypeMismatch', errorCodeOf('return 5 % "2";'));
+    assert.strictEqual('TypeMismatch', errorCodeOf('return 7 & "0";'));
 });

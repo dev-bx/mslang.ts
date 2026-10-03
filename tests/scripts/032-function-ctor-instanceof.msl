@@ -2,4 +2,4 @@ function User(name) {
     this.name = name;
 }
 u = new User("Anna");
-return u.name + "|" + (u instanceof User);
+return [u.name, u instanceof User];

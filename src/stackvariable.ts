@@ -1,10 +1,8 @@
-import {CompareType} from "./parser.js";
 import {VariableType} from "./variabletype.js";
 import {FunctionEntry} from "./functionentry.js";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 import {FunctionParameter} from "./functionparameter";
 import {InterpreterException} from "./exceptions";
-import {phpLooseEqual} from "./phpsemantics";
 
 interface VariableProperty {
     get?: unknown;
@@ -145,24 +143,6 @@ export class StackVariable {
             return;
 
         this.properties[name].set(name, value);
-    }
-
-    comparePriority(variable: StackVariable, compareType: CompareType):number|false {
-        if (compareType !== CompareType.ctEqual && compareType !== CompareType.ctNotEqual)
-            return false;
-
-        return 0;
-    }
-
-    compare(variable: StackVariable, compareType: CompareType) {
-        switch (compareType) {
-            case CompareType.ctEqual:
-                return phpLooseEqual(this.value, variable.value);
-            case CompareType.ctNotEqual:
-                return !phpLooseEqual(this.value, variable.value);
-        }
-
-        throw new InterpreterException('Invalid compare type', this.getContext()?.currentToken?.cursorPos);
     }
 
     castAs<T extends VariableType>(variableType: T): SpecificStackVariable<T>|null {
