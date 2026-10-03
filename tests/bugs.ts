@@ -869,14 +869,6 @@ test('Bug22_FloatIndexFromArithmetic', () => {
     assert.ok(v === undefined || v === null);
 });
 
-// P1-22: зеркало PHP Test.php testMSLang077_VarRedeclaresLetFails. Поведение уже
-// покрыто 077_LetRedeclarationInSameBlockFails в tests.ts (заморожен) — здесь
-// добивка парности по имени с эталоном.
-test('077_VarRedeclaresLetFails', () => {
-    assert.throws(() => executeReturnCode('let x = 1; let x = 2; return x;'),
-        /Identifier 'x' has already been declared/);
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
 // P1 батч B: парсер (зеркало TestBugs.php).
 // ─────────────────────────────────────────────────────────────────────────────

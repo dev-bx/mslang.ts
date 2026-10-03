@@ -2505,6 +2505,13 @@ test('077_LetSimple', () => {
     assert.strictEqual(5, r?.value);
 });
 
+// P1-22: зеркало PHP Test.php testMSLang077_VarRedeclaresLetFails (перенесён из bugs.ts,
+// чтобы пары файлов совпадали: tests.ts ↔ Test.php).
+test('077_VarRedeclaresLetFails', () => {
+    assert.throws(() => executeReturnCode('let x = 1; let x = 2; return x;'),
+        /Identifier 'x' has already been declared/);
+});
+
 test('077_LetWithoutInitIsNull', () => {
     const r = executeReturnCode('let x; return x;');
     assert.strictEqual(VariableType.vtNull, r?.type);
