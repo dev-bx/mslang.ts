@@ -3690,3 +3690,11 @@ test('105_ScalarOffsetWrite', () => {
     assert.strictEqual(2, executeReturnCode('let a = [1]; a[0] = 2; return a[0];')?.value);
     assert.strictEqual(1, executeReturnCode('let o = {}; o["k"] = 1; return o.k;')?.value);
 });
+
+test('106_IndexOfEntryName', () => {
+    // Имя FunctionEntry метода indexOf — «IndexOf», как у прочих методов (funcInvokeIndexOf);
+    // раньше TS держал funcInvoke_indexOf и отдавал «indexOf».
+    assert.strictEqual('IndexOf', new StackVariableString(false, 'abc').getFunctionEntry('indexOf')?.getName());
+    assert.strictEqual('IndexOf', new StackVariableArray(false, []).getFunctionEntry('indexOf')?.getName());
+    assert.strictEqual(2, executeReturnCode('return "hello".indexOf("l");')?.value);
+});

@@ -198,15 +198,15 @@ export class StackVariableArray extends StackVariable {
 
     /** IndexOf */
 
-    funcInvoke_indexOfReturn = () => VariableType.vtInteger;
+    funcInvokeIndexOfReturn = () => VariableType.vtInteger;
 
-    funcInvoke_indexOfArgs() {
+    funcInvokeIndexOfArgs() {
         return [
             new FunctionParameter('searchValue', undefined, true),
         ];
     }
 
-    funcInvoke_indexOf(searchValue: unknown) {
+    funcInvokeIndexOf(searchValue: unknown) {
         const keys = Array.from(this.value.keys());
         const values = Array.from(this.value.values());
 

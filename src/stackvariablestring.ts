@@ -36,16 +36,16 @@ export class StackVariableString extends StackVariable {
 
     /** indexOf */
 
-    funcInvoke_indexOfReturn = () => VariableType.vtNumber;
+    funcInvokeIndexOfReturn = () => VariableType.vtNumber;
 
-    funcInvoke_indexOfArgs() {
+    funcInvokeIndexOfArgs() {
         return [
             new FunctionParameter('searchString', VariableType.vtString, true),
             new FunctionParameter('position', VariableType.vtNumber, false),
         ];
     }
 
-    funcInvoke_indexOf(searchString: string, position?: number) {
+    funcInvokeIndexOf(searchString: string, position?: number) {
         if (typeof this.value !== 'string')
             return -1;
 
