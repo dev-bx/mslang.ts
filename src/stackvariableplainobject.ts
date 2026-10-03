@@ -27,6 +27,11 @@ export class StackVariablePlainObject extends StackVariableObject {
         }
     }
 
+    /** Запись по ключу `o["k"] = v` (зеркало PHP StackVariablePlainObject::offsetSet). */
+    override offsetSet(offset: string | number, value: StackVariable): void {
+        this.setProperty(String(offset), value);
+    }
+
     override castAs(variableType: VariableType): StackVariable | null {
         switch (variableType) {
             case VariableType.vtObject:

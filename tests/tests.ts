@@ -3680,3 +3680,13 @@ test('115_IncludesUniqueEquality', () => {
     assert.strictEqual(false, executeReturnCode('return [[1]].includes([1]);')?.value);
     assert.strictEqual(false, executeReturnCode('return [(0/0)].includes(0/0);')?.value);
 });
+
+test('105_ScalarOffsetWrite', () => {
+    // Запись по ключу — только в массив и объект-литерал; у скаляра, хост-объекта и даты —
+    // «Cannot set offset» (TS раньше молча ничего не делал).
+    for (const script of ['let n = 5; n[0] = 1;', 'let t = true; t[0] = 1;', 'let x = null; x[0] = 1;', 'let s = "abc"; s[0] = "x";', 'let d = DateTime.Now; d[0] = 1;']) {
+        assert.strictEqual('Cannot set offset', errorOf(script)?.getRawMessage(), script);
+    }
+    assert.strictEqual(2, executeReturnCode('let a = [1]; a[0] = 2; return a[0];')?.value);
+    assert.strictEqual(1, executeReturnCode('let o = {}; o["k"] = 1; return o.k;')?.value);
+});

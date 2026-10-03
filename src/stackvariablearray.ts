@@ -112,6 +112,11 @@ export class StackVariableArray extends StackVariable {
         return this.value.get(name.toString());
     }
 
+    /** Запись по ключу `a[k] = v` (зеркало PHP StackVariableArray::offsetSet). */
+    override offsetSet(offset: string | number, value: StackVariable): void {
+        this.setProperty(String(offset), value);
+    }
+
     setProperty(name: string, value: StackVariable) {
         if (name === 'length') {
             const asNumber = value.castAs(VariableType.vtNumber);

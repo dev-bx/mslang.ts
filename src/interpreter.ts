@@ -2066,7 +2066,9 @@ export class Interpreter {
             accessTo = accessTo.refValue as StackVariable;
         }
 
-        accessTo.setProperty(token.nValue.value as string, variable);
+        //Запись по ключу — только массив и объект-литерал; скаляр, хост-объект, дата —
+        //«Cannot set offset», как в PHP (раньше TS молча ничего не делал).
+        accessTo.offsetSet(token.nValue.value as string, variable);
 
         context.pushStackVar(variable);
     }

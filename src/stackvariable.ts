@@ -135,6 +135,16 @@ export class StackVariable {
         return this.properties[name].get.apply(this);
     }
 
+    /**
+     * Запись по ключу `x[k] = v` (зеркало PHP StackVariable::offsetSet): по умолчанию
+     * запрещена — «Cannot set offset». Разрешают массив и объект-литерал.
+     */
+    offsetSet(offset: string | number, value: StackVariable): void {
+        void offset;
+        void value;
+        throw new InterpreterException('Cannot set offset', this.getContext()?.currentToken?.cursorPos);
+    }
+
     setProperty(name: string, value: unknown) {
         if (!this.properties.hasOwnProperty(name))
             return;
