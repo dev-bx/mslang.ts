@@ -39,7 +39,6 @@
     "test:all": "npm test && npm run test:bugs && npm run test:limits && npm run test:mirror && npm run test:cross",
     "lint": "eslint src tests",
     "coverage": "node --experimental-test-coverage --import tsx tests/tests.ts",
-    "test:compile": "tsc && tsc -p tsconfig.test.json && node dist/tests/tests.js",
     "test:watch": "node --loader ts-node/esm --watch tests/tests.ts",
     "prepublishOnly": "npm run test:all && npm run build"
   },
