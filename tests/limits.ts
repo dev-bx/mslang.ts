@@ -121,3 +121,19 @@ test('бюджет данных: Array.keys/values списываются', () =
     //keys и values создают по 3-элементному массиву → не меньше 6*16 байт (совпадает с PHP).
     assert.ok(context.getAllocatedBytes() >= 96);
 });
+
+//P1-10 (хвост): reverse/flip/concat списывают ровно как PHP — 16 байт за каждую ячейку
+//результата, в том числе без присваивания результата переменной.
+test('бюджет данных: reverse/flip/concat списываются как в PHP', () => {
+    const delta = (call: string) => {
+        const base = createCodeContext('let a = [1, 2, 3]; return 1;');
+        base.exec(true);
+        const context = createCodeContext('let a = [1, 2, 3]; a.' + call + '; return 1;');
+        context.exec(true);
+        return context.getAllocatedBytes() - base.getAllocatedBytes();
+    };
+    assert.deepEqual(
+        ['keys()', 'values()', 'reverse()', 'flip()', 'concat(4, 5)'].map(delta),
+        [48, 48, 48, 48, 80],
+    );
+});

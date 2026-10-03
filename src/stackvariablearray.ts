@@ -302,7 +302,11 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_concatReturn = () => VariableType.vtArray;
 
     funcInvoke_concat() {
-        const result = new StackVariableArray(false, this._value, this.getContext());
+        //Содержимое собираем без учёта бюджета, а итоговый массив создаём целиком — так
+        //конструктор спишет 16 байт за КАЖДУЮ ячейку результата, как PHP (там метод
+        //возвращает готовый массив, и его оборачивает createVariable). Раньше
+        //допушенные ячейки не учитывались.
+        const result = new StackVariableArray(false, this._value, null);
 
         Array.from(arguments).forEach(param => {
             if (param instanceof StackVariableArray) {
@@ -318,7 +322,7 @@ export class StackVariableArray extends StackVariable {
             }
         });
 
-        return result;
+        return new StackVariableArray(false, result.value, this.getContext());
     }
 
     /** keys */
@@ -350,7 +354,8 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_flipReturn = () => VariableType.vtArray;
 
     funcInvoke_flip() {
-        const result = new StackVariableArray(false, [], this.getContext());
+        //Как concat: собираем без учёта, итог создаём целиком (бюджет — как в PHP).
+        const result = new StackVariableArray(false, [], null);
 
         Array.from(this.value.keys()).forEach(k => {
             const value = this.value.get(k)?.castAs(VariableType.vtString);
@@ -364,7 +369,7 @@ export class StackVariableArray extends StackVariable {
             }
         });
 
-        return result;
+        return new StackVariableArray(false, result.value, this.getContext());
     }
 
     /** shift */
