@@ -3494,3 +3494,17 @@ test('099_AbsenceIsNull', () => {
     assert.strictEqual(false, executeReturnCode('return Object.has({a: null}, "a");')?.value);
     assert.strictEqual(true, executeReturnCode('return Object.has({a: 0}, "a");')?.value);
 });
+
+test('100_Length', () => {
+    // `.length` у строки — число символов (код-поинтов), у списка — число элементов.
+    // Раньше PHP считал у строки байты UTF-8, TS — единицы UTF-16.
+    assert.strictEqual(3, executeReturnCode('return "абв".length;')?.value, 'return "абв".length;');
+    assert.strictEqual(2, executeReturnCode('return "😀a".length;')?.value, 'return "😀a".length;');
+    assert.strictEqual(2, executeReturnCode('return "😀a".Length();')?.value, 'return "😀a".Length();');
+    assert.strictEqual(0, executeReturnCode('return "".length;')?.value, 'return "".length;');
+    assert.strictEqual(3, executeReturnCode('return [1, 2, 3].length;')?.value, 'return [1, 2, 3].length;');
+    assert.strictEqual(0, executeReturnCode('return [].length;')?.value, 'return [].length;');
+    assert.strictEqual('аб', executeReturnCode('let s = "абв"; return s.slice(0, s.length - 1);')?.value, 'let s = "абв"; return s.slice(0, s.length - 1);');
+    // У значений без длины — null (свойства нет), а не ошибка.
+    assert.strictEqual(VariableType.vtNull, (executeReturnCode('return {a: 1}.length;') as StackVariable).type);
+});
