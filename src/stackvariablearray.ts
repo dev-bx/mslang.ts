@@ -47,25 +47,27 @@ export class StackVariableArray extends StackVariable {
             } else if (v === null) {
                 // typeof null === 'object' в JS — без явной проверки null ушёл бы
                 // в StackVariableObject. PHP отдаёт createStackVariableNull.
-                v = new StackVariableNull(false);
+                v = new StackVariableNull(false, this.getContext());
             } else {
 
                 switch (typeof v) {
+                    // Зеркало PHP: все ветки создают значение с контекстом — строка
+                    // хоста списывает бюджет песочницы так же, как в эталоне.
                     case "string":
-                        v = new StackVariableString(false, v);
+                        v = new StackVariableString(false, v, this.getContext());
                         break;
                     case "boolean":
-                        v = new StackVariableBoolean(false, v);
+                        v = new StackVariableBoolean(false, v, this.getContext());
                         break;
                     case "bigint":
                     case "number":
-                        v = new StackVariableNumber(false, v);
+                        v = new StackVariableNumber(false, v, this.getContext());
                         break;
                     case "object":
-                        v = new StackVariableObject(false, v);
+                        v = new StackVariableObject(false, v, this.getContext());
                         break;
                     case "undefined":
-                        v = new StackVariableNull(false);
+                        v = new StackVariableNull(false, this.getContext());
                         break;
                     default:
                         throw new InterpreterException('Incompatible array value ' + typeof v, this.getContext()?.currentToken?.cursorPos);
@@ -330,7 +332,12 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_keysReturn = () => VariableType.vtArray;
 
     funcInvoke_keys() {
-        return new StackVariableArray(false, Array.from(this.value.keys()), this.getContext());
+        //Зеркало PHP array_keys: целочисленный ключ — число, прочие — строка
+        //(раньше TS отдавал строки и для [10,20].keys() → ["0","1"]).
+        const keys = Array.from(this.value.keys()).map((k) =>
+            /^(0|-?[1-9]\d*)$/.test(k) && Number.isSafeInteger(Number(k)) ? Number(k) : k);
+
+        return new StackVariableArray(false, keys, this.getContext());
     }
 
     /** values */

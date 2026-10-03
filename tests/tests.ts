@@ -3698,3 +3698,11 @@ test('106_IndexOfEntryName', () => {
     assert.strictEqual('IndexOf', new StackVariableArray(false, []).getFunctionEntry('indexOf')?.getName());
     assert.strictEqual(2, executeReturnCode('return "hello".indexOf("l");')?.value);
 });
+
+test('107_ArrayKeysNumeric', () => {
+    // keys(): целочисленный ключ — число, прочие — строка (как PHP array_keys); TS раньше
+    // отдавал строки, и при строгом == выходило [10,20].keys()[1] == 1 → false.
+    assert.deepStrictEqual([0, 1], (executeReturnCode('return [10, 20].keys();') as StackVariableArray).convertToNativeArray());
+    assert.deepStrictEqual(['a', 5, '05', -2], (executeReturnCode('return ["a" => 1, 5 => 2, "05" => 3, -2 => 4].keys();') as StackVariableArray).convertToNativeArray());
+    assert.strictEqual(true, executeReturnCode('return [10, 20].keys()[1] == 1;')?.value);
+});

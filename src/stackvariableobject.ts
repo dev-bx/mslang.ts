@@ -2,6 +2,7 @@ import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import type {StackVariableClass} from "./stackvariableclass.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 export class StackVariableObject extends StackVariable {
 
@@ -14,8 +15,8 @@ export class StackVariableObject extends StackVariable {
      */
     private _class: StackVariableClass | null = null;
 
-    constructor(isConst: boolean = false, value: unknown) {
-        super(VariableType.vtObject, isConst);
+    constructor(isConst: boolean = false, value: unknown, context: ContextInterpreter | null = null) {
+        super(VariableType.vtObject, isConst, context);
 
         this._value = value as typeof this._value;
     }
