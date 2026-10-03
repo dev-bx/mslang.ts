@@ -1221,7 +1221,7 @@ export class CodeParser {
      * Парсит `for (X of iterable) body`. На входе: лексер на ltOf. Зеркало
      * PHP-эталона CodeParser::parseForOf.
      */
-    protected parseForOf(NodeList: (ParseNode | ParseNode[])[], forCursor: TokenCursor, kind: string, varName: string): void {
+    protected parseForOf(NodeList: (ParseNode | ParseNode[])[], forCursor: TokenCursor | undefined, kind: string, varName: string): void {
         this.lexer.getToken();
 
         const iterableExpr = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);

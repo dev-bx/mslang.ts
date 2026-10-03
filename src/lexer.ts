@@ -303,10 +303,9 @@ export class CodeLexer extends Lexer {
         this._lastChar = null;
     }
 
-    get tokenCursor() {
-        if (!this._tokenCursor)
-            throw new LexerException('token cursor is not initialized.');
-
+    // Зеркало PHP Lexer::getTokenCursor(): ?TokenCursor — на конце текста места нет,
+    // это не ошибка (раньше геттер бросал, и `x = 5` без `;` в конце не разбиралось).
+    get tokenCursor(): TokenCursor | undefined {
         return this._tokenCursor;
     }
 

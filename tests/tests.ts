@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
     StackVariable, VariableType, StackVariableBoolean, StackVariableNumber, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString,
-    StackVariableObject, ParseNode, MSLangException
+    StackVariableObject, ParseNode, MSLangException, Script, ParsedScript
 } from "../src";
 
 class FieldsObject extends StackVariable {
@@ -3540,4 +3540,41 @@ test('101_PresenceCheck', () => {
     assert.strictEqual('ParseError', errorOf('return exists 5;')?.getErrorCode(), 'return exists 5;');
     assert.strictEqual('ParseError', errorOf('return ?? 1;')?.getErrorCode(), 'return ?? 1;');
     assert.strictEqual('UnknownName', errorOf('return exists(nope.a);')?.getErrorCode(), 'return exists(nope.a);');
+});
+
+test('102_ParseExpressionProgram', () => {
+    const value = (p: ParsedScript) => (p.createContext().exec(true) as StackVariable).value;
+
+    // Слово return внутри строки не делает выражение программой.
+    let p = Script.parse('"return" + "x"');
+    assert.strictEqual('expression', p.getKind());
+    assert.strictEqual('returnx', value(p));
+
+    // Программа с return — программа.
+    p = Script.parse('let a = 2; return a * 3;');
+    assert.strictEqual('program', p.getKind());
+    assert.strictEqual(6, value(p));
+
+    // `{a: 1}` в выражении — литерал объекта, а не блок.
+    assert.strictEqual('{"a":1}', value(Script.parseExpression('JSON.stringify({a: 1})')));
+
+    // parseExpression: инструкции — ошибка разбора с местом.
+    assert.throws(() => Script.parseExpression('a; b'),
+        (e: unknown) => e instanceof MSLangException && e.getErrorCode() === 'ParseError' && e.getSourceLine() === 1 && e.getSourceColumn() === 2);
+
+    // parse: если не годится ни выражение, ни программа, — ошибка того разбора, что ушёл дальше.
+    assert.throws(() => Script.parse('1 +'),
+        (e: unknown) => e instanceof MSLangException && e.getErrorCode() === 'ParseError' && e.getSourceLine() === 1 && e.getSourceColumn() === 3);
+
+    // Один разбор — много исполнений с разными значениями.
+    const expr = Script.parseExpression('a * 2');
+    const results = [1, 2, 3].map((a) => {
+        const context = expr.createContext();
+        context.setVariable('a', new StackVariableNumber(false, a));
+        return (context.exec(true) as StackVariable).value;
+    });
+    assert.deepStrictEqual([2, 4, 6], results);
+
+    // Программа без `;` в конце разбирается (раньше TS падал на конце текста).
+    assert.strictEqual('program', Script.parseProgram('x = 5').getKind());
 });
