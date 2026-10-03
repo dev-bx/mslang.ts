@@ -4,7 +4,7 @@ import {StackVariableString} from "./stackvariablestring";
 import {StackVariableUndefined} from "./stackvariableundefined";
 import {StackVariableRef} from "./stackvariableref";
 import {VariableType} from "./variabletype";
-import {InterpreterException, ResourceLimitException} from "./exceptions";
+import {ErrorCode, InterpreterException, ResourceLimitException} from "./exceptions";
 import type {BuiltinConstructor} from "./builtinconstructor";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 
@@ -53,7 +53,7 @@ export class ArrayConstructor extends StackVariable implements BuiltinConstructo
                     //учёт в конструкторе StackVariableArray (он спишет бюджет по факту).
                     if (context && context.getLimitAllocBytes()
                         && context.getAllocatedBytes() + n * 16 > context.getLimitAllocBytes()) {
-                        throw new ResourceLimitException('Allocation limit [' + context.getLimitAllocBytes() + '] exceeded', context.currentToken?.cursorPos);
+                        throw new ResourceLimitException('Allocation limit [' + context.getLimitAllocBytes() + '] exceeded', context.currentToken?.cursorPos, ErrorCode.AllocLimit);
                     }
                     const items: StackVariable[] = [];
                     for (let i = 0; i < n; i++) {

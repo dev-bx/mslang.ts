@@ -27,7 +27,7 @@ import {StackVariableDateTime} from './stackvariabledatetime';
 import {FunctionEntry} from "./functionentry";
 import {FunctionParameter} from "./functionparameter";
 import {isBuiltinConstructor, type BuiltinConstructor} from "./builtinconstructor";
-import {MSLangException, InterpreterException, ResourceLimitException, ContextException, LexerException, ParserCursorException, ParserNodeException} from "./exceptions";
+import {ErrorCode, type ErrorCodeValue, MSLangException, InterpreterException, ResourceLimitException, ContextException, LexerException, ParserCursorException, ParserNodeException} from "./exceptions";
 
 export {
     Version,
@@ -68,6 +68,8 @@ export {
     FunctionParameter,
     isBuiltinConstructor,
     type BuiltinConstructor,
+    ErrorCode,
+    type ErrorCodeValue,
     MSLangException,
     InterpreterException,
     ResourceLimitException,

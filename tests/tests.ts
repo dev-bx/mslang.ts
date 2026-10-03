@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
     StackVariable, VariableType, StackVariableBoolean, StackVariableNumber, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString,
-    StackVariableObject, ParseNode
+    StackVariableObject, ParseNode, MSLangException
 } from "../src";
 
 class FieldsObject extends StackVariable {
@@ -3474,4 +3474,49 @@ test('096_FunctionValueByReference', () => {
     assert.strictEqual('42', rc(`function ap(fn, v) { return fn(v); } return "" + ap(function(x) { return x + 1; }, 41);`));
     // Присвоение функции другой переменной — та же функция.
     assert.strictEqual('42', rc(`let f = (a) => a; let g = f; return "" + g(42);`));
+});
+
+// Ошибка, которую бросил скрипт (или null, если не бросил) — для проверок кода и места.
+function errorOf(text: string, prepare?: (context: ContextInterpreter) => void): MSLangException | null {
+    try {
+        const context = createCodeContext(text);
+        prepare?.(context);
+        context.exec(true);
+    } catch (e) {
+        if (e instanceof MSLangException) return e;
+        throw e;
+    }
+    return null;
+}
+
+test('097_ErrorCodes', () => {
+    const codeAt = (text: string, prepare?: (context: ContextInterpreter) => void) => {
+        const e = errorOf(text, prepare);
+        return e ? [e.getErrorCode(), e.getSourceLine(), e.getSourceColumn()] : null;
+    };
+
+    // Ошибка разбора — ParseError с местом.
+    assert.deepStrictEqual(codeAt('let a = 1;\nreturn a +;'), ['ParseError', 2, 10]);
+    // Неизвестная переменная, функция, метод, класс — UnknownName.
+    assert.deepStrictEqual(codeAt('let a = 1;\nreturn b;'), ['UnknownName', 2, 8]);
+    assert.strictEqual(codeAt('return foo(1);')?.[0], 'UnknownName');
+    assert.strictEqual(codeAt('let s = "x"; return s.nope();')?.[0], 'UnknownName');
+    assert.strictEqual(codeAt('return new Nope();')?.[0], 'UnknownName');
+    // Вызов не-функции — NotCallable (тот же тип и текст, что в PHP).
+    const notCallable = errorOf('let x = 1; return x(2);');
+    assert.strictEqual(notCallable?.getErrorCode(), 'NotCallable');
+    assert.strictEqual(notCallable?.getRawMessage(), 'Call global function x');
+    assert.strictEqual(codeAt('let f = x => x; return new f(1);')?.[0], 'NotCallable');
+    // Непойманный throw — Thrown.
+    assert.strictEqual(codeAt('throw new Error("boom");')?.[0], 'Thrown');
+    // Лимит шагов — StepLimit.
+    assert.strictEqual(codeAt('let i = 0; while (true) { i++; }', (c) => c.setLimitExecInstruction(50))?.[0], 'StepLimit');
+    // Ошибка из служебного узла несёт место исходного токена (раньше в PHP его не было).
+    assert.deepStrictEqual(codeAt('let f = x => x;\nlet o = new f(1);'), ['NotCallable', 2, 13]);
+    // Сообщение без приставки и сводка одним объектом.
+    const e = errorOf('return y;');
+    assert.strictEqual(e?.message, '[1:8] variable not defined y');
+    assert.deepStrictEqual(e?.toArray(), {code: 'UnknownName', message: 'variable not defined y', line: 1, column: 8, endLine: 1, endColumn: 8});
+    // Скриптовый catch видит код в e.code.
+    assert.strictEqual(executeReturnCode('try { return y; } catch (e) { return e.code; }')?.value, 'UnknownName');
 });

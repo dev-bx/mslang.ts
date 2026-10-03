@@ -13,7 +13,7 @@ import {StackVariableUserFunction} from "./stackvariableuserfunction";
 import {StackVariableClass} from "./stackvariableclass";
 import {StackVariableTDZ} from "./stackvariabletdz";
 import {isBuiltinConstructor} from "./builtinconstructor";
-import {InterpreterException, MSLangException} from "./exceptions";
+import {ErrorCode, InterpreterException, MSLangException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {StackVariableObject} from "./stackvariableobject";
 import {StackVariablePlainObject} from "./stackvariableplainobject";
@@ -1301,7 +1301,7 @@ export class Interpreter {
         const variable = context.getVariableRef(token.nValue);
 
         if (!variable)
-            throw new InterpreterException('variable not defined ' + token.nValue, token.cursorPos);
+            throw new InterpreterException('variable not defined ' + token.nValue, token.cursorPos, ErrorCode.UnknownName);
 
         context.pushStackVar(variable);
     }
@@ -2869,7 +2869,7 @@ export class Interpreter {
 
         //Не нашли catch — uncaught throw, валит скрипт.
         const msg = this.extractErrorMessage(value);
-        throw new InterpreterException('Uncaught: ' + msg, errToken?.cursorPos ?? undefined);
+        throw new InterpreterException('Uncaught: ' + msg, errToken?.cursorPos ?? undefined, ErrorCode.Thrown);
     }
 
     /**
@@ -2909,6 +2909,10 @@ export class Interpreter {
         const msg = (e instanceof Error) ? e.message : String(e);
         obj.registerProperty('message', new StackVariableString(false, msg));
         obj.registerProperty('name', new StackVariableString(false, 'Error'));
+        // Машинный код ошибки (`NotBoolean`, `TypeMismatch`…) — скрипт может ветвиться
+        // по нему, не разбирая текст. Чужое (не MSLang) исключение — RuntimeError.
+        const code = e instanceof MSLangException ? e.getErrorCode() : ErrorCode.RuntimeError;
+        obj.registerProperty('code', new StackVariableString(false, code));
 
         if (e instanceof InterpreterException) {
             const cursor = e.getCursorPosition();
@@ -2974,7 +2978,7 @@ export class Interpreter {
         const className = String(token.nValue.nValue);
         const constructor = context.getVariable(className);
         if (!constructor) {
-            throw new InterpreterException('Unknown class "' + className + '"', token.cursorPos);
+            throw new InterpreterException('Unknown class "' + className + '"', token.cursorPos, ErrorCode.UnknownName);
         }
 
         //Нативные «классы» (Array, ...): передаём параметры самому объекту,
@@ -3048,7 +3052,7 @@ export class Interpreter {
             //Стрелочная функция конструктором быть не может (как в JS):
             //у неё лексический this, собственного instance она не создаёт.
             if (constructor.isArrow) {
-                throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos);
+                throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos, ErrorCode.NotCallable);
             }
 
             const wrapperClass = constructor.getOrCreateWrapperClass();
@@ -3072,7 +3076,7 @@ export class Interpreter {
         }
 
         //Не класс и не function-конструктор — `new` не применим.
-        throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos);
+        throw new InterpreterException('"' + className + '" is not a constructor', token.cursorPos, ErrorCode.NotCallable);
     }
 
     /**
@@ -3327,7 +3331,7 @@ export class Interpreter {
         const className = String(token.nValue);
         let classVar: StackVariable | undefined = context.getVariable(className);
         if (!classVar) {
-            throw new InterpreterException('Unknown class "' + className + '" in instanceof', token.cursorPos);
+            throw new InterpreterException('Unknown class "' + className + '" in instanceof', token.cursorPos, ErrorCode.UnknownName);
         }
         //Function-конструктор: справа лежит обычная функция, использованная
         //как ctor. Берём её класс-обёртку (lazy create) — она и есть то,

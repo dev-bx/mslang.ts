@@ -25,7 +25,7 @@ import {Base64Functions} from "./base64functions";
 import {UrlFunctions} from "./urlfunctions";
 import {HashFunctions} from "./hashfunctions";
 import {StackVariableDateTime} from "./stackvariabledatetime";
-import {ContextException, MSLangException, ResourceLimitException} from "./exceptions";
+import {ContextException, ErrorCode, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {ContextType} from "./contexttype";
 import {InterpreterNode} from "./interpreternode";
@@ -168,7 +168,7 @@ export class ContextInterpreter {
         this.allocatedBytes += bytes;
 
         if (this.limitAllocBytes && this.allocatedBytes > this.limitAllocBytes) {
-            throw new ResourceLimitException('Allocation limit [' + this.limitAllocBytes + '] exceeded', this.currentToken?.cursorPos);
+            throw new ResourceLimitException('Allocation limit [' + this.limitAllocBytes + '] exceeded', this.currentToken?.cursorPos, ErrorCode.AllocLimit);
         }
     }
 
@@ -610,12 +610,12 @@ export class ContextInterpreter {
         // Защита от бесконечного выполнения, если установлен лимит.
         // Зеркало PHP execOne (см. ContextInterpreter::execOne).
         if (this.limitExecInstruction && this.instructionCounter >= this.limitExecInstruction) {
-            throw new ResourceLimitException('Execution limit [' + this.limitExecInstruction + '] exceeded', this.currentToken?.cursorPos);
+            throw new ResourceLimitException('Execution limit [' + this.limitExecInstruction + '] exceeded', this.currentToken?.cursorPos, ErrorCode.StepLimit);
         }
 
         if (this.limitExecTimeMs && this.execStartTime
             && Date.now() - this.execStartTime >= this.limitExecTimeMs) {
-            throw new ResourceLimitException('Execution time limit [' + this.limitExecTimeMs + ' ms] exceeded', this.currentToken?.cursorPos);
+            throw new ResourceLimitException('Execution time limit [' + this.limitExecTimeMs + ' ms] exceeded', this.currentToken?.cursorPos, ErrorCode.TimeLimit);
         }
 
         this.instructionCounter++;
@@ -855,11 +855,11 @@ export class ContextInterpreter {
         const variable = this.getVariable(name);
 
         if (!variable) {
-            throw new MSLangException('global function "' + name + '" not defined');
+            throw new ContextException('Unknown function "' + name + '"', ErrorCode.UnknownName);
         }
 
         if (variable.type !== VariableType.vtFunction) {
-            throw new MSLangException('variable "' + name + '" is not function');
+            throw new ContextException('Call global function ' + name, ErrorCode.NotCallable);
         }
 
 
@@ -908,7 +908,7 @@ export class ContextInterpreter {
         const funcEntry = self.getFunctionEntry(name);
 
         if (!funcEntry) {
-            throw new ContextException('Unknown function "' + name + '"');
+            throw new ContextException('Unknown function "' + name + '"', ErrorCode.UnknownName);
         }
 
         if (funcEntry.getRequiredCount() > parameters.length) {
