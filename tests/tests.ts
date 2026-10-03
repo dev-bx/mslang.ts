@@ -3578,3 +3578,24 @@ test('102_ParseExpressionProgram', () => {
     // Программа без `;` в конце разбирается (раньше TS падал на конце текста).
     assert.strictEqual('program', Script.parseProgram('x = 5').getKind());
 });
+
+test('103_RegisterFunction', () => {
+    const context = createCodeContext('return [k, z, Math];');
+    const isCode = (code: string, message?: string) => (e: unknown) =>
+        e instanceof MSLangException && e.getErrorCode() === code && (message === undefined || e.getRawMessage() === message);
+
+    context.registerFunction('k', new StackVariableNumber(false, 1));
+
+    // Повтор без разрешения на замену — DuplicateName с именем; прежнее значение не тронуто.
+    assert.throws(() => context.registerFunction('k', new StackVariableNumber(false, 2)),
+        isCode('DuplicateName', 'Name "k" is already registered'));
+    // Встроенное имя тоже защищено.
+    assert.throws(() => context.registerFunction('Math', new StackVariableNumber(false, 0)), isCode('DuplicateName'));
+
+    // Ошибка одной регистрации не мешает следующим; явная замена — флагом.
+    context.registerFunction('z', new StackVariableNumber(false, 3));
+    context.registerFunction('k', new StackVariableNumber(false, 2), true);
+    context.registerFunction('Math', new StackVariableNumber(false, 9), true);
+
+    assert.deepStrictEqual([2, 3, 9], (context.exec(true) as StackVariableArray).convertToNativeArray());
+});

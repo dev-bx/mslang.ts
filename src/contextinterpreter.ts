@@ -751,6 +751,21 @@ export class ContextInterpreter {
         return refValue.getProxy();
     }
 
+    /**
+     * Регистрация функции (или другого значения — пространства имён, константы) хостом
+     * (зеркало PHP ContextInterpreter::registerFunction). Имя занято и replace = false —
+     * ContextException с кодом DuplicateName и именем в тексте, ничего не меняется;
+     * replace = true — явная замена, в том числе встроенного значения и константы.
+     */
+    registerFunction(name: string, value: StackVariable, replace: boolean = false): void {
+        if (!replace && this._variables[name] !== undefined) {
+            throw new ContextException('Name "' + name + '" is already registered', ErrorCode.DuplicateName);
+        }
+
+        value.setContext(this);
+        this._variables[name] = value;
+    }
+
     setVariable(name:string, value: StackVariable) {
         //Замыкание-by-reference включается только внутри пользовательской функции
         //(текущий scope или любой scope вверх — типа ctFunctionCall). Старые блочные
