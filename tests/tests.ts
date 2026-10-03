@@ -729,10 +729,14 @@ test('029_3', (t) => {
     assert.strictEqual('c', ar.get('54'));
 });
 
-test('030', (t) => {
-    executeReturnCode(`
-        return [!0, !1];
-    `);
+test('030', () => {
+    // Содержимое выровнено с PHP testMSLang030 (раньше под одним именем жили разные проверки).
+    let returnVal = executeReturnCode("return 2+'2';");
+    assert.strictEqual('string', typeof returnVal?.value);
+    assert.strictEqual('22', returnVal?.value);
+
+    returnVal = executeReturnCode("return 2-'1';");
+    assert.strictEqual(1, returnVal?.value);
 });
 
 // --- Перенесено из PHP-зеркала (tests/Test.php) ---
@@ -1176,30 +1180,16 @@ test('050_InvalidArrayKeysPart3', (t) => {
     }, /array key must be number or string/);
 });
 
-test('051_DoubleNegativeCasting', (t) => {
-    let returnVal;
+test('051_DoubleNegativeCasting', () => {
+    // Двойное отрицание определено только для boolean: !!true — true, !!false — false.
+    assert.strictEqual(true, executeReturnCode('return !!true;')?.value);
+    assert.strictEqual(false, executeReturnCode('return !!false;')?.value);
+    assert.strictEqual(true, executeReturnCode('return !!(10 > 0);')?.value);
 
-    returnVal = executeReturnCode('return !!10;');
-    assert.strictEqual(true, returnVal?.value);
-
-    returnVal = executeReturnCode('return !!0;');
-    assert.strictEqual(false, returnVal?.value);
-
-    returnVal = executeReturnCode('return !!"hello";');
-    assert.strictEqual(true, returnVal?.value);
-
-    returnVal = executeReturnCode('return !!"";');
-    assert.strictEqual(false, returnVal?.value);
-
-    returnVal = executeReturnCode('return !![1,2];');
-    assert.strictEqual(true, returnVal?.value);
-
-    // как в JS: любой массив — истина, даже пустой
-    returnVal = executeReturnCode('return !![];');
-    assert.strictEqual(true, returnVal?.value);
-
-    returnVal = executeReturnCode('return !!null;');
-    assert.strictEqual(false, returnVal?.value);
+    // Число, строка, массив, null — не условие: ошибка NotBoolean, а не приведение.
+    for (const expr of ['10', '0', '"hello"', '""', '[1,2]', '[]', 'null']) {
+        assert.strictEqual('NotBoolean', errorOf(`return !!${expr};`)?.getErrorCode(), `!!${expr}`);
+    }
 });
 
 test('052_DateTimeAdvancedComparison', (t) => {
@@ -3121,60 +3111,72 @@ test('086_ArrayListMethods', () => {
 });
 
 test('087_LogicalOperators', () => {
-    // && / || по JS: возвращают ОПЕРАНД (не булево), коротко замыкаются (cross 049).
-    assert.strictEqual(1, executeReturnCode(`return 6 && 1;`)?.value);
-    assert.strictEqual(0, executeReturnCode(`return 0 && 5;`)?.value);
-    assert.strictEqual(6, executeReturnCode(`return 6 || 1;`)?.value);
-    assert.strictEqual(5, executeReturnCode(`return 0 || 5;`)?.value);
-    assert.strictEqual('fallback', executeReturnCode(`return "" || "fallback";`)?.value);
-    assert.strictEqual('b', executeReturnCode(`return "a" && "b";`)?.value);
-    assert.strictEqual(VariableType.vtNull, executeReturnCode(`return null && 5;`)?.type);
-    // NaN — ложь (как JS)
-    assert.strictEqual(true, executeReturnCode(`return ((0/0) && 9).isNaN;`)?.value);
-    assert.strictEqual(9, executeReturnCode(`return (0/0) || 9;`)?.value);
-    // короткое замыкание: правый операнд не вычисляется
-    assert.strictEqual(0, executeReturnCode(`let c = 0; let r = false && (c = c + 1); return c;`)?.value);
-    assert.strictEqual(0, executeReturnCode(`let c = 0; let r = true || (c = c + 1); return c;`)?.value);
-    // в условии — по-прежнему работает (операнды там приводятся к булеву)
-    assert.strictEqual('yes', executeReturnCode(`if (6 && 1) { return "yes"; } return "no";`)?.value);
-    assert.strictEqual('yes', executeReturnCode(`if (0 || 5) { return "yes"; } return "no";`)?.value);
-    assert.strictEqual('both', executeReturnCode(`let x=5; let y=3; if (x > 0 && y > 0) { return "both"; } return "no";`)?.value);
+    const rc = (src: string) => executeReturnCode(src)?.value;
+
+    // && / || принимают и возвращают только boolean.
+    assert.strictEqual(false, rc('return true && false;'));
+    assert.strictEqual(true, rc('return false || true;'));
+    assert.strictEqual(true, rc('let x = 5; let y = 3; return x > 0 && y > 0;'));
+
+    // Не-boolean слева или справа — NotBoolean (раньше возвращался сам операнд).
+    for (const expr of ['6 && true', 'true && 1', '0 || false', 'false || "x"', 'null && true', '"a" && "b"']) {
+        assert.strictEqual('NotBoolean', errorOf(`return ${expr};`)?.getErrorCode(), expr);
+    }
+
+    // Сокращённое вычисление: правый операнд не вычисляется вовсе — даже ошибочный.
+    assert.strictEqual(0, rc('let c = 0; let r = false && (c = c + 1) > 0; return c;'));
+    assert.strictEqual(0, rc('let c = 0; let r = true || (c = c + 1) > 0; return c;'));
+    assert.strictEqual(false, rc('return false && nope;'));
+
+    // Приоритет: && сильнее ||. Раньше ранний выход прыгал в конец всего выражения,
+    // и `false && x || true` давало false.
+    assert.strictEqual(true, rc('return false && nope || true;'));
+    assert.strictEqual('yes', rc('if (false && nope || true) { return "yes"; } return "no";'));
+    assert.strictEqual(true, rc('return true || nope && false;'));
+    assert.strictEqual(false, rc('return (true || false) && false;'));
+    assert.strictEqual(true, rc('let a = 2; return a * 2 == 4 && a * 3 == 6;'));
+    assert.strictEqual(true, rc('let t = true; let a = 2; return t && a * 3 == 6;'));
+
+    // Приоритет математики в условии тернарного оператора (раньше 1 + 2 * 3 считалось как 9).
+    assert.strictEqual('y', rc('return 1 + 2 * 3 == 7 ? "y" : "n";'));
 });
 
 test('088_Truthiness', () => {
-    // Единая истинность по JS из одной точки (Interpreter.isTruthy).
-    // Ложь: 0, -0, NaN, "", null, undefined, false. Истина: всё прочее,
-    // включая пустой массив [], пустой объект {}, "0", Infinity, DateTime.
-
-    // 1. !!x — приведение к булеву ровно по JS.
-    const truthy = ['1', '-5', '(1/0)', '"0"', '"x"', 'true', '[]', '[1,2]', 'JSON.parse("{}")', 'JSON.parse("{\\"a\\":1}")'];
-    for (const expr of truthy) {
-        assert.strictEqual(true, executeReturnCode(`return !!${expr};`)?.value, `!!${expr} должно быть true`);
+    // Условие — только boolean, во всех местах одна ошибка NotBoolean.
+    // Значения, которые раньше считались «истинными» или «ложными» по JS.
+    const values = ['1', '0', '(0/0)', '"0"', '""', 'null', '[]', '[1]', 'JSON.parse("{}")', 'DateTime.Now'];
+    const contexts = [
+        'if (%s) { return 1; } return 2;',
+        'let r = 0; while (%s) { r = 1; break; } return r;',
+        'let r = 0; for (; %s;) { r = 1; break; } return r;',
+        'return (%s) ? 1 : 2;',
+        'return !(%s);',
+        'return (%s) && true;',
+        'return true && (%s);',
+        'return (%s) || false;',
+        'return false || (%s);',
+        'return [1].filter(function(x){ return %s; });',
+        'return [1].find(function(x){ return %s; });',
+        'return [1].findIndex(function(x){ return %s; });',
+        'return [1].some(function(x){ return %s; });',
+        'return [1].every(function(x){ return %s; });',
+    ];
+    for (const context of contexts) {
+        for (const value of values) {
+            const script = context.replace('%s', value);
+            assert.strictEqual('NotBoolean', errorOf(script)?.getErrorCode(), script);
+        }
+        // boolean проходит.
+        assert.strictEqual(null, errorOf(context.replace('%s', 'true')), context);
     }
-    const falsy = ['0', '(0/0)', '""', 'null', 'undefined', 'false'];
-    for (const expr of falsy) {
-        assert.strictEqual(false, executeReturnCode(`return !!${expr};`)?.value, `!!${expr} должно быть false`);
-    }
 
-    // 2. Две прошлые расхождения с JS, теперь поправлены, во ВСЕХ контекстах.
-    // Пустой массив [] — истина.
-    assert.strictEqual(true, executeReturnCode(`return !![];`)?.value);
-    assert.strictEqual(1, executeReturnCode(`return [] ? 1 : 0;`)?.value);
-    assert.strictEqual('yes', executeReturnCode(`if ([]) { return "yes"; } return "no";`)?.value);
-    assert.strictEqual(1, executeReturnCode(`let r=0; while ([]) { r=1; break; } return r;`)?.value);
-    assert.strictEqual('A', executeReturnCode(`return [] && "A";`)?.value);
-    assert.strictEqual(1, executeReturnCode(`return [1].filter(function(x){ return []; }).length;`)?.value);
-    // NaN — ложь.
-    assert.strictEqual(true, executeReturnCode(`return !(0/0);`)?.value);
-    assert.strictEqual(0, executeReturnCode(`return (0/0) ? 1 : 0;`)?.value);
-    assert.strictEqual('no', executeReturnCode(`if (0/0) { return "yes"; } return "no";`)?.value);
-    assert.strictEqual(0, executeReturnCode(`let r=0; while (0/0) { r=1; break; } return r;`)?.value);
-    assert.strictEqual('B', executeReturnCode(`return (0/0) || "B";`)?.value);
-    assert.strictEqual(0, executeReturnCode(`return [1].filter(function(x){ return (0/0); }).length;`)?.value);
+    // Текст ошибки называет место и тип.
+    assert.strictEqual('Expected boolean in condition, got number', errorOf('if (1) { return 1; }')?.getRawMessage());
+    assert.strictEqual('Expected boolean in &&, got string', errorOf('return "a" && true;')?.getRawMessage());
+    assert.strictEqual('Expected boolean in filter callback, got number', errorOf('return [1].filter(x => 1);')?.getRawMessage());
 
-    // 3. Хост-объект (DateTime) — всегда истина, даже эпоха.
-    assert.strictEqual(true, executeReturnCode(`return !!DateTime.Now;`)?.value);
-    assert.strictEqual('ok', executeReturnCode(`if (DateTime.Now) { return "ok"; } return "no";`)?.value);
+    // map/reduce/forEach не требуют boolean.
+    assert.strictEqual(2, (executeReturnCode('return [1].map(x => x * 2)[0];') as StackVariable)?.value);
 });
 
 test('089_LooseEqualNullString', () => {
@@ -3194,9 +3196,6 @@ test('089_LooseEqualNullString', () => {
 
     // Защита приведения в `==` (НЕ истинность): "0" == false по-прежнему истина.
     assert.strictEqual(true, executeReturnCode(`return "0" == false;`)?.value);
-
-    // Тот самый случай, что нашёл фаззер: значения приходят вычислением.
-    assert.strictEqual(false, executeReturnCode(`return (((true && "") + (1 * null)) == null);`)?.value);
 
     // Рекурсия по массивам идёт тем же loose ==: [null] и ["0"] не равны.
     assert.strictEqual(false, executeReturnCode(`return [null] == ["0"];`)?.value);
@@ -3242,7 +3241,7 @@ test('091_ObjectLiteral', () => {
     assert.strictEqual(5, executeReturnCode(`var x = 5; var o = {k:x}; x = 9; return o.k;`)?.value);
 
     // Значение — выражение.
-    assert.strictEqual('{"a":3,"b":"yes"}', executeReturnCode(`return JSON.stringify({a:1+2, b: true && "yes"});`)?.value);
+    assert.strictEqual('{"a":3,"b":true}', executeReturnCode(`return JSON.stringify({a:1+2, b: 1 < 2});`)?.value);
 
     // Ключ — это имя буквально, а не значение переменной с тем же именем.
     assert.strictEqual('{"k":1}', executeReturnCode(`var k = "dyn"; return JSON.stringify({k:1});`)?.value);

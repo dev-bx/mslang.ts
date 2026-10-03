@@ -123,6 +123,11 @@ export const NodeType =
         'ntObjectEntry': 73,
         //Унарный префиксный `typeof x` → строка-имя типа по JS (операнд идёт следом).
         'ntTypeof': 74,
+        //Логическое И `a && b`: childItems = [подвыражение левого, подвыражение правого].
+        //Строится пост-обработкой из маркеров ntCompareAnd; оба операнда — строго boolean.
+        'ntLogicalAnd': 75,
+        //Логическое ИЛИ `a || b`: устроено как ntLogicalAnd.
+        'ntLogicalOr': 76,
     }
 
 export class ParseNode
@@ -871,8 +876,13 @@ export class CodeParser {
                     break;
                 case LexerType.ltQuestion: {
                     //Тернарный `cond ? a : b`. Текущий NodeList — это cond.
+                    //Условию нужна та же пост-обработка приоритетов, что и концу
+                    //выражения: без неё `1 + 2 * 3 == 7 ? …` считалось как `(1 + 2) * 3`.
+                    if (!NodeList.length) {
+                        throw new ParserCursorException("Ternary: condition expected", this.lexer.tokenCursor);
+                    }
                     const condNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
-                    condNode.childItems = NodeList.slice();
+                    condNode.childItems = this.finishExpressionList(NodeList.slice());
 
                     const thenNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
                     this.parseExpression(thenNode, true, LexerTypeArray.one(LexerType.ltColon));
@@ -937,7 +947,19 @@ export class CodeParser {
             throw new ParserNodeException("Parse expression failed", ParentNode);
         }
 
+        ParentNode.childItems = this.finishExpressionList(NodeList);
+    }
+
+    /**
+     * Пост-обработка законченного плоского списка выражения: сначала приоритет
+     * математических операторов, затем логических (`&&`, `||`).
+     */
+    protected finishExpressionList(NodeList: ParseNode[]): ParseNode[]
+    {
         const lastNode = NodeList[NodeList.length - 1];
+
+        if (!lastNode)
+            throw new ParserCursorException("Parse expression failed", this.lexer.tokenCursor);
 
         if (lastNode.isMathNode() || lastNode.isCompareOrAndNode())
             throw new ParserNodeException("Parse expression failed", lastNode);
@@ -969,6 +991,14 @@ export class CodeParser {
         while (idx<NodeList.length-1)
         {
             node = NodeList[idx];
+            //`&&` / `||` делят выражение на независимые операнды: высокоприоритетный
+            //блок справа от них не должен захватывать то, что стоит слева.
+            if (node.isCompareOrAndNode())
+            {
+                idx++;
+                leftIdx = idx;
+                continue;
+            }
             if (node.isMathNode())
             {
                 if (!isHighPri(node))
@@ -1025,7 +1055,89 @@ export class CodeParser {
             idx++;
         }
 
-        ParentNode.childItems = NodeList;
+        return this.groupLogical(NodeList);
+    }
+
+    /**
+     * Сворачивает плоские маркеры `&&` / `||` в узлы ntLogicalAnd / ntLogicalOr с
+     * приоритетом: `&&` связывает сильнее `||`, одинаковые операторы — слева
+     * направо. Раньше маркеры исполнялись подряд, и ранний выход перескакивал в
+     * конец ВСЕГО выражения: `false && x || true` давало false.
+     */
+    protected groupLogical(NodeList: ParseNode[]): ParseNode[]
+    {
+        const segments: ParseNode[][] = [];
+        const operators: ParseNode[] = [];
+        let current: ParseNode[] = [];
+
+        for (const node of NodeList) {
+            if (node.isCompareOrAndNode()) {
+                operators.push(node);
+                segments.push(current);
+                current = [];
+                continue;
+            }
+            current.push(node);
+        }
+        segments.push(current);
+
+        if (!operators.length) {
+            return NodeList;
+        }
+
+        segments.forEach((segment, i) => {
+            if (!segment.length) {
+                throw new ParserNodeException('Parse expression failed', operators[i] ?? operators[i - 1]);
+            }
+        });
+
+        return [this.buildLogical(segments, operators)];
+    }
+
+    /**
+     * segments — операнды (на один больше, чем операторов), operators — маркеры
+     * ntCompareAnd / ntCompareOr между ними.
+     */
+    private buildLogical(segments: ParseNode[][], operators: ParseNode[]): ParseNode
+    {
+        if (!operators.length) {
+            return this.wrapSubExpression(segments[0]);
+        }
+
+        //Делим по САМОМУ слабому оператору, по последнему его вхождению — тогда
+        //цепочка одинаковых операторов складывается слева направо.
+        for (const weakest of [NodeType.ntCompareOr, NodeType.ntCompareAnd]) {
+            for (let i = operators.length - 1; i >= 0; i--) {
+                if (operators[i].nType !== weakest) {
+                    continue;
+                }
+
+                const node = new ParseNode(
+                    operators[i].cursorPos,
+                    weakest === NodeType.ntCompareOr ? NodeType.ntLogicalOr : NodeType.ntLogicalAnd,
+                );
+                node.childItems = [
+                    this.buildLogical(segments.slice(0, i + 1), operators.slice(0, i)),
+                    this.buildLogical(segments.slice(i + 1), operators.slice(i + 1)),
+                ];
+
+                return node;
+            }
+        }
+
+        throw new ParserNodeException('Parse expression failed', operators[0]);
+    }
+
+    private wrapSubExpression(nodes: ParseNode[]): ParseNode
+    {
+        if (nodes.length === 1 && nodes[0].nType === NodeType.ntSubExpression) {
+            return nodes[0];
+        }
+
+        const node = new ParseNode(nodes[0].cursorPos, NodeType.ntSubExpression);
+        node.childItems = nodes;
+
+        return node;
     }
 
     parseAssign(Node: unknown, EndLineType: unknown)
@@ -1232,7 +1344,7 @@ export class CodeParser {
             NodeList.push(SubNode);
         }
 
-        Node.childItems = NodeList;
+        Node.childItems = this.groupLogical(NodeList);
     }
 
     // Тип совпадает с ParseNode.childItems, чтобы по-ссылке передача

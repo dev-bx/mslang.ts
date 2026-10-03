@@ -16,7 +16,7 @@ import {
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray,
     ParseNode, StackVariableUndefined, FunctionEntry, ContextException,
     ParserCursorException, ParserNodeException, StackVariableDateTime,
-    StackVariableNumber, StackVariableNull, InterpreterException,
+    StackVariableNumber, StackVariableNull, InterpreterException, MSLangException,
 } from "../src";
 import {FunctionParameter} from "../src/functionparameter";
 
@@ -760,7 +760,9 @@ test('P0_10_DateTimeTimeIsNumber', () => {
 test('P0_11_VoidCoercion', () => {
     // Возврат без значения (void): к числу → NaN, к булеву → false.
     assert.strictEqual(true, executeReturnCode('function f() {} return (f() + 1).isNaN;')?.value);
-    assert.strictEqual('f',  executeReturnCode('function f() {} if (f()) { return "t"; } return "f";')?.value);
+    // Результат функции без return — не условие: if на нём — ошибка NotBoolean.
+    assert.throws(() => executeReturnCode('function f() {} if (f()) { return "t"; } return "f";'),
+        (e: unknown) => e instanceof MSLangException && e.getErrorCode() === 'NotBoolean');
 });
 
 test('P0_20_Bitwise64Bit', () => {
@@ -871,7 +873,8 @@ test('P1_01_AssocArrayWithArrayValue', () => {
 test('P1_02_ForNonBooleanConditionThrows', () => {
     // Голое небулевое условие for бросает, как PHP (P1-2/P1-3).
     assert.throws(() => executeReturnCode('let n = 3; for (let i = 0; n; i = i + 1) { }'),
-        /For compare invalid variable type/);
+        (e: unknown) => e instanceof MSLangException && e.getErrorCode() === 'NotBoolean'
+            && e.getRawMessage() === 'Expected boolean in loop condition, got number');
     // Нормальные формы по-прежнему работают.
     assert.strictEqual(10, executeReturnCode('let s = 0; for (let i = 0; i < 5; i = i + 1) { s = s + i; } return s;')?.value);
 });
@@ -1069,9 +1072,9 @@ test('LexerOperatorStopChars', () => {
 test('ParserStringAfterBinaryOp', () => {
     // Баг парсера: строковый литерал не парсился после `&&`/`||` и после `% & | ^`
     // (список разрешённых prevNode для строки был уже, чем для числа). Теперь — как у числа.
-    assert.strictEqual('b', executeReturnCode('return "a" && "b";')?.value);
-    assert.strictEqual('x', executeReturnCode('return "" || "x";')?.value);
-    assert.strictEqual('def', executeReturnCode('let a = 0; return a || "def";')?.value);
+    assert.strictEqual(true, executeReturnCode('return true && "b" == "b";')?.value);
+    assert.strictEqual(true, executeReturnCode('return false || "x" == "x";')?.value);
+    assert.strictEqual(false, executeReturnCode('let a = false; return a || "def" == "x";')?.value);
     assert.strictEqual(1, executeReturnCode('return 5 % "2";')?.value);
     assert.strictEqual(0, executeReturnCode('return 7 & "0";')?.value);
 });

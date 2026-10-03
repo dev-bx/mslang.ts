@@ -130,8 +130,10 @@ export class Interpreter {
         this.registerNodeHandler(NodeType.ntExpressionCompare, this.expressionCompareHandler.bind(this));
 
         this.registerNodeHandler(NodeType.ntCompare, this.ifCompareHandler.bind(this));
-        this.registerNodeHandler(NodeType.ntCompareOr, this.ifCompareOrHandler.bind(this));
-        this.registerNodeHandler(NodeType.ntCompareAnd, this.ifCompareAndHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntLogicalAnd, this.logicalHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntLogicalOr, this.logicalHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntLogicalFinish, this.logicalFinishHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntLogicalRightFinish, this.logicalRightFinishHandler.bind(this));
 
         this.registerNodeHandler(NodeType.ntNegativeIf, this.negativeIfHandler.bind(this));
         this.registerNodeHandler(NodeType.ntTypeof, this.typeofHandler.bind(this));
@@ -350,9 +352,9 @@ export class Interpreter {
     ternaryFinishHandler(context: ContextInterpreter, token: ParseNode) {
         const cond: StackVariable = context.popStackVar();
 
-        //Выбор ветки — через единую точку истинности (JS): []?a:b → a, NaN?a:b → b.
+        //Условие — строго boolean (единая точка requireBoolean).
         const branches = token.childItems!;
-        const chosen = Interpreter.isTruthy(cond) ? branches[0] : branches[1];
+        const chosen = Interpreter.requireBoolean(cond, token, '?:') ? branches[0] : branches[1];
         if (!(chosen instanceof ParseNode))
             throw new InterpreterException('ternary branch invalid', token.cursorPos);
 
@@ -532,7 +534,9 @@ export class Interpreter {
             result = result.refValue as StackVariable;
         }
 
-        const truthy = Interpreter.isTruthy(result);
+        //Условие нужно только колбэкам-предикатам; map/reduce/forEach отдают что угодно.
+        const truthy = ['filter', 'find', 'findindex', 'some', 'every'].includes(op)
+            && Interpreter.requireBoolean(result, token, op + ' callback');
 
         switch (op) {
             case 'map':
@@ -1365,8 +1369,8 @@ export class Interpreter {
 
         context.popExecutionStack();
 
-        //Истинность условия — через единую точку isTruthy (JS): NaN→ложь, []→истина.
-        context.pushStackVar(context.createVariable(VariableType.vtBoolean, Interpreter.isTruthy(variable)));
+        //Условие `if`/`while` — строго boolean (единая точка requireBoolean).
+        context.pushStackVar(context.createVariable(VariableType.vtBoolean, Interpreter.requireBoolean(variable, token, 'condition')));
     }
 
     expressionCompareHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1439,69 +1443,75 @@ export class Interpreter {
         compareResult.value = rightCompare.compare(leftCompare, compareType)
     }
 
-    ifCompareOrHandler(context: ContextInterpreter, token: ParseNode) {
-        const variable = context.popStackVar();
-        context.pushStackVar(variable);
+    logicalHandler(context: ContextInterpreter, token: ParseNode) {
+        //Свой кадр на всё `a && b` / `a || b`: результат одним значением уйдёт в parent.
+        context.pushExecutionStack();
+        context._codeItems = [];
 
-        //JS-семантика: `a || b` коротко замыкается на ИСТИННОМ левом (по truthiness, не по
-        //строгому === true) и возвращает сам операнд. В условии операнды уже приведены к
-        //булеву через ntIFValueBOOL; в значении (`x = a || b`) — сырые.
-        if (Interpreter.isTruthy(variable)) {
-            if (!context._codeItems)
-                throw new InterpreterException('codeItems not initialized', token.cursorPos);
+        const left = token.childItems?.[0];
+        const right = token.childItems?.[1];
+        if (!(left instanceof ParseNode) || !(right instanceof ParseNode))
+            throw new InterpreterException('Logical operator invalid', token.cursorPos);
+        context._codeItems.push(left);
 
-            context._pos = context._codeItems.length - 1;
-        }
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntLogicalFinish;
+        finish.nValue = token.nType;
+        finish.childItems = [right];
+        context._codeItems.push(finish);
     }
 
-    ifCompareAndHandler(context: ContextInterpreter, token: ParseNode) {
-        const variable = context.popStackVar();
-        context.pushStackVar(variable);
+    logicalFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const isAnd = token.nValue === NodeType.ntLogicalAnd;
+        const left = Interpreter.requireBoolean(context.popStackVar(), token, isAnd ? '&&' : '||');
 
-        //JS-семантика: `a && b` коротко замыкается на ЛОЖНОМ левом (по truthiness) и
-        //возвращает сам операнд.
-        if (!Interpreter.isTruthy(variable)) {
-            if (!context._codeItems)
-                throw new InterpreterException('codeItems not initialized', token.cursorPos);
-
-            context._pos = context._codeItems.length - 1;
+        //Сокращённое вычисление: `false && …` — false, `true || …` — true; правый
+        //операнд не считается вовсе.
+        if (left !== isAnd) {
+            context.popExecutionStack();
+            context.pushStackVar(context.createVariable(VariableType.vtBoolean, left));
+            return;
         }
+
+        const right = token.childItems?.[0];
+        if (!(right instanceof ParseNode) || !context._codeItems)
+            throw new InterpreterException('Logical operator invalid', token.cursorPos);
+        context._codeItems.push(right);
+
+        const finish = new InterpreterNode(token.cursorPos);
+        finish.nType = InterpreterNodeType.ntLogicalRightFinish;
+        finish.nValue = token.nValue;
+        context._codeItems.push(finish);
     }
 
-    /** Истинность значения по правилам JS (для &&/||). Разворачивает Ref. */
+    logicalRightFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const right = Interpreter.requireBoolean(context.popStackVar(), token, token.nValue === NodeType.ntLogicalAnd ? '&&' : '||');
+
+        context.popExecutionStack();
+        context.pushStackVar(context.createVariable(VariableType.vtBoolean, right));
+    }
+
     /**
-     * ЕДИНАЯ точка истинности по правилам JS (зеркало PHP Interpreter::isTruthy). Все
-     * управляющие конструкции — if/while/for, !, ?:, &&/||, колбэки filter/find/some/every —
-     * идут через неё. Не полагается на castAs(vtBoolean) (у хост-объекта он null).
+     * ЕДИНАЯ точка проверки условия (зеркало PHP Interpreter::requireBoolean). Всё, что
+     * язык читает как «да/нет» — if/while/for, !, ?:, &&/||, колбэки filter/find/
+     * findIndex/some/every, — принимает только boolean. Любое другое значение — ошибка
+     * NotBoolean с одним текстом во всех местах. Разворачивает Ref.
      */
-    private static isTruthy(variable: StackVariable): boolean {
+    private static requireBoolean(variable: StackVariable, token: ParseNode | null, where: string): boolean {
         let value: StackVariable = variable;
         if (value instanceof StackVariableRef) {
             value = value.refValue as StackVariable;
         }
 
-        const type = value.type;
-
-        //Число: 0, -0, NaN → ложь; иначе истина.
-        if (type === VariableType.vtNumber) {
-            const n = Number(value.value);
-            return n !== 0 && !Number.isNaN(n);
+        if (value.type !== VariableType.vtBoolean) {
+            throw new InterpreterException(
+                'Expected boolean in ' + where + ', got ' + value.typeName,
+                token?.cursorPos,
+                ErrorCode.NotBoolean,
+            );
         }
 
-        switch (type) {
-            case VariableType.vtString:
-                return (value.value as string).length > 0;
-            case VariableType.vtBoolean:
-                return Boolean(value.value);
-            case VariableType.vtNull:
-            case VariableType.vtUndefined:
-            case VariableType.vtVoid:
-                return false;
-            default:
-                //Массив (даже пустой), объект, plain-объект, функция, класс, DateTime,
-                //хост-объект — всегда истина (как JS).
-                return true;
-        }
+        return Boolean(value.value);
     }
 
     negativeIfHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1510,8 +1520,8 @@ export class Interpreter {
 
         const variable = context.popStackVar();
 
-        //`!x` — отрицание истинности по JS через единую точку (![]→false, !NaN→true).
-        context.pushStackVar(context.createVariable(VariableType.vtBoolean, !Interpreter.isTruthy(variable)));
+        //`!x` — только для boolean (единая точка requireBoolean).
+        context.pushStackVar(context.createVariable(VariableType.vtBoolean, !Interpreter.requireBoolean(variable, token, '!')));
     }
 
     negativeIfFinishHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1545,12 +1555,11 @@ export class Interpreter {
     ifFinishHandler(context: ContextInterpreter, token: ParseNode) {
         const variable = context.popStackVar();
 
-        if (variable.type !== VariableType.vtBoolean)
-            throw new InterpreterException('Invalid variable in IF Handler', token.cursorPos);
+        const condition = Interpreter.requireBoolean(variable, token, 'if');
 
         context.popExecutionStack();
 
-        if (!variable.value) {
+        if (!condition) {
             context.getNextInterToken();
 
             if (context.whoNextTypeInterToken === NodeType.ntELSE) {
@@ -1643,12 +1652,11 @@ export class Interpreter {
         if (context._stackVars.length) {
             const variable = context.popStackVar();
 
-            if (variable.type !== VariableType.vtBoolean)
-                throw new InterpreterException('For compare invalid variable type', token.cursorPos);
+            const condition = Interpreter.requireBoolean(variable, token, 'loop condition');
 
             context.popExecutionStack();
 
-            if (!variable.value) {
+            if (!condition) {
                 context.popExecutionStack();
             }
         } else { // for (;;;)
