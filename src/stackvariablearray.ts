@@ -303,7 +303,40 @@ export class StackVariableArray extends StackVariable {
     }
 
     funcInvoke_join(separator: string) {
-        return this.convertToNativeArray().join(separator);
+        return this.joinElements(separator);
+    }
+
+    /** Массивы, которые сейчас склеиваются: элемент-цикл даёт пустую строку, как в JS. */
+    static #joining = new Set<StackVariableArray>();
+
+    /**
+     * Склейка по правилам JS Array.prototype.join (зеркало PHP joinElements): null — пустая
+     * строка, остальное — строковый вид элемента (вложенный массив — через запятую).
+     */
+    private joinElements(separator: string): string {
+        if (StackVariableArray.#joining.has(this))
+            return '';
+
+        StackVariableArray.#joining.add(this);
+        try {
+            const parts: string[] = [];
+            for (const raw of this.value.values()) {
+                const element = raw instanceof StackVariableRef ? raw.getRefValue() : raw;
+                const type = element.type;
+                if (type === VariableType.vtNull || type === VariableType.vtUndefined) {
+                    parts.push('');
+                    continue;
+                }
+
+                const text = element.castAs(VariableType.vtString);
+                if (!text)
+                    throw new InterpreterException('Failed ' + element.typeName + ' cast as string', this.getContext()?.currentToken?.cursorPos);
+                parts.push(String(text.value));
+            }
+            return parts.join(separator);
+        } finally {
+            StackVariableArray.#joining.delete(this);
+        }
     }
 
     /** concat */
@@ -697,9 +730,8 @@ export class StackVariableArray extends StackVariable {
             case VariableType.vtArray:
                 return this;
             case VariableType.vtString:
-                // Зеркало PHP: явное castAs к строке даёт литерал 'array',
-                // а не склейку значений — для склейки есть toPrimitive() и .join().
-                return new StackVariableString(false, 'array');
+                //Как JS: [1, [2, 3]].toString() → "1,2,3" (раньше — "array").
+                return new StackVariableString(false, this.joinElements(','));
             case VariableType.vtBoolean:
                 //JS: массив всегда истина, даже пустой.
                 return new StackVariableBoolean(false, true);

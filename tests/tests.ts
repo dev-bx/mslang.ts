@@ -900,14 +900,14 @@ test('038_TypeCastingToString', (t) => {
     // Явное приведение через .ToString() работает.
     assert.strictEqual('val-null', executeReturnCode('return "val-" + null.ToString();')?.value);
     assert.strictEqual('val-true', executeReturnCode('return "val-" + true.ToString();')?.value);
-    assert.strictEqual('val-array', executeReturnCode('return "val-" + [1,2].ToString();')?.value);
+    assert.strictEqual('val-1,2', executeReturnCode('return "val-" + [1,2].ToString();')?.value);
 
     // 2. Явное .ToString()
     returnVal = executeReturnCode('return null.ToString();');
     assert.strictEqual('null', returnVal?.value);
 
     returnVal = executeReturnCode('return [1,2,3].ToString();');
-    assert.strictEqual('array', returnVal?.value);
+    assert.strictEqual('1,2,3', returnVal?.value);
 });
 
 test('039_StringCastingToNumber', (t) => {
@@ -3966,5 +3966,24 @@ test('128_BlockScopeVisibility', () => {
     ];
     for (const [script, expected] of cases) {
         assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+});
+
+test('129_ArrayToStringAsJs', () => {
+    // toString() массива — как JS join(","): null — пустая строка, вложенный массив
+    // склеивается запятой, массив внутри самого себя — пустая строка. Раньше — "array".
+    const cases: [string, string][] = [
+        ['return [1,2].toString();', '1,2'],
+        ['return [1,[2,[3]]].toString();', '1,2,3'],
+        ['return [null, true, "x", 1.5].toString();', ',true,x,1.5'],
+        ['return [].toString();', ''],
+        ['return "Список: " + [1,2].toString();', 'Список: 1,2'],
+        ['return [1,[2,3]].join(" | ");', '1 | 2,3'],
+        ['return [{a:1}].join(";");', '[object Object]'],
+        ['return [0.1 + 0.2, 1e21].join(",");', '0.30000000000000004,1e+21'],
+        ['let a = [1]; a.push(a); return a.toString();', '1,'],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(executeReturnCode(script)?.value, expected, script);
     }
 });
