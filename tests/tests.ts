@@ -3989,28 +3989,29 @@ test('129_ArrayToStringAsJs', () => {
 });
 
 test('130_BuiltinArgumentTypes', () => {
-    // Аргумент не того типа, что объявлен у параметра встроенной функции, — TypeMismatch
-    // с именем функции и номером аргумента. Раньше PHP приводил "5" к числу и падал
-    // сырым TypeError, TS приводил всё по правилам JS. null — только вместо необязательного.
-    const errors: [string, string][] = [
-        ['return Math.abs("5");', 'Argument 1 of "abs" must be number, string given'],
-        ['return Math.abs("0x1A");', 'Argument 1 of "abs" must be number, string given'],
-        ['let f = x => x; return Math.abs(f);', 'Argument 1 of "abs" must be number, function given'],
-        ['return Math.abs(null);', 'Argument 1 of "abs" must be number, null given'],
-        ['return Math.pow(2, "3");', 'Argument 2 of "pow" must be number, string given'],
-        ['return "abc".repeat("2");', 'Argument 1 of "repeat" must be number, string given'],
-        ['return "a-b".split(1);', 'Argument 1 of "split" must be string, number given'],
-        ['return [1,2,3].slice("1");', 'Argument 1 of "slice" must be number, string given'],
+    // Аргумент встроенной функции приводится к объявленному типу по правилам JS (как
+    // Math.abs("5") в JS). В 3.3.0 было TypeMismatch — откатано.
+    // null вместо необязательного аргумента — «нет значения» (в MSLang нет undefined).
+    const cases: [string, unknown][] = [
+        ['return Math.abs("5");', 5],
+        ['return Math.abs("0x1A");', 26],
+        ['return Math.abs(null);', 0],
+        ['return Math.abs(true);', 1],
+        ['return Math.abs([7]);', 7],
+        ['return Math.pow(2, "3");', 8],
+        ['return "abc".repeat("2");', 'abcabc'],
+        ['return "abc".charAt("1");', 'b'],
+        ['return (1.5).toFixed("1");', '1.5'],
+        ['return [1,2].join(1);', '112'],
+        ['return "abc".slice(1, null);', 'bc'],
     ];
-    for (const [script, message] of errors) {
-        const error = errorOf(script);
-        assert.strictEqual(error?.getErrorCode(), 'TypeMismatch', script);
-        assert.strictEqual(error?.getRawMessage(), message, script);
+    for (const [script, expected] of cases) {
+        assert.strictEqual(executeReturnCode(script)?.value, expected, script);
     }
-
-    assert.strictEqual(executeReturnCode('return "abc".slice(1, null);')?.value, 'bc');
-    assert.deepStrictEqual((executeReturnCode('return [1,2,3].slice(1);') as StackVariableArray).convertToNativeArray(), [2, 3]);
-    assert.strictEqual(executeReturnCode('return "abc".repeat(4 / 2);')?.value, 'abcabc');
+    assert.ok(Number.isNaN(executeReturnCode('return Math.abs("abc");')?.value));
+    assert.ok(Number.isNaN(executeReturnCode('return Math.abs([1,2]);')?.value));
+    assert.deepStrictEqual((executeReturnCode('return "a1b".split(1);') as StackVariableArray).convertToNativeArray(), ['a', 'b']);
+    assert.deepStrictEqual((executeReturnCode('return [1,2,3].slice("1");') as StackVariableArray).convertToNativeArray(), [2, 3]);
 });
 
 test('131_JsOperatorPrecedence', () => {
