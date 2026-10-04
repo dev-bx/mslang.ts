@@ -63,6 +63,6 @@ export class StackVariableObject extends StackVariable {
         if (this._value === null || typeof this._value !== 'object') {
             this._value = {};
         }
-        this._value[name] = value;
+        this._value[name] = StackVariable.stored(value);
     }
 }

@@ -79,7 +79,7 @@ export class StackVariableArray extends StackVariable {
             this._nextNumKey = Number(k) + 1;
         }
 
-        map.set(k, v);
+        map.set(k, v instanceof StackVariable ? StackVariable.stored(v) : v);
     }
 
     set value(value: unknown) {
@@ -143,7 +143,7 @@ export class StackVariableArray extends StackVariable {
             }
             return;
         }
-        this.value.set(name.toString(), value);
+        this.value.set(name.toString(), StackVariable.stored(value));
     }
 
     /** Count */
@@ -246,10 +246,7 @@ export class StackVariableArray extends StackVariable {
             //Ref-аргумент (например, параметр функции) указывает на ячейку scope-а,
             //который умрёт вместе с frame. Кладём в массив сам объект StackVariable —
             //тогда он переживёт возврат из функции, и значения не пропадут.
-            let value: StackVariable = rawValue;
-            if (value instanceof StackVariableRef) {
-                value = value.refValue as StackVariable;
-            }
+            const value: StackVariable = StackVariable.stored(rawValue);
 
             let key;
 
@@ -456,7 +453,7 @@ export class StackVariableArray extends StackVariable {
         if (from > n) from = n;
         if (to > n) to = n;
         for (let i = from; i < to; i++) {
-            this.value.set(keys[i], value);
+            this.value.set(keys[i], StackVariable.stored(value));
         }
         return this;
     }
@@ -544,7 +541,7 @@ export class StackVariableArray extends StackVariable {
                 item = item.refValue;
             }
             if (item instanceof StackVariable) {
-                insert.push(item);
+                insert.push(StackVariable.stored(item));
             }
         }
 

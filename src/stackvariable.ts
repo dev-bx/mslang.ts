@@ -136,6 +136,29 @@ export class StackVariable {
     }
 
     /**
+     * Значение для хранения в контейнере (элемент массива, свойство объекта) — зеркало
+     * PHP StackVariable::stored. Скаляр (число, строка, boolean, null) кладём копией:
+     * переменную при выходе из блока и в `++x` меняют «на месте», и без копии вместе с
+     * ней менялся бы уже сохранённый элемент — `for (let i …) r.push(i)` давало [3,3,3].
+     * Массив, объект, функция — тот же объект. Ссылка (Ref) разворачивается.
+     */
+    static stored(variable: StackVariable): StackVariable {
+        const referenced = (variable as unknown as {refValue?: unknown}).refValue;
+        const value = referenced instanceof StackVariable ? referenced : variable;
+
+        switch (value.type) {
+            case VariableType.vtNumber:
+            case VariableType.vtString:
+            case VariableType.vtBoolean:
+            case VariableType.vtNull:
+                //Поверхностная копия того же класса — как `clone` в PHP (без повторного учёта бюджета).
+                return Object.assign(Object.create(Object.getPrototypeOf(value)), value) as StackVariable;
+        }
+
+        return value;
+    }
+
+    /**
      * Запись по ключу `x[k] = v` (зеркало PHP StackVariable::offsetSet): по умолчанию
      * запрещена — «Cannot set offset». Разрешают массив и объект-литерал.
      */

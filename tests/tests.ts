@@ -3783,3 +3783,21 @@ test('117_ContinueInForWithDeclaration', () => {
         assert.strictEqual(expected, context.exec(true)?.value, script);
     }
 });
+
+test('118_ContainersStoreValues', () => {
+    // Массив и объект хранят ЗНАЧЕНИЕ скаляра, а не саму переменную: раньше переменная
+    // цикла, изменённая «на месте», меняла и уже сохранённые элементы — [3,3,3].
+    const cases: [string, unknown[]][] = [
+        ['let r = []; for (let i = 0; i < 3; i++) r.push(i); return r;', [0, 1, 2]],
+        ['let r = []; for (let i = 0; i < 3; i++) { r[i] = i; } return r;', [0, 1, 2]],
+        ['let r = []; let i = 0; while (i < 3) { r.push(i); i = i + 1; } return r;', [0, 1, 2]],
+        ['let r = []; for (let i = 0; i < 3; i++) r.unshift(i); return r;', [2, 1, 0]],
+        ['let o = {}; for (let i = 0; i < 2; i++) { o["k" + i.toString()] = i; } return [o.k0, o.k1];', [0, 1]],
+        ['function mk() { let c = 0; let r = []; return () => { r.push(c); c = c + 1; return r; }; } let g = mk(); g(); g(); return g();', [0, 1, 2]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual(expected, (executeReturnCode(script) as StackVariableArray).convertToNativeArray(), script);
+    }
+    // Массивы и объекты по-прежнему по ссылке.
+    assert.deepStrictEqual([[1, 2]], (executeReturnCode('let a = [1]; let r = []; r.push(a); a.push(2); return r;') as StackVariableArray).convertToNativeArray());
+});
