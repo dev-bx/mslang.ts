@@ -1,0 +1,155 @@
+{
+    "type": "Expression",
+    "version": 1,
+    "expression": {
+        "type": "Logical",
+        "operator": "??",
+        "left": {
+            "type": "Logical",
+            "operator": "??",
+            "left": {
+                "type": "Member",
+                "object": {
+                    "type": "Member",
+                    "object": {
+                        "type": "Identifier",
+                        "name": "vars",
+                        "loc": {
+                            "line": 1,
+                            "column": 1,
+                            "endLine": 1,
+                            "endColumn": 4
+                        }
+                    },
+                    "property": "user",
+                    "computed": false,
+                    "optional": false,
+                    "loc": {
+                        "line": 1,
+                        "column": 1,
+                        "endLine": 1,
+                        "endColumn": 9
+                    }
+                },
+                "property": "name",
+                "computed": false,
+                "optional": true,
+                "loc": {
+                    "line": 1,
+                    "column": 1,
+                    "endLine": 1,
+                    "endColumn": 15
+                }
+            },
+            "right": {
+                "type": "Call",
+                "callee": {
+                    "type": "Member",
+                    "object": {
+                        "type": "Member",
+                        "object": {
+                            "type": "Member",
+                            "object": {
+                                "type": "Identifier",
+                                "name": "vars",
+                                "loc": {
+                                    "line": 1,
+                                    "column": 20,
+                                    "endLine": 1,
+                                    "endColumn": 23
+                                }
+                            },
+                            "property": "items",
+                            "computed": false,
+                            "optional": false,
+                            "loc": {
+                                "line": 1,
+                                "column": 20,
+                                "endLine": 1,
+                                "endColumn": 29
+                            }
+                        },
+                        "property": {
+                            "type": "Literal",
+                            "value": 0,
+                            "loc": {
+                                "line": 1,
+                                "column": 33,
+                                "endLine": 1,
+                                "endColumn": 33
+                            }
+                        },
+                        "computed": true,
+                        "optional": true,
+                        "loc": {
+                            "line": 1,
+                            "column": 20,
+                            "endLine": 1,
+                            "endColumn": 32
+                        }
+                    },
+                    "property": "title",
+                    "computed": false,
+                    "optional": false,
+                    "loc": {
+                        "line": 1,
+                        "column": 20,
+                        "endLine": 1,
+                        "endColumn": 42
+                    }
+                },
+                "arguments": [],
+                "optional": true,
+                "loc": {
+                    "line": 1,
+                    "column": 20,
+                    "endLine": 1,
+                    "endColumn": 42
+                }
+            },
+            "loc": {
+                "line": 1,
+                "column": 1,
+                "endLine": 1,
+                "endColumn": 42
+            }
+        },
+        "right": {
+            "type": "Exists",
+            "argument": {
+                "type": "Member",
+                "object": {
+                    "type": "Identifier",
+                    "name": "vars",
+                    "loc": {
+                        "line": 1,
+                        "column": 55,
+                        "endLine": 1,
+                        "endColumn": 58
+                    }
+                },
+                "property": "x",
+                "computed": false,
+                "optional": false,
+                "loc": {
+                    "line": 1,
+                    "column": 55,
+                    "endLine": 1,
+                    "endColumn": 60
+                }
+            },
+            "loc": {
+                "line": 1,
+                "column": 48,
+                "endLine": 1,
+                "endColumn": 53
+            }
+        },
+        "loc": {
+            "line": 1,
+            "column": 1,
+            "endLine": 1,
+            "endColumn": 53
+        }
+    }
+}

@@ -1,0 +1,106 @@
+# Changelog
+
+Версия — это версия **языка**: одна и та же в PHP-эталоне (`mslang.php`) и TS-зеркале
+(`mslang.ts`). Более ранняя история — в git (`git log`) и в `ROADMAP.md`.
+
+## 3.0.0 — 2026-10-04 — строгая семантика
+
+MAJOR: меняется смысл существующих скриптов. Правила одни для всех скриптов, режимов
+(«диалектов») нет. Каждое отличие от 2.2.0 ниже — то, что стоит проверить в формулах.
+
+### Отличия от 2.2.0
+
+**Условия — только boolean** (ошибка `NotBoolean`):
+
+| Скрипт | 2.2.0 | 3.0.0 |
+|---|---|---|
+| `if (1)`, `if ("")`, `if (null)`, `if (obj)`, `while (n)`, `for (; n;)` | JS-истинность | `NotBoolean` |
+| `!0`, `!""`, `!null`, `!obj`, `![]` | `true`/`false` по JS | `NotBoolean` |
+| `x ? a : b` при не-boolean `x` | по JS-истинности | `NotBoolean` |
+| `5 && true`, `true && 5`, `"a" \|\| "b"`, `0 \|\| "x"`, `null && x` | сам операнд | `NotBoolean` |
+| `true && false` | `false` | `false` (результат всегда boolean) |
+| `[1, 0].filter(x => x)` (а также `find`/`findIndex`/`some`/`every`) | по JS-истинности | `NotBoolean`; колбэк обязан вернуть boolean |
+
+**Равенство без приведения типов** (`==`, `!=`, `switch`/`case`):
+
+| Скрипт | 2.2.0 | 3.0.0 |
+|---|---|---|
+| `null == 0`, `null == ""`, `null == false`, `0 == false`, `1 == true`, `"1" == 1` | `true` | `false` |
+| `1 != "1"`, `null != 0` | `false` | `true` |
+| `[1] == [1]`, `{a:1} == {a:1}` (PHP) | `true` (по содержимому) | `false` (по ссылке; в TS так и было) |
+| `дата == 1700000000` | `true` (дата против числа) | `false`; дата равна только дате |
+| `switch (1) { case "1": … }` | совпадало | не совпадает |
+
+**Порядок и арифметика — только числа** (ошибка `TypeMismatch`):
+
+| Скрипт | 2.2.0 | 3.0.0 |
+|---|---|---|
+| `"a" + 1`, `1 + "a"`, `"a" + null`, `"" + 5` | склейка (`"a1"`…) | `TypeMismatch`; явно: `"a" + (1).toString()` |
+| `null + 1`, `true + 1`, `"3" * 2`, `"6" - 1`, `-"2"`, `[1] + 1` | приведение к числу | `TypeMismatch` |
+| `s += 1` (строка), `n += "1"`, `x++` при строке `x` | приведение | `TypeMismatch` |
+| `дата > "2000-01-01"` | разбор строки-даты | `TypeMismatch`; разбор — `DateTime.parse(s, "YYYY-MM-DD")` |
+| `x /= 0` | ошибка «Division by zero» | `Infinity`, как `x / 0` |
+
+`"a" + "b"`, `1 + 2`, сравнение двух чисел и двух дат — без изменений. Явные приведения:
+`x.toString()`, `n.toFixed(d)`, `Number.parseFloat(s)`, `Number.parseInt(s)`.
+
+**Отсутствие значения — только `null`**:
+
+| Скрипт | 2.2.0 | 3.0.0 |
+|---|---|---|
+| `let x; return x;`, `o.нет`, `a[99]`, `o.нет.глубже`, функция без `return`, `forEach`, `Env.нет` | `undefined` | `null` |
+| `undefined` (литерал) | `undefined` | `UnknownName` — такого имени больше нет |
+| `typeof x` при отсутствующем значении | `"undefined"` | `"object"` (`typeof null`) |
+| `x + 1`, `x + "a"` при отсутствующем `x` | `NaN`, `"undefineda"` | `TypeMismatch` |
+| `x == 0` при отсутствующем `x` | `true` | `false` |
+| `Object.get(o, "k", d)` при `o.k == null` | `null` | `d` |
+| `Object.has(o, "k")` при `o.k == null` | `true` | `false` |
+| `JSON.parse("плохо")` без default | `undefined` | `null` |
+| `JSON.stringify(функция)` | `undefined` | `null` |
+
+**Прочее**:
+
+- `"абв".length` в PHP — `3` (было `6`, считались байты); в TS `"😀".length` — `1` (было `2`).
+  И свойство `length`, и метод `Length()` считают символы.
+- Исправлен приоритет `&&`/`||`: `false && x || true` давало `false`, теперь `true`.
+- Исправлено условие тернарного оператора: `1 + 2 * 3 == 7 ? a : b` считалось как
+  `(1 + 2) * 3`, теперь как в математике.
+- Тексты ошибок сравнения и арифметики сменились: вместо «Invalid compare types…» и
+  «Failed X cast as number» — «Operator < is not defined for string and number».
+- PHP: ошибки финиш-узлов (`"f" is not a constructor` и др.) получили место `[строка:столбец]`,
+  как в TS; вызов неизвестной глобальной функции — `UnknownName`, а не сырая ошибка PHP.
+- TS: программа без `;` в конце (`x = 5`) разбирается (раньше падала на конце текста).
+- `x?1:2` без пробелов разбирается; имя в самом конце текста (`price > 100`, `a`) — тоже
+  (раньше «Parse IDStr failed»).
+- Условие `if (…)` / `while (…)` разбирается как обычное выражение: `if ((n + 1) == 2)`,
+  `if ((s) == "a")` работают (раньше скобки слева от сравнения требовали boolean), `??` и
+  тернарный оператор в условии имеют тот же приоритет, что вне `if`. Текст ошибки условия:
+  «Expected boolean in if, …» и «… in loop condition, …» (было «… in condition, …»).
+- `.5` в позиции операнда — число `0.5` (раньше внутренняя ошибка «Stack is empty»).
+- `[1].includes(0.5 * 2)`, `unique()` сравнивают как `==`: в PHP `1` и `1.0` теперь равны
+  (TS так и было), массивы и объекты — по ссылке. `indexOf`/`Contains` сравнивают примитивы
+  тем же правилом; объект в них по ссылке не ищется.
+- TS: служебные имена JS (`toString`, `constructor`, `valueOf`) больше не «видны» как
+  переменные скрипта (`exists(toString)` — `false`, как в PHP).
+- TS: столбцы в местах ошибок и в AST после эмодзи считаются в символах, как в PHP.
+
+### Добавлено
+
+- `a ?? b`, `a?.b`, `a?.[i]`, `a?.m()`, `exists(x)` (слово `exists` зарезервировано как имя;
+  `obj.exists` и ключ `{exists: …}` — обычные имена). Через `?.` только читают: `a?.b = 1`,
+  `a?.b.c = 5`, `a?.b++` — ошибка разбора.
+- Машинные коды ошибок `ErrorCode` (`ParseError`, `NotBoolean`, `TypeMismatch`, `UnknownName`,
+  `NotCallable`, `DuplicateName`, `StepLimit`, `TimeLimit`, `AllocLimit`, `Thrown`, `RuntimeError`)
+  и место: `getErrorCode()`, `getSourceLine()`/`Column()`/`EndLine()`/`EndColumn()`,
+  `getRawMessage()`, `toArray()`; в скриптовом `catch` — `e.code`.
+- `Script::parseExpression` / `parseProgram` / `parse` и `ParsedScript` (`getKind()`,
+  `createContext()`, `toAst()`).
+- Публичный AST, формат `version: 1` — `AST.md`.
+- `ContextInterpreter::registerFunction(name, value, replace = false)` — повторное имя даёт
+  `DuplicateName`, замена — явно.
+
+### Удалено из API
+
+- TS: `phpsemantics.ts` (`phpLooseEqual`, `phpToBool`); методы `compare`/`comparePriority` у
+  значений (в обоих движках) — сравнение живёт в `Interpreter::valuesEqual`.
+- Геттер `CodeLexer.tokenCursor` в TS отдаёт `undefined` на конце текста, а не бросает.

@@ -1,0 +1,7 @@
+function f(a, b = 2, ...rest) { return a; }
+let g = (x) => x * 2;
+class A extends B {
+    constructor(x) { super(x); this.x = x; }
+    m() { return super.m(); }
+}
+return typeof g == "function" ? new A(1) instanceof A : Ns::fn(-1.5);

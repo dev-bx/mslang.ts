@@ -2,6 +2,6 @@ function f() {
     let before = x;
     var x = 42;
     let after = x;
-    return "before=" + before + ";after=" + after;
+    return [typeof before, after];
 }
 return f();

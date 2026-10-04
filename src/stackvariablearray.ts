@@ -5,12 +5,12 @@ import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableObject} from "./stackvariableobject.js";
-import {StackVariableUndefined} from "./stackvariableundefined.js";
 import {StackVariableNull} from "./stackvariablenull.js";
 import {StackVariableRef} from "./stackvariableref.js";
 import {InterpreterException} from "./exceptions";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 
+import {Interpreter} from "./interpreter";
 export class StackVariableArray extends StackVariable {
 
     private _nextNumKey: number = 0;
@@ -65,7 +65,7 @@ export class StackVariableArray extends StackVariable {
                         v = new StackVariableObject(false, v);
                         break;
                     case "undefined":
-                        v = new StackVariableUndefined(false);
+                        v = new StackVariableNull(false);
                         break;
                     default:
                         throw new InterpreterException('Incompatible array value ' + typeof v, this.getContext()?.currentToken?.cursorPos);
@@ -130,7 +130,7 @@ export class StackVariableArray extends StackVariable {
             } else if (newLen > currentLen) {
                 // Расширение: добиваем undefined, продолжая числовую нумерацию.
                 for (let i = currentLen; i < newLen; i++) {
-                    this.value.set(this._nextNumKey.toString(), new StackVariableUndefined(false));
+                    this.value.set(this._nextNumKey.toString(), new StackVariableNull(false));
                     this._nextNumKey++;
                 }
             }
@@ -275,7 +275,7 @@ export class StackVariableArray extends StackVariable {
             return value;
         }
 
-        return new StackVariableUndefined(false);
+        return new StackVariableNull(false);
     }
 
     /** join */
@@ -366,7 +366,7 @@ export class StackVariableArray extends StackVariable {
 
     funcInvoke_shift() {
         if (!this.value.size) {
-            return new StackVariableUndefined(false);
+            return new StackVariableNull(false);
         }
 
         const oldValue = this.value;
@@ -450,8 +450,9 @@ export class StackVariableArray extends StackVariable {
     funcInvoke_includes(...args: unknown[]): boolean {
         const needle = args[0];
         if (!(needle instanceof StackVariable)) return false;
+        //Равенство — как у `==` (Interpreter.valuesEqual, зеркало PHP).
         for (const v of this.value.values()) {
-            if (v.type === needle.type && v.value === needle.value) {
+            if (Interpreter.valuesEqual(v, needle)) {
                 return true;
             }
         }
@@ -460,8 +461,8 @@ export class StackVariableArray extends StackVariable {
 
     /**
      * unique — новый массив без повторов: у каждого значения остаётся только первое
-     * вхождение (порядок сохраняется). Сравнение — как в includes: тип и значение должны
-     * совпасть. Исходный массив не меняется.
+     * вхождение (порядок сохраняется). Сравнение — как у `==` (Interpreter.valuesEqual).
+     * Исходный массив не меняется.
      */
     funcInvoke_uniqueReturn = () => VariableType.vtArray;
 
@@ -473,7 +474,7 @@ export class StackVariableArray extends StackVariable {
                 value = value.refValue as StackVariable;
             }
 
-            const isDuplicate = result.some(existing => existing.type === value.type && existing.value === value.value);
+            const isDuplicate = result.some(existing => Interpreter.valuesEqual(existing, value));
 
             if (!isDuplicate) {
                 result.push(value);
@@ -563,7 +564,7 @@ export class StackVariableArray extends StackVariable {
         });
 
         for (let i = 0; i < undefinedCount; i++) {
-            defined.push(new StackVariableUndefined(false));
+            defined.push(new StackVariableNull(false));
         }
 
         this.rebuild(defined);

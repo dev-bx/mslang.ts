@@ -1,11 +1,9 @@
-import {CompareType} from "./parser.js";
 import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {InterpreterException} from "./exceptions";
 import {FunctionParameter} from "./functionparameter";
-import {phpLooseEqual} from "./phpsemantics";
 
 export class StackVariableNumber extends StackVariable {
     constructor(isConst: boolean, value: unknown) {
@@ -22,45 +20,6 @@ export class StackVariableNumber extends StackVariable {
             throw new InterpreterException('variable type ' + typeof value + ' expected number', this.getContext()?.currentToken?.cursorPos);
 
         this._value = value;
-    }
-
-    comparePriority(variable: StackVariable, compareType: CompareType):number|false
-    {
-        if (variable.isNumeric)
-            return 1;
-
-        if (compareType !== CompareType.ctEqual && compareType !== CompareType.ctNotEqual)
-            return false;
-
-        return 0;
-    }
-
-    compare(variable: StackVariable, compareType: CompareType)
-    {
-        switch (compareType)
-        {
-            case CompareType.ctEqual:
-                return phpLooseEqual(this.value, variable.value);
-            case CompareType.ctNotEqual:
-                return !phpLooseEqual(this.value, variable.value);
-        }
-
-        if (!variable.isNumeric || typeof this.value !== 'number' || typeof variable.value !== 'number')
-            throw new InterpreterException('Invalid compare type', this.getContext()?.currentToken?.cursorPos);
-
-        switch (compareType) {
-            case CompareType.ctLess:
-                return this.value < variable.value;
-            case CompareType.ctGreat:
-                return this.value > variable.value;
-            case CompareType.ctEqual | CompareType.ctLess:
-                return this.value <= variable.value;
-            case CompareType.ctEqual | CompareType.ctGreat:
-                return this.value >= variable.value;
-            default:
-                // Зеркало PHP: InterpreterException с позицией текущего токена, а не голый Error.
-                throw new InterpreterException('Unknown compare type ' + compareType, this.getContext()?.currentToken?.cursorPos);
-        }
     }
 
     castAs(variableType: VariableType): StackVariable|null

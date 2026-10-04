@@ -1,1 +1,3 @@
-return "ab" + 14;
+// Склейка — только строка + строка; число приводится явно.
+function code(f) { try { f(); return "ok"; } catch (e) { return e.code; } }
+return ["ab" + (14).toString(), code(() => "ab" + 14)];

@@ -1,0 +1,37 @@
+// Сводка новой семантики (D2-01): каждый случай — значение или "E:<код ошибки>".
+// Условия — только boolean; == без приведения; порядок и арифметика — только числа
+// (+ ещё для двух строк); отсутствие — только null; проверка наличия — ??, ?., exists.
+function r(f) {
+    try { return f(); } catch (e) { return "E:" + e.code; }
+}
+let host = {s: "x", n: 2, none: null, list: [1, 2, 3]};
+return [
+    // условия
+    r(() => !true), r(() => !0), r(() => !null), r(() => !host),
+    r(() => { if (1) { return "y"; } return "n"; }),
+    r(() => 0 ? 1 : 2), r(() => true ? 1 : 2),
+    r(() => true && false), r(() => false || true), r(() => true && 5), r(() => "a" || "b"),
+    r(() => false && nope || true),
+    r(() => [1, 0, 2].filter(x => x > 0).length), r(() => [1, 0].filter(x => x)),
+    // равенство
+    r(() => null == 0), r(() => null == null), r(() => 0 == false), r(() => "1" == 1),
+    r(() => 1 != "1"), r(() => (0/0) == (0/0)), r(() => host.list == host.list), r(() => [1] == [1]),
+    // порядок
+    r(() => 1 < 2), r(() => "a" < "b"), r(() => null > 0),
+    r(() => DateTime.fromTimestamp(1) < DateTime.fromTimestamp(2)),
+    // арифметика
+    r(() => 1 + 2), r(() => "a" + "b"), r(() => "a" + 1), r(() => null + 1), r(() => true + 1),
+    r(() => "6" - 1), r(() => -"2"), r(() => 7 & "1"), r(() => 6 / 0 == 1 / 0),
+    r(() => { let s = "a"; s += 1; return s; }), r(() => { let x = "5"; x++; return x; }),
+    r(() => "n=" + host.n.toString()),
+    // отсутствие
+    r(() => { let x; return x; }), r(() => host.missing), r(() => host.missing.deep),
+    r(() => host.list[9]), r(() => { function f() { } return f(); }),
+    r(() => typeof host.missing), r(() => nope), r(() => undefined),
+    r(() => host.missing + 1), r(() => host.missing == 0),
+    // наличие
+    r(() => host.none ?? "def"), r(() => 0 ?? "def"), r(() => host.missing?.deep?.[0]),
+    r(() => host.list?.[1]), r(() => exists(nope)), r(() => exists(host.none)), r(() => exists(host.s)),
+    // длина
+    r(() => "абв".length), r(() => "😀".length), r(() => host.list.length), r(() => host.length)
+];

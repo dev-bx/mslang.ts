@@ -1,0 +1,18 @@
+// Условие — только boolean. Любое другое значение в любом месте, где язык ждёт
+// «да/нет», — ошибка NotBoolean (раньше работала JS-истинность).
+function code(f) {
+    try { f(); return "ok"; } catch (e) { return e.code; }
+}
+return [
+    code(() => !![]),
+    code(() => (0/0) ? 1 : 0),
+    code(() => [] && true),
+    code(() => true || "B"),
+    code(() => [1].filter(x => [])),
+    code(() => [1].some(x => 1)),
+    code(() => !"0"),
+    code(() => { if (JSON.parse("{}")) { return 1; } return 2; }),
+    code(() => { let i = 0; while (i) { i = 1; } return i; }),
+    code(() => !!(1 < 2)),
+    code(() => [1, 2].filter(x => x > 1))
+];

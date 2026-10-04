@@ -1,1 +1,3 @@
-return ("b" - "1") == true;
+// Вычитание строк — TypeMismatch (раньше "b" - "1" давало NaN).
+function code(f) { try { f(); return "ok"; } catch (e) { return e.code; } }
+return [code(() => "b" - "1"), (0/0) == true];

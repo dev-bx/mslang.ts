@@ -1,10 +1,10 @@
 import {StackVariable} from "./stackvariable";
 import {StackVariableArray} from "./stackvariablearray";
 import {StackVariableString} from "./stackvariablestring";
-import {StackVariableUndefined} from "./stackvariableundefined";
+import {StackVariableNull} from "./stackvariablenull";
 import {StackVariableRef} from "./stackvariableref";
 import {VariableType} from "./variabletype";
-import {InterpreterException, ResourceLimitException} from "./exceptions";
+import {ErrorCode, InterpreterException, ResourceLimitException} from "./exceptions";
 import type {BuiltinConstructor} from "./builtinconstructor";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 
@@ -14,7 +14,7 @@ import type {ContextInterpreter} from "./contextinterpreter.js";
  * Семантика:
  *   - `new Array()`         → `[]` (пустой массив).
  *   - `new Array(N)` где N — целое неотрицательное число: массив длиной N
- *     с `undefined`-ячейками. После этого удобно сразу `.fill(value)`
+ *     с `null`-ячейками. После этого удобно сразу `.fill(value)`
  *     для инициализации.
  *   - `new Array(a, b, c)`  → `[a, b, c]` (массив-литерал из аргументов).
  *
@@ -33,7 +33,7 @@ export class ArrayConstructor extends StackVariable implements BuiltinConstructo
         }
 
         //new Array(N) где N — число: создаём массив фиксированной длины с
-        //undefined в каждой ячейке. Это и есть JS-семантика, удобно в связке
+        //null в каждой ячейке. Это и есть JS-семантика, удобно в связке
         //с .fill(value).
         if (parameters.length === 1) {
             let first: StackVariable = parameters[0];
@@ -53,11 +53,11 @@ export class ArrayConstructor extends StackVariable implements BuiltinConstructo
                     //учёт в конструкторе StackVariableArray (он спишет бюджет по факту).
                     if (context && context.getLimitAllocBytes()
                         && context.getAllocatedBytes() + n * 16 > context.getLimitAllocBytes()) {
-                        throw new ResourceLimitException('Allocation limit [' + context.getLimitAllocBytes() + '] exceeded', context.currentToken?.cursorPos);
+                        throw new ResourceLimitException('Allocation limit [' + context.getLimitAllocBytes() + '] exceeded', context.currentToken?.cursorPos, ErrorCode.AllocLimit);
                     }
                     const items: StackVariable[] = [];
                     for (let i = 0; i < n; i++) {
-                        items.push(new StackVariableUndefined(false));
+                        items.push(new StackVariableNull(false));
                     }
                     return new StackVariableArray(false, items, context);
                 }

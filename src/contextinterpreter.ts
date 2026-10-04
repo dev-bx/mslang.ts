@@ -25,7 +25,7 @@ import {Base64Functions} from "./base64functions";
 import {UrlFunctions} from "./urlfunctions";
 import {HashFunctions} from "./hashfunctions";
 import {StackVariableDateTime} from "./stackvariabledatetime";
-import {ContextException, MSLangException, ResourceLimitException} from "./exceptions";
+import {ContextException, ErrorCode, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {ContextType} from "./contexttype";
 import {InterpreterNode} from "./interpreternode";
@@ -46,6 +46,14 @@ interface ExecutionStackItem {
     currentMethodOwner?: StackVariableClass | null;
     isCtorTDZ?: boolean;
     letNames?: Record<string, boolean>;
+}
+
+// Таблицы переменных — обычные объекты с прототипом Object, поэтому имя ищем только среди
+// собственных ключей: иначе `toString`, `constructor`, `hasOwnProperty` «существовали» бы
+// в каждом скрипте (exists(toString) → true, registerFunction("toString") → DuplicateName),
+// чего нет в PHP-эталоне.
+function hasOwn(table: object, name: string): boolean {
+    return Object.prototype.hasOwnProperty.call(table, name);
 }
 
 export class ContextInterpreter {
@@ -168,7 +176,7 @@ export class ContextInterpreter {
         this.allocatedBytes += bytes;
 
         if (this.limitAllocBytes && this.allocatedBytes > this.limitAllocBytes) {
-            throw new ResourceLimitException('Allocation limit [' + this.limitAllocBytes + '] exceeded', this.currentToken?.cursorPos);
+            throw new ResourceLimitException('Allocation limit [' + this.limitAllocBytes + '] exceeded', this.currentToken?.cursorPos, ErrorCode.AllocLimit);
         }
     }
 
@@ -198,7 +206,6 @@ export class ContextInterpreter {
     }
 
     registerConst() {
-        this.setVariable('undefined', new StackVariableUndefined(true));
         this.setVariable('null', new StackVariableNull(true));
         this.setVariable('true', new StackVariableBoolean(true, true));
         this.setVariable('false', new StackVariableBoolean(true, false));
@@ -396,7 +403,7 @@ export class ContextInterpreter {
                 //Если внутри scope переменную не трогали (например, она была обновлена
                 //прямо в snapshot через closure-walk в setVariable) — пропускаем
                 //копирование, иначе попадём в установку value на undefined.
-                if (tmp[k] === undefined)
+                if (!hasOwn(tmp, k))
                     return;
 
                 if (this._variables[k].type !== tmp[k].type) {
@@ -532,10 +539,10 @@ export class ContextInterpreter {
      */
     getGlobalVariable(name: string): StackVariable | undefined {
         if (this._executionStack.length === 0) {
-            return this._variables[name];
+            return hasOwn(this._variables, name) ? this._variables[name] : undefined;
         }
         const rootVars = this._executionStack[0].variables;
-        return rootVars[name];
+        return hasOwn(rootVars, name) ? rootVars[name] : undefined;
     }
 
     pushStackVar(data: unknown) {
@@ -610,12 +617,12 @@ export class ContextInterpreter {
         // Защита от бесконечного выполнения, если установлен лимит.
         // Зеркало PHP execOne (см. ContextInterpreter::execOne).
         if (this.limitExecInstruction && this.instructionCounter >= this.limitExecInstruction) {
-            throw new ResourceLimitException('Execution limit [' + this.limitExecInstruction + '] exceeded', this.currentToken?.cursorPos);
+            throw new ResourceLimitException('Execution limit [' + this.limitExecInstruction + '] exceeded', this.currentToken?.cursorPos, ErrorCode.StepLimit);
         }
 
         if (this.limitExecTimeMs && this.execStartTime
             && Date.now() - this.execStartTime >= this.limitExecTimeMs) {
-            throw new ResourceLimitException('Execution time limit [' + this.limitExecTimeMs + ' ms] exceeded', this.currentToken?.cursorPos);
+            throw new ResourceLimitException('Execution time limit [' + this.limitExecTimeMs + ' ms] exceeded', this.currentToken?.cursorPos, ErrorCode.TimeLimit);
         }
 
         this.instructionCounter++;
@@ -708,7 +715,7 @@ export class ContextInterpreter {
     }
 
     getVariable(name: string): StackVariable|undefined {
-        if (this._variables[name] !== undefined) {
+        if (hasOwn(this._variables, name)) {
             return this._variables[name];
         }
 
@@ -717,13 +724,13 @@ export class ContextInterpreter {
         //и top-level пользовательские функции.
         for (let i = this._executionStack.length - 1; i >= 0; i--) {
             const vars = this._executionStack[i].variables;
-            if (vars && vars[name] !== undefined) {
+            if (vars && hasOwn(vars, name)) {
                 return vars[name];
             }
         }
 
         //Замыкание: переменные, «застывшие» в области, где функция была определена.
-        if (this._currentCapturedScope !== null && this._currentCapturedScope[name] !== undefined) {
+        if (this._currentCapturedScope !== null && hasOwn(this._currentCapturedScope, name)) {
             return this._currentCapturedScope[name];
         }
 
@@ -752,6 +759,21 @@ export class ContextInterpreter {
         return refValue.getProxy();
     }
 
+    /**
+     * Регистрация функции (или другого значения — пространства имён, константы) хостом
+     * (зеркало PHP ContextInterpreter::registerFunction). Имя занято и replace = false —
+     * ContextException с кодом DuplicateName и именем в тексте, ничего не меняется;
+     * replace = true — явная замена, в том числе встроенного значения и константы.
+     */
+    registerFunction(name: string, value: StackVariable, replace: boolean = false): void {
+        if (!replace && hasOwn(this._variables, name)) {
+            throw new ContextException('Name "' + name + '" is already registered', ErrorCode.DuplicateName);
+        }
+
+        value.setContext(this);
+        this._variables[name] = value;
+    }
+
     setVariable(name:string, value: StackVariable) {
         //Замыкание-by-reference включается только внутри пользовательской функции
         //(текущий scope или любой scope вверх — типа ctFunctionCall). Старые блочные
@@ -766,11 +788,11 @@ export class ContextInterpreter {
             }
         }
 
-        if (isInsideFunction && this._variables[name] === undefined) {
+        if (isInsideFunction && !hasOwn(this._variables, name)) {
             //Идём по execution stack: если переменная есть наверху — обновляем там.
             for (let i = this._executionStack.length - 1; i >= 0; i--) {
                 const vars = this._executionStack[i].variables;
-                if (vars && vars[name] !== undefined) {
+                if (vars && hasOwn(vars, name)) {
                     if (vars[name].isConst)
                         throw new ContextException('Cannot override constant ' + name);
                     vars[name] = value;
@@ -779,7 +801,7 @@ export class ContextInterpreter {
             }
 
             //Захваченная область замыкания.
-            if (this._currentCapturedScope !== null && this._currentCapturedScope[name] !== undefined) {
+            if (this._currentCapturedScope !== null && hasOwn(this._currentCapturedScope, name)) {
                 const existing = this._currentCapturedScope[name];
                 if (existing.isConst)
                     throw new ContextException('Cannot override constant ' + name);
@@ -798,7 +820,7 @@ export class ContextInterpreter {
             }
         }
 
-        if (!!this._variables[name] && this._variables[name].isConst)
+        if (hasOwn(this._variables, name) && this._variables[name].isConst)
             throw new ContextException('Cannot override constant ' + name);
 
         this._variables[name] = value;
@@ -855,11 +877,11 @@ export class ContextInterpreter {
         const variable = this.getVariable(name);
 
         if (!variable) {
-            throw new MSLangException('global function "' + name + '" not defined');
+            throw new ContextException('Unknown function "' + name + '"', ErrorCode.UnknownName);
         }
 
         if (variable.type !== VariableType.vtFunction) {
-            throw new MSLangException('variable "' + name + '" is not function');
+            throw new ContextException('Call global function ' + name, ErrorCode.NotCallable);
         }
 
 
@@ -896,7 +918,7 @@ export class ContextInterpreter {
         let returnVal = funcEntry.invokeArguments(callFuncArgs);
 
         if (!(returnVal instanceof StackVariable)) {
-            returnVal = new StackVariableUndefined(false);
+            returnVal = new StackVariableNull(false);
         }
 
         return returnVal;
@@ -908,7 +930,7 @@ export class ContextInterpreter {
         const funcEntry = self.getFunctionEntry(name);
 
         if (!funcEntry) {
-            throw new ContextException('Unknown function "' + name + '"');
+            throw new ContextException('Unknown function "' + name + '"', ErrorCode.UnknownName);
         }
 
         if (funcEntry.getRequiredCount() > parameters.length) {

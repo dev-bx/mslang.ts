@@ -1,0 +1,98 @@
+{
+    "type": "Program",
+    "version": 1,
+    "body": [
+        {
+            "type": "VariableDeclaration",
+            "kind": "let",
+            "name": "s",
+            "init": {
+                "type": "Binary",
+                "operator": "+",
+                "left": {
+                    "type": "Literal",
+                    "value": "😀😀",
+                    "loc": {
+                        "line": 1,
+                        "column": 9,
+                        "endLine": 1,
+                        "endColumn": 12
+                    }
+                },
+                "right": {
+                    "type": "Literal",
+                    "value": "x",
+                    "loc": {
+                        "line": 1,
+                        "column": 16,
+                        "endLine": 1,
+                        "endColumn": 18
+                    }
+                },
+                "loc": {
+                    "line": 1,
+                    "column": 9,
+                    "endLine": 1,
+                    "endColumn": 18
+                }
+            },
+            "loc": {
+                "line": 1,
+                "column": 5,
+                "endLine": 1,
+                "endColumn": 5
+            }
+        },
+        {
+            "type": "Return",
+            "argument": {
+                "type": "Binary",
+                "operator": "+",
+                "left": {
+                    "type": "Member",
+                    "object": {
+                        "type": "Identifier",
+                        "name": "s",
+                        "loc": {
+                            "line": 1,
+                            "column": 28,
+                            "endLine": 1,
+                            "endColumn": 28
+                        }
+                    },
+                    "property": "length",
+                    "computed": false,
+                    "optional": false,
+                    "loc": {
+                        "line": 1,
+                        "column": 28,
+                        "endLine": 1,
+                        "endColumn": 35
+                    }
+                },
+                "right": {
+                    "type": "Identifier",
+                    "name": "nope",
+                    "loc": {
+                        "line": 1,
+                        "column": 39,
+                        "endLine": 1,
+                        "endColumn": 42
+                    }
+                },
+                "loc": {
+                    "line": 1,
+                    "column": 28,
+                    "endLine": 1,
+                    "endColumn": 42
+                }
+            },
+            "loc": {
+                "line": 1,
+                "column": 21,
+                "endLine": 1,
+                "endColumn": 26
+            }
+        }
+    ]
+}

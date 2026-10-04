@@ -1,1 +1,16 @@
-return (6 && 1) + "#" + (0 || "fallback") + "#" + ("" + (null && 5)) + "#" + ("" + ((0 / 0) && 9)) + "#" + ((5 > 0 && 3 > 0) ? "both" : "no") + "#" + ("a" && "b") + "#" + (0 || "" || "last");
+// && и || принимают и возвращают только boolean, вычисляются сокращённо,
+// && связывает сильнее ||.
+let calls = 0;
+function hit() { calls = calls + 1; return true; }
+return [
+    true && false,
+    false || true,
+    5 > 0 && 3 > 0 ? "both" : "no",
+    false && hit(),
+    true || hit(),
+    calls,
+    false && nope || true,
+    true || nope && false,
+    (true || false) && false,
+    1 + 2 * 3 == 7 ? "y" : "n"
+];

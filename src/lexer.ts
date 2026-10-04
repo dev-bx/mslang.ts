@@ -79,6 +79,12 @@ export const LexerType = {
     'ltOf': 66,
     //Унарный оператор `typeof x` — даёт строку-имя типа (JS-семантика).
     'ltTypeof': 67,
+    //`a ?? b` — значение слева, если оно не null, иначе справа.
+    'ltNullish': 68,
+    //`?.` — безопасное обращение: `a?.b`, `a?.[i]`, `a?.m()`.
+    'ltOptionalChain': 69,
+    //`exists(x)` — есть ли значение (не null; неизвестное имя — тоже «нет»).
+    'ltExists': 70,
 }
 
 export class FullTokenInfo {
@@ -178,7 +184,9 @@ export class Lexer {
             if (this._lastChar === '\n') {
                 this._cursorLine++;
                 this._cursorCol = 1;
-            } else {
+            } else if (!this.isSecondSurrogateHalf()) {
+                //Столбец — в символах (код-поинтах), как PHP mb_substr: вторая половина
+                //суррогатной пары (эмодзи) — тот же символ, столбец не растёт.
                 this._cursorCol++;
             }
 
@@ -186,6 +194,16 @@ export class Lexer {
         }
 
         return this._lastChar;
+    }
+
+    private isSecondSurrogateHalf(): boolean {
+        const code = this._text.charCodeAt(this._textPos);
+        if (code < 0xDC00 || code > 0xDFFF || this._textPos === 0) {
+            return false;
+        }
+        const previous = this._text.charCodeAt(this._textPos - 1);
+
+        return previous >= 0xD800 && previous <= 0xDBFF;
     }
 
     whoNextCh(offset = 0) {
@@ -297,10 +315,9 @@ export class CodeLexer extends Lexer {
         this._lastChar = null;
     }
 
-    get tokenCursor() {
-        if (!this._tokenCursor)
-            throw new LexerException('token cursor is not initialized.');
-
+    // Зеркало PHP Lexer::getTokenCursor(): ?TokenCursor — на конце текста места нет,
+    // это не ошибка (раньше геттер бросал, и `x = 5` без `;` в конце не разбиралось).
+    get tokenCursor(): TokenCursor | undefined {
         return this._tokenCursor;
     }
 
@@ -511,6 +528,18 @@ export class CodeLexer extends Lexer {
                 this._tokenSym = LexerType.ltBitXor;
                 return;
             case '?':
+                if (this.whoNextCh() === '?') {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltNullish;
+                    return;
+                }
+                //`?.` — безопасное обращение, но `a ?.5 : 1` — тернарный оператор с
+                //числом .5 (как в JS: за `?.` не может идти цифра).
+                if (this.whoNextCh() === '.' && !this.isDigit(this.whoNextCh(1))) {
+                    this.getCh();
+                    this._tokenSym = LexerType.ltOptionalChain;
+                    return;
+                }
                 this._tokenSym = LexerType.ltQuestion;
                 return;
         }
@@ -665,7 +694,8 @@ export class CodeLexer extends Lexer {
         //Бинарные операторы тоже завершают число/идентификатор. Раньше тут не было
         //`% & | ^`, из-за чего `7%2`/`7&2`/`6&&1` без пробела перед оператором не лексились
         //(число «съедало» оператор). `+ - * /` были, поэтому `7+2` работал, а `7%2` — нет.
-        const allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '%', '&', '|', '^', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']'];
+        //`?` — тоже граница: `a?.b`, `a??b`, `x?1:2` без пробелов.
+        const allowStopChars = ['{', '}', '(', ')', ';', '-', '+', '*', '/', '%', '&', '|', '^', '=', '<', '>', '\r', '\n', ':', ' ', ',', '!', '[', ']', '?'];
 
         if (this.isDigit(this.lastChar) || this.lastChar === '-') {
             //Префиксы для не-десятичных литералов: 0x.., 0b.., 0o..
@@ -798,7 +828,8 @@ export class CodeLexer extends Lexer {
                 break;
             }
 
-            if (nextCh !== null && allowStopChars.indexOf(nextCh) !== -1) {
+            //Конец текста — тоже граница имени: формула `price > 100` или просто `a`.
+            if (nextCh === null || allowStopChars.indexOf(nextCh) !== -1) {
                 break;
             }
 
@@ -936,6 +967,12 @@ export class CodeLexer extends Lexer {
 
         if (this._tokenValue === "typeof") {
             this._tokenSym = LexerType.ltTypeof;
+            return;
+        }
+
+        //`exists` — ключевое слово только как имя, не как свойство: `obj.exists` — обычное поле.
+        if (this._tokenValue === "exists" && !isObjProp) {
+            this._tokenSym = LexerType.ltExists;
             return;
         }
 

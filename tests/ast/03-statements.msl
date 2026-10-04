@@ -1,0 +1,19 @@
+let total = 0;
+for (let i = 0; i < 3; i++) {
+    total += i;
+}
+for (const v of [1, 2]) { continue; }
+while (false) { break; }
+if (total > 2 && true) {
+    total++;
+} else {
+    return null;
+}
+switch (total) {
+    case 3: total = 30; break;
+    default: total = 0;
+}
+try { throw new Error("e"); } catch (e) { total = 1; } finally { total = 2; }
+a.b.c = 1;
+a[i][j] = 2;
+return [1, "k" => 2, ...rest, {x: true, "y": null}];

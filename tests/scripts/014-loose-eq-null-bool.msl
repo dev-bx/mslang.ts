@@ -1,1 +1,2 @@
-return false != null;
+// == без приведения: разные типы не равны.
+return [false != null, false == null];

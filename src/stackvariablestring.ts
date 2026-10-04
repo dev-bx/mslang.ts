@@ -3,7 +3,7 @@ import {VariableType} from "./variabletype.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
 import {FunctionParameter} from "./functionparameter.js";
-import {StackVariableUndefined} from "./stackvariableundefined";
+import {StackVariableNull} from "./stackvariablenull";
 import {InterpreterException} from "./exceptions";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 
@@ -284,12 +284,14 @@ export class StackVariableString extends StackVariable {
     }
 
     override properties = {
+        // Длина в символах (код-поинтах), как у slice/padStart/charAt и как PHP
+        // mb_strlen — а не в единицах UTF-16 (эмодзи — один символ, не два).
         length: {
             get: () => {
                 if (typeof this._value === 'string')
-                    return new StackVariableNumber(false, this._value.length);
+                    return new StackVariableNumber(false, Array.from(this._value).length);
 
-                return new StackVariableUndefined();
+                return new StackVariableNull(false);
             }
         },
     }
@@ -373,7 +375,7 @@ export class StackVariableString extends StackVariable {
     funcInvokeLength()
     {
         if (typeof this.value === 'string')
-            return this.value.length;
+            return Array.from(this.value).length;
 
         return 0;
     }

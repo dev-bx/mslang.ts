@@ -81,6 +81,23 @@ function compareConsts(ts: Record<string, number>, php: Record<string, number>, 
     assert.deepStrictEqual(mismatches, [], `${label}: расхождения значений:\n  ${mismatches.join('\n  ')}`);
 }
 
+// Строковые коды ошибок: PHP `const Имя = 'значение';` против TS `Имя: 'значение',`
+// внутри `export const ErrorCode = {...}`. Пустой разбор — ошибка, а не тихий успех.
+test('mirror_ErrorCode', {skip: !PHP_AVAILABLE}, () => {
+    const phpText = fs.readFileSync(path.join(PHP_ROOT, 'Exception/ErrorCode.php'), 'utf-8');
+    const php: Record<string, string> = {};
+    for (const m of phpText.matchAll(/const\s+(\w+)\s*=\s*'([^']*)'\s*;/g)) php[m[1]] = m[2];
+
+    const tsText = fs.readFileSync(path.join(TS_ROOT, 'exceptions.ts'), 'utf-8');
+    const block = tsText.match(/export const ErrorCode = \{([\s\S]*?)^\} as const;/m);
+    assert.ok(block, 'В exceptions.ts не найден блок ErrorCode');
+    const ts: Record<string, string> = {};
+    for (const m of block[1].matchAll(/^\s*(\w+):\s*'([^']*)',/gm)) ts[m[1]] = m[2];
+
+    assert.ok(Object.keys(php).length > 0, 'В ErrorCode.php не найдено ни одной константы');
+    assert.deepStrictEqual(ts, php, 'ErrorCode: наборы TS и PHP расходятся');
+});
+
 test('mirror_VariableType', {skip: !PHP_AVAILABLE}, () => {
     compareConsts(
         readTsConsts(path.join(TS_ROOT, 'variabletype.ts'), 'VariableType'),

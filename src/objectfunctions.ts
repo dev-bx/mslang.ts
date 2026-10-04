@@ -3,7 +3,7 @@ import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableArray} from "./stackvariablearray.js";
 import {StackVariableRef} from "./stackvariableref.js";
-import {StackVariableUndefined} from "./stackvariableundefined.js";
+import {StackVariableNull} from "./stackvariablenull";
 import {StackVariablePlainObject} from "./stackvariableplainobject.js";
 
 /**
@@ -60,7 +60,7 @@ export class ObjectFunctions extends StackVariable {
         const pathVar = args[1];
         const def = args[2];
 
-        const defaultValue = def instanceof StackVariable ? def : new StackVariableUndefined(false);
+        const defaultValue = def instanceof StackVariable ? def : new StackVariableNull(false);
 
         if (!(target instanceof StackVariable) || !(pathVar instanceof StackVariable)) {
             return defaultValue;
@@ -68,10 +68,11 @@ export class ObjectFunctions extends StackVariable {
 
         const resolved = this.resolvePath(target, ObjectFunctions.pathToString(pathVar));
 
-        return resolved.type === VariableType.vtUndefined ? defaultValue : resolved;
+        // Одно значение отсутствия: и нет ключа, и ключ равен null — берём значение по умолчанию.
+        return ObjectFunctions.isAbsent(resolved) ? defaultValue : resolved;
     }
 
-    /** `Object.has(target, path)` — есть ли значение по пути (не undefined). */
+    /** `Object.has(target, path)` — есть ли значение по пути (ключ есть и не равен null). */
     funcInvoke_hasReturn = () => VariableType.vtBoolean;
 
     funcInvoke_has(...args: unknown[]): boolean {
@@ -82,7 +83,7 @@ export class ObjectFunctions extends StackVariable {
             return false;
         }
 
-        return this.resolvePath(target, ObjectFunctions.pathToString(pathVar)).type !== VariableType.vtUndefined;
+        return !ObjectFunctions.isAbsent(this.resolvePath(target, ObjectFunctions.pathToString(pathVar)));
     }
 
     /**
@@ -97,7 +98,7 @@ export class ObjectFunctions extends StackVariable {
             target = target.refValue;
         }
         if (!(target instanceof StackVariable)) {
-            return new StackVariableUndefined(false);
+            return new StackVariableNull(false);
         }
 
         if (target instanceof StackVariablePlainObject) {
@@ -142,7 +143,7 @@ export class ObjectFunctions extends StackVariable {
                 }
                 if (p instanceof StackVariableArray) {
                     const keyVar = p.value.get('0');
-                    const valueVar = p.value.get('1') ?? new StackVariableUndefined(false);
+                    const valueVar = p.value.get('1') ?? new StackVariableNull(false);
                     object.setProperty(keyVar ? ObjectFunctions.pathToString(keyVar) : '', valueVar);
                 }
             }
@@ -292,9 +293,16 @@ export class ObjectFunctions extends StackVariable {
         return asString ? String(asString.value) : '';
     }
 
+    /** Отсутствие значения — null (и прежние undefined/void, если их подсунул хост). */
+    private static isAbsent(value: StackVariable): boolean {
+        const type = value.type;
+
+        return type === VariableType.vtNull || type === VariableType.vtUndefined || type === VariableType.vtVoid;
+    }
+
     /**
      * Идёт по пути из ключей (через точку) внутрь объекта/массива. Возвращает значение
-     * или undefined, если шаг отсутствует или упёрся в скаляр. Массив читаем напрямую
+     * или null, если шаг отсутствует или упёрся в скаляр. Массив читаем напрямую
      * из Map (как PHP offsetGet), мимо length-логики getProperty.
      */
     private resolvePath(target: StackVariable, path: string): StackVariable {
@@ -303,12 +311,12 @@ export class ObjectFunctions extends StackVariable {
         for (const part of path.split('.')) {
             if (current instanceof StackVariableArray) {
                 const next = current.value.get(part);
-                current = next instanceof StackVariable ? next : new StackVariableUndefined(false);
+                current = next instanceof StackVariable ? next : new StackVariableNull(false);
             } else if (current.type === VariableType.vtObject) {
                 const next = current.getProperty(part);
-                current = next instanceof StackVariable ? next : new StackVariableUndefined(false);
+                current = next instanceof StackVariable ? next : new StackVariableNull(false);
             } else {
-                return new StackVariableUndefined(false);
+                return new StackVariableNull(false);
             }
             if (current instanceof StackVariableRef) {
                 current = current.refValue as StackVariable;

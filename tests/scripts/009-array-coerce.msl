@@ -1,1 +1,3 @@
-return [1,2] + 1;
+// Массив в арифметике — TypeMismatch; строку из массива дают join/toString.
+function code(f) { try { f(); return "ok"; } catch (e) { return e.code; } }
+return [code(() => [1,2] + 1), [1,2].join(",") + "1"];

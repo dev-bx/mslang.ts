@@ -123,6 +123,20 @@ export const NodeType =
         'ntObjectEntry': 73,
         //Унарный префиксный `typeof x` → строка-имя типа по JS (операнд идёт следом).
         'ntTypeof': 74,
+        //Логическое И `a && b`: childItems = [подвыражение левого, подвыражение правого].
+        //Строится пост-обработкой из маркеров ntCompareAnd; оба операнда — строго boolean.
+        'ntLogicalAnd': 75,
+        //Логическое ИЛИ `a || b`: устроено как ntLogicalAnd.
+        'ntLogicalOr': 76,
+        //Маркер `??` в плоском списке выражения; пост-обработка сворачивает его в ntNullish.
+        'ntCompareNullish': 77,
+        //`a ?? b`: левое значение, если оно не null, иначе правое (считается только тогда).
+        'ntNullish': 78,
+        //Охранник безопасного обращения `?.` перед ntObjProp / ntBracketGetKey / ntSelfFuncCall:
+        //значение слева null — обращение пропускается целиком, результат null.
+        'ntOptionalChain': 79,
+        //`exists(x)` — true, если значение есть (не null); неизвестное голое имя — false.
+        'ntExists': 80,
     }
 
 export class ParseNode
@@ -229,7 +243,8 @@ export class ParseNode
 
     isCompareOrAndNode()
     {
-        return this.nType === NodeType.ntCompareOr || this.nType === NodeType.ntCompareAnd;
+        return this.nType === NodeType.ntCompareOr || this.nType === NodeType.ntCompareAnd
+            || this.nType === NodeType.ntCompareNullish;
     }
 
     /**
@@ -419,6 +434,12 @@ export class CodeParser {
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltObjProp:
+                    //`.5` в позиции операнда — дробное число 0.5 (зеркало PHP), а не свойство.
+                    if ((!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode() || prevNode.nType === NodeType.ntArrayPushSeparatorKey)
+                        && /^\d+$/.test(String(this.lexer.tokenValue))) {
+                        NodeList.push(new ParseNode(this.lexer.tokenCursor, NodeType.ntFloat, Number('0.' + this.lexer.tokenValue)));
+                        break;
+                    }
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntObjProp, this.lexer.tokenValue);
                     NodeList.push(SubNode);
                     break;
@@ -729,6 +750,7 @@ export class CodeParser {
 
                         if (this.lexer.tokenSym === LexerType.ltAssign)
                         {
+                            this.assertNotOptionalTarget(NodeList);
                             SubNode.nType = NodeType.ntBracketSetKey;
 
                             const SubExpressionNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntBracketSetKey);
@@ -778,7 +800,9 @@ export class CodeParser {
                             if (this.lexer.tokenSym === LexerType.ltEndCode)
                                 break;
 
-                            if (this.lexer.tokenSym !== LexerType.ltIDStr && this.lexer.tokenSym !== LexerType.ltString)
+                            //Ключ — имя или строка; `exists` (ключевое слово) тоже годится как имя ключа.
+                            if (this.lexer.tokenSym !== LexerType.ltIDStr && this.lexer.tokenSym !== LexerType.ltString
+                                && this.lexer.tokenSym !== LexerType.ltExists)
                                 throw new ParserCursorException("Object literal: key expected", this.lexer.tokenCursor);
 
                             const key = this.lexer.tokenValue;
@@ -805,6 +829,8 @@ export class CodeParser {
                 case LexerType.ltAssign:
                     // Установка значения свойства объекта: obj.prop = value.
                     if (prevNode && prevNode.nType === NodeType.ntObjProp) {
+                        this.assertNotOptionalTarget(NodeList);
+
                         SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntObjSetPropValue, prevNode.nValue);
 
                         NodeList.pop();
@@ -826,7 +852,7 @@ export class CodeParser {
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntIFValue);
                     //Тернарный `?` тоже останавливает правую часть сравнения,
                     //иначе `n > 5 ? a : b` парсилось бы как `n > (5 ? a : b)`.
-                    this.parseExpression(SubNode, true, new LexerTypeArray(...StopLex, LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltQuestion));
+                    this.parseExpression(SubNode, true, new LexerTypeArray(...StopLex, LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltNullish, LexerType.ltQuestion));
                     NodeList.push(SubNode);
 
                     getNextToken = false;
@@ -844,6 +870,59 @@ export class CodeParser {
                         throw new ParserNodeException('Invalid token', prevNode);
 
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareOr);
+                    NodeList.push(SubNode);
+                    break;
+                case LexerType.ltNullish:
+                    if (!prevNode || prevNode.isCompareOrAndNode())
+                        throw new ParserCursorException("'??' requires a left operand", this.lexer.tokenCursor);
+
+                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareNullish);
+                    NodeList.push(SubNode);
+                    break;
+                case LexerType.ltOptionalChain:
+                    //`a?.b`, `a?.[i]`, `a?.m()`: перед обращением ставим охранник ntOptionalChain.
+                    if (!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode())
+                        throw new ParserCursorException("'?.' requires a left operand", this.lexer.tokenCursor);
+
+                    //`++a?.b` — префиксный ++/-- перед цепочкой с `?.` тоже запись.
+                    {
+                        const before = NodeList[this.chainStart(NodeList) - 1];
+                        if (before && (before.nType === NodeType.ntShortIncrement || before.nType === NodeType.ntShortDecrement)) {
+                            throw new ParserCursorException("Cannot assign to '?.' expression", this.lexer.tokenCursor);
+                        }
+                    }
+
+                    NodeList.push(new ParseNode(this.lexer.tokenCursor, NodeType.ntOptionalChain));
+
+                    this.lexer.getToken();
+                    if (this.lexer.tokenSym === LexerType.ltIDStr) {
+                        NodeList.push(new ParseNode(this.lexer.tokenCursor, NodeType.ntObjProp, this.lexer.tokenValue));
+                        break;
+                    }
+                    if (this.lexer.tokenSym === LexerType.ltBracketOpen) {
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntBracketGetKey);
+                        this.parseExpression(SubNode, true, LexerTypeArray.one(LexerType.ltBracketClose));
+                        NodeList.push(SubNode);
+
+                        this.lexer.getToken();
+                        if (this.lexer.tokenSym === LexerType.ltAssign) {
+                            throw new ParserCursorException("Cannot assign to '?.' expression", this.lexer.tokenCursor);
+                        }
+                        getNextToken = false;
+                        break;
+                    }
+                    throw new ParserCursorException("'?.' expects property name or '['", this.lexer.tokenCursor);
+                case LexerType.ltExists:
+                    //`exists(x)` — операнд, как литерал: допустим в начале выражения и после оператора.
+                    if (prevNode && !prevNode.isMathNode() && !prevNode.isCompareOrAndNode() && prevNode.nType !== NodeType.ntArrayPushSeparatorKey)
+                        throw new ParserNodeException("Parse expression failed", prevNode);
+
+                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntExists);
+                    this.lexer.getToken();
+                    if (this.lexer.tokenSym !== LexerType.ltLPar) {
+                        throw new ParserCursorException("'exists' expects '('", this.lexer.tokenCursor);
+                    }
+                    this.parseExpression(SubNode, true, LexerTypeArray.one(LexerType.ltRPar));
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltInstanceof:
@@ -871,8 +950,13 @@ export class CodeParser {
                     break;
                 case LexerType.ltQuestion: {
                     //Тернарный `cond ? a : b`. Текущий NodeList — это cond.
+                    //Условию нужна та же пост-обработка приоритетов, что и концу
+                    //выражения: без неё `1 + 2 * 3 == 7 ? …` считалось как `(1 + 2) * 3`.
+                    if (!NodeList.length) {
+                        throw new ParserCursorException("Ternary: condition expected", this.lexer.tokenCursor);
+                    }
                     const condNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
-                    condNode.childItems = NodeList.slice();
+                    condNode.childItems = this.finishExpressionList(NodeList.slice());
 
                     const thenNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
                     this.parseExpression(thenNode, true, LexerTypeArray.one(LexerType.ltColon));
@@ -890,10 +974,12 @@ export class CodeParser {
                     return;
                 }
                 case LexerType.ltShortIncrement:
+                    this.assertNotOptionalTarget(NodeList);
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntShortIncrement);
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltShortDecrement:
+                    this.assertNotOptionalTarget(NodeList);
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntShortDecrement);
                     NodeList.push(SubNode);
                     break;
@@ -937,7 +1023,19 @@ export class CodeParser {
             throw new ParserNodeException("Parse expression failed", ParentNode);
         }
 
+        ParentNode.childItems = this.finishExpressionList(NodeList);
+    }
+
+    /**
+     * Пост-обработка законченного плоского списка выражения: сначала приоритет
+     * математических операторов, затем логических (`&&`, `||`).
+     */
+    protected finishExpressionList(NodeList: ParseNode[]): ParseNode[]
+    {
         const lastNode = NodeList[NodeList.length - 1];
+
+        if (!lastNode)
+            throw new ParserCursorException("Parse expression failed", this.lexer.tokenCursor);
 
         if (lastNode.isMathNode() || lastNode.isCompareOrAndNode())
             throw new ParserNodeException("Parse expression failed", lastNode);
@@ -969,6 +1067,14 @@ export class CodeParser {
         while (idx<NodeList.length-1)
         {
             node = NodeList[idx];
+            //`&&` / `||` делят выражение на независимые операнды: высокоприоритетный
+            //блок справа от них не должен захватывать то, что стоит слева.
+            if (node.isCompareOrAndNode())
+            {
+                idx++;
+                leftIdx = idx;
+                continue;
+            }
             if (node.isMathNode())
             {
                 if (!isHighPri(node))
@@ -995,6 +1101,7 @@ export class CodeParser {
                     //  Class::method(args)  — ntFuncNameSpaceCall
                     if (
                         nextNode.nType === NodeType.ntObjProp
+                        || nextNode.nType === NodeType.ntOptionalChain
                         || nextNode.nType === NodeType.ntBracketGetKey
                         || nextNode.nType === NodeType.ntSelfFuncCall
                         || nextNode.nType === NodeType.ntFuncCall
@@ -1025,7 +1132,116 @@ export class CodeParser {
             idx++;
         }
 
-        ParentNode.childItems = NodeList;
+        return this.groupLogical(NodeList);
+    }
+
+    /** Индекс первого узла текущей цепочки обращений (зеркало PHP CodeParser::chainStart). */
+    private chainStart(NodeList: ParseNode[]): number
+    {
+        let index = NodeList.length;
+        while (index > 0 && [
+            NodeType.ntObjProp, NodeType.ntBracketGetKey, NodeType.ntSelfFuncCall, NodeType.ntOptionalChain,
+        ].includes(NodeList[index - 1].nType)) {
+            index--;
+        }
+
+        return index - 1;
+    }
+
+    /**
+     * Запись (`=`, `++`, `--`) в цепочку, где есть `?.`, — ошибка разбора, как в JS
+     * (зеркало PHP CodeParser::assertNotOptionalTarget).
+     */
+    private assertNotOptionalTarget(NodeList: ParseNode[]): void
+    {
+        for (let i = NodeList.length - 1; i > this.chainStart(NodeList); i--) {
+            if (NodeList[i].nType === NodeType.ntOptionalChain) {
+                throw new ParserCursorException("Cannot assign to '?.' expression", this.lexer.tokenCursor);
+            }
+        }
+    }
+
+    /**
+     * Сворачивает плоские маркеры `&&` / `||` / `??` в узлы ntLogicalAnd / ntLogicalOr /
+     * ntNullish с приоритетом: `&&` связывает сильнее `||`, `??` — слабее всех;
+     * одинаковые операторы — слева направо. Раньше маркеры исполнялись подряд, и ранний выход перескакивал в
+     * конец ВСЕГО выражения: `false && x || true` давало false.
+     */
+    protected groupLogical(NodeList: ParseNode[]): ParseNode[]
+    {
+        const segments: ParseNode[][] = [];
+        const operators: ParseNode[] = [];
+        let current: ParseNode[] = [];
+
+        for (const node of NodeList) {
+            if (node.isCompareOrAndNode()) {
+                operators.push(node);
+                segments.push(current);
+                current = [];
+                continue;
+            }
+            current.push(node);
+        }
+        segments.push(current);
+
+        if (!operators.length) {
+            return NodeList;
+        }
+
+        segments.forEach((segment, i) => {
+            if (!segment.length) {
+                throw new ParserNodeException('Parse expression failed', operators[i] ?? operators[i - 1]);
+            }
+        });
+
+        return [this.buildLogical(segments, operators)];
+    }
+
+    /**
+     * segments — операнды (на один больше, чем операторов), operators — маркеры
+     * ntCompareAnd / ntCompareOr / ntCompareNullish между ними.
+     */
+    private buildLogical(segments: ParseNode[][], operators: ParseNode[]): ParseNode
+    {
+        if (!operators.length) {
+            return this.wrapSubExpression(segments[0]);
+        }
+
+        //Делим по САМОМУ слабому оператору, по последнему его вхождению — тогда
+        //цепочка одинаковых операторов складывается слева направо.
+        for (const weakest of [NodeType.ntCompareNullish, NodeType.ntCompareOr, NodeType.ntCompareAnd]) {
+            for (let i = operators.length - 1; i >= 0; i--) {
+                if (operators[i].nType !== weakest) {
+                    continue;
+                }
+
+                const node = new ParseNode(
+                    operators[i].cursorPos,
+                    weakest === NodeType.ntCompareNullish ? NodeType.ntNullish
+                        : weakest === NodeType.ntCompareOr ? NodeType.ntLogicalOr : NodeType.ntLogicalAnd,
+                );
+                node.childItems = [
+                    this.buildLogical(segments.slice(0, i + 1), operators.slice(0, i)),
+                    this.buildLogical(segments.slice(i + 1), operators.slice(i + 1)),
+                ];
+
+                return node;
+            }
+        }
+
+        throw new ParserNodeException('Parse expression failed', operators[0]);
+    }
+
+    private wrapSubExpression(nodes: ParseNode[]): ParseNode
+    {
+        if (nodes.length === 1 && nodes[0].nType === NodeType.ntSubExpression) {
+            return nodes[0];
+        }
+
+        const node = new ParseNode(nodes[0].cursorPos, NodeType.ntSubExpression);
+        node.childItems = nodes;
+
+        return node;
     }
 
     parseAssign(Node: unknown, EndLineType: unknown)
@@ -1044,7 +1260,7 @@ export class CodeParser {
      * Парсит `for (X of iterable) body`. На входе: лексер на ltOf. Зеркало
      * PHP-эталона CodeParser::parseForOf.
      */
-    protected parseForOf(NodeList: (ParseNode | ParseNode[])[], forCursor: TokenCursor, kind: string, varName: string): void {
+    protected parseForOf(NodeList: (ParseNode | ParseNode[])[], forCursor: TokenCursor | undefined, kind: string, varName: string): void {
         this.lexer.getToken();
 
         const iterableExpr = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
@@ -1128,111 +1344,14 @@ export class CodeParser {
         Node.childItems = NodeList;
     }
 
-    parseCompare(Node:unknown, EndCompareType:number)
+    /**
+     * Условие `if (…)` / `while (…)` — обычное выражение до закрывающей скобки (зеркало
+     * PHP CodeParser::parseCompare): те же приоритеты `&&` / `||` / `??`, сравнений и
+     * тернарного оператора, что и вне условия.
+     */
+    parseCompare(Node: ParseNode, EndCompareType: number)
     {
-        if (!(Node instanceof ParseNode))
-            throw new ParserCursorException('Node must be instanceof ParseNode', this.lexer.tokenCursor);
-
-        const NodeList = [];
-
-        while (true)
-        {
-            this.lexer.getToken();
-
-            if (this.lexer.tokenSym === EndCompareType)
-                break;
-
-            let SubNode;
-
-            if (this.lexer.tokenSym === LexerType.ltLPar)
-            {
-                SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubExpression);
-                this.parseCompare(SubNode, LexerType.ltRPar);
-
-                if (!SubNode.childItems?.length)
-                {
-                    throw new ParserNodeException('Expression is empty', SubNode);
-                }
-
-                NodeList.push(SubNode);
-
-                this.lexer.getToken();
-
-                if (this.lexer.tokenSym === EndCompareType)
-                    break;
-
-
-                if (this.lexer.tokenSym === LexerType.ltCompareAnd)
-                {
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareAnd);
-                    NodeList.push(SubNode);
-                    continue;
-                }
-                if (this.lexer.tokenSym === LexerType.ltCompareOr)
-                {
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompareOr);
-                    NodeList.push(SubNode);
-                    continue;
-                }
-
-                if (this.lexer.tokenSym === LexerType.ltCompare)
-                {
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompare);
-                    SubNode.nValue = this.parseCompareToken(this.lexer.tokenValue);
-                    NodeList.push(SubNode);
-
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntIFValue);
-                    this.parseExpression(SubNode, true, new LexerTypeArray(EndCompareType, LexerType.ltCompareAnd, LexerType.ltCompareOr));
-                    NodeList.push(SubNode);
-
-                    if (this.lexer.tokenSym === EndCompareType)
-                        break;
-
-
-                    continue;
-                }
-
-                throw new ParserNodeException("Parse IF failed", Node);
-            }
-
-            SubNode = new ParseNode(this.lexer.tokenCursor);
-            // Зеркало PHP parseCompare: стоп-список без EndCompareType (for ушёл на
-            // parseExpression, while всегда оканчивается ltRPar — он уже в списке).
-            this.parseExpression(SubNode, false, new LexerTypeArray(LexerType.ltCompare, LexerType.ltRPar, LexerType.ltCompareAnd, LexerType.ltCompareOr));
-            NodeList.push(SubNode);
-
-            if (this.lexer.tokenSym === LexerType.ltCompare)
-            {
-                SubNode.nType = NodeType.ntIFValue;
-
-                SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntCompare);
-                SubNode.nValue = this.parseCompareToken(this.lexer.tokenValue);
-                NodeList.push(SubNode);
-
-                SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntIFValue);
-                this.parseExpression(SubNode, true, new LexerTypeArray(EndCompareType, LexerType.ltCompareAnd, LexerType.ltCompareOr));
-                NodeList.push(SubNode);
-            }
-            else
-            {
-                SubNode.nType = NodeType.ntIFValueBOOL;
-            }
-
-            if (this.lexer.tokenSym === EndCompareType)
-                break;
-
-            SubNode = new ParseNode(this.lexer.tokenCursor);
-            if (this.lexer.tokenSym === LexerType.ltCompareAnd)
-                SubNode.nType = NodeType.ntCompareAnd;
-            else
-            if (this.lexer.tokenSym === LexerType.ltCompareOr)
-                SubNode.nType = NodeType.ntCompareOr;
-            else throw new ParserNodeException("Parse IF failed", Node);
-
-            NodeList.push(SubNode);
-        }
-
-        Node.childItems = NodeList;
+        this.parseExpression(Node, true, LexerTypeArray.one(EndCompareType), true);
     }
 
     // Тип совпадает с ParseNode.childItems, чтобы по-ссылке передача
@@ -1285,7 +1404,7 @@ export class CodeParser {
                 NodeList.push(Node);
 
                 //`return;` без значения разрешён внутри пользовательских функций —
-                //тогда результат функции = undefined.
+                //тогда результат функции = null.
                 if (inline)
                 {
                     this.parseExpression(Node, true, endLineType.cloneAdd(LexerType.ltSemicolon), true);

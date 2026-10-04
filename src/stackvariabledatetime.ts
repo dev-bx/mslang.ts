@@ -1,4 +1,3 @@
-import {CompareType} from "./parser.js";
 import {StackVariable} from "./stackvariable.js";
 import {VariableType} from "./variabletype.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
@@ -6,12 +5,6 @@ import {FunctionParameter} from "./functionparameter.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {InterpreterException} from "./exceptions";
-
-const dateRegex = /^(\d{4})-(\d{2})-(\d{2})$/;
-const dateTimeRegex = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;
-const dateTimeSecRegex = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/;
-const timeRegex = /^(\d{2}):(\d{2})$/;
-const timeSecRegex = /^(\d{2}):(\d{2}):(\d{2})$/;
 
 export class StackVariableDateTime extends StackVariable {
     constructor(value: unknown) {
@@ -242,97 +235,6 @@ export class StackVariableDateTime extends StackVariable {
             else { out += fmt[i]; i += 1; }
         }
         return out;
-    }
-
-    comparePriority(variable: StackVariable, compareType: CompareType):number|false
-    {
-        if (variable instanceof StackVariableDateTime)
-            return 1;
-
-        if (variable.isNumeric)
-            return 1;
-
-        if (variable.type === VariableType.vtString && typeof variable.value === 'string')
-        {
-            let m = variable.value.match(dateTimeSecRegex);
-            if (!m)
-                m = variable.value.match(dateTimeRegex);
-            if (!m)
-                m = variable.value.match(dateRegex);
-            if (!m)
-                m = variable.value.match(timeSecRegex);
-            if (!m)
-                m = variable.value.match(timeRegex);
-
-            if (m === null)
-                return false;
-
-            return 1;
-        }
-
-        return false;
-    }
-
-    compare(variable: StackVariable, compareType: CompareType)
-    {
-        let compareValue:unknown = false;
-
-        if (variable instanceof StackVariableDateTime || variable.isNumeric)
-        {
-            compareValue = variable.value;
-        } else if (variable.type === VariableType.vtString && typeof variable.value === 'string')
-        {
-            let m = variable.value.match(dateTimeSecRegex);
-            if (!m)
-                m = variable.value.match(dateTimeRegex);
-            if (!m)
-                m = variable.value.match(dateRegex);
-
-            if (m)
-            {
-                //Компоненты строки — локальное время в зоне конфига → timestamp = UTC(компоненты) - offset.
-                compareValue = Math.floor(Date.UTC(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]),
-                    m[4] ? parseInt(m[4]) : 0, m[5] ? parseInt(m[5]) : 0, m[6] ? parseInt(m[6]) : 0) / 1000) - this.tzOffsetSeconds();
-            } else {
-                m = variable.value.match(timeSecRegex);
-                if (!m)
-                    m = variable.value.match(timeRegex);
-
-                if (m)
-                {
-                    compareValue = (parseInt(m[1])*60*60)+(parseInt(m[2])*60);
-                    if (m[3])
-                        (compareValue as number) += parseInt(m[3]);
-                }
-            }
-        } else {
-            compareValue = variable.value;
-        }
-
-        switch (compareType)
-        {
-            case CompareType.ctEqual:
-                return this.value === compareValue;
-            case CompareType.ctNotEqual:
-                return this.value !== compareValue;
-        }
-
-        if (typeof compareValue !== 'number')
-            return false;
-
-        switch (compareType)
-        {
-            case CompareType.ctLess:
-                return this.value < compareValue;
-            case CompareType.ctGreat:
-                return this.value > compareValue;
-            case CompareType.ctEqual | CompareType.ctLess:
-                return this.value <= compareValue;
-            case CompareType.ctEqual | CompareType.ctGreat:
-                return this.value >= compareValue;
-            default:
-                throw new InterpreterException('Unknown compare type ' + compareType, this.getContext()?.currentToken?.cursorPos);
-        }
     }
 
     castAs(variableType: VariableType)

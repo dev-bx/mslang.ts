@@ -58,7 +58,7 @@ class Money {
         return this.amount > 0;
     }
     toString() {
-        return this.code + " " + this.amount;
+        return this.code + " " + this.amount.toString();
     }
 }
 
@@ -72,7 +72,7 @@ class FxRates {
     }
     rateOf(code) {
         let r = this.rates[code];
-        if (r == undefined || r == null) {
+        if (r == null) {
             throw new Error("FxRates.rateOf: unknown currency " + code);
         }
         return r;
@@ -114,7 +114,7 @@ class Day {
         return this.count == other.count;
     }
     toString() {
-        return "Day#" + this.count;
+        return "Day#" + this.count.toString();
     }
 }
 
@@ -686,7 +686,7 @@ class PaymentGateway {
     }
     nextId() {
         this.sequence = this.sequence + 1;
-        return "PMT-" + this.sequence;
+        return "PMT-" + this.sequence.toString();
     }
     // method.kind "wire" — медленный, имитируем что не проходит сразу.
     // amount.amount < 1 — отклоняется как «слишком мало».
@@ -719,11 +719,11 @@ class BillingEngine {
     }
     nextInvoiceId() {
         this.invoiceSequence = this.invoiceSequence + 1;
-        return "INV-" + this.invoiceSequence;
+        return "INV-" + this.invoiceSequence.toString();
     }
     nextRefundId() {
         this.refundSequence = this.refundSequence + 1;
-        return "REF-" + this.refundSequence;
+        return "REF-" + this.refundSequence.toString();
     }
     // Создаёт invoice по подписке: одна строка за план, по строке на addon,
     // и налог по юрисдикции аккаунта.
@@ -751,7 +751,7 @@ class BillingEngine {
         while (bI < sub.addons.length) {
             let sa = sub.addons[bI];
             let aAmt = sa.addon.price.mul(sa.qty);
-            inv.addLine(new InvoiceLine("AddOn: " + sa.addon.name + " x" + sa.qty, aAmt, "saas", true));
+            inv.addLine(new InvoiceLine("AddOn: " + sa.addon.name + " x" + sa.qty.toString(), aAmt, "saas", true));
             bI = bI + 1;
         }
 
@@ -1039,36 +1039,36 @@ function round4(x) {
 
 // Подсчёт всех гарантирующих параметров для отчёта.
 let report = "";
-report = report + "invoices=" + allInvoices.length;
-report = report + "|inv1.state=" + inv1.state;
-report = report + "|inv2.state=" + inv2.state;
-report = report + "|inv3.state=" + inv3.state;
-report = report + "|inv1.total=" + round4(inv1.total().amount);
-report = report + "|inv2.total=" + round4(inv2.total().amount);
-report = report + "|inv3.total=" + round4(inv3.total().amount);
-report = report + "|inv1.tax=" + round4(inv1.tax.amount);
-report = report + "|inv2.tax=" + round4(inv2.tax.amount);
-report = report + "|inv3.tax=" + round4(inv3.tax.amount);
-report = report + "|inv1.paid=" + round4(inv1.paid().amount);
-report = report + "|inv2.paid=" + round4(inv2.paid().amount);
-report = report + "|inv3.paid=" + round4(inv3.paid().amount);
-report = report + "|inv3.refunds=" + inv3.refunds.length;
-report = report + "|paidCount=" + paidCount;
-report = report + "|overdueCount=" + overdueCount;
-report = report + "|revenueUSD=" + round4(totalRevenue.amount);
-report = report + "|taxUSD=" + round4(totalTax.amount);
-report = report + "|revenueEUR=" + round4(revenueInEUR.amount);
-report = report + "|pastDueCount=" + pastDueCount;
-report = report + "|violationsOrg2=" + violationsOrg2.length;
-report = report + "|violationsOrg2[0].kind=" + violationsOrg2[0].kind;
-report = report + "|violationsOrg3=" + violationsOrg3.length;
-report = report + "|violationsOrg3[0].kind=" + violationsOrg3[0].kind;
-report = report + "|sub1.plan=" + sub1.plan.code;
-report = report + "|upgradeProrate=" + round4(upgradeProrate.amount);
-report = report + "|audit.count=" + audit.count();
-report = report + "|audit.charge=" + audit.countByAction("charge");
-report = report + "|audit.refund=" + audit.countByAction("refund_applied");
-report = report + "|audit.overdue=" + audit.countByAction("overdue");
-report = report + "|summer.redeemed=" + summer.redeemed;
+report = report + "invoices=" + (allInvoices.length).toString();
+report = report + "|inv1.state=" + (inv1.state).toString();
+report = report + "|inv2.state=" + (inv2.state).toString();
+report = report + "|inv3.state=" + (inv3.state).toString();
+report = report + "|inv1.total=" + (round4(inv1.total().amount)).toString();
+report = report + "|inv2.total=" + (round4(inv2.total().amount)).toString();
+report = report + "|inv3.total=" + (round4(inv3.total().amount)).toString();
+report = report + "|inv1.tax=" + (round4(inv1.tax.amount)).toString();
+report = report + "|inv2.tax=" + (round4(inv2.tax.amount)).toString();
+report = report + "|inv3.tax=" + (round4(inv3.tax.amount)).toString();
+report = report + "|inv1.paid=" + (round4(inv1.paid().amount)).toString();
+report = report + "|inv2.paid=" + (round4(inv2.paid().amount)).toString();
+report = report + "|inv3.paid=" + (round4(inv3.paid().amount)).toString();
+report = report + "|inv3.refunds=" + (inv3.refunds.length).toString();
+report = report + "|paidCount=" + (paidCount).toString();
+report = report + "|overdueCount=" + (overdueCount).toString();
+report = report + "|revenueUSD=" + (round4(totalRevenue.amount)).toString();
+report = report + "|taxUSD=" + (round4(totalTax.amount)).toString();
+report = report + "|revenueEUR=" + (round4(revenueInEUR.amount)).toString();
+report = report + "|pastDueCount=" + (pastDueCount).toString();
+report = report + "|violationsOrg2=" + (violationsOrg2.length).toString();
+report = report + "|violationsOrg2[0].kind=" + (violationsOrg2[0].kind).toString();
+report = report + "|violationsOrg3=" + (violationsOrg3.length).toString();
+report = report + "|violationsOrg3[0].kind=" + (violationsOrg3[0].kind).toString();
+report = report + "|sub1.plan=" + (sub1.plan.code).toString();
+report = report + "|upgradeProrate=" + (round4(upgradeProrate.amount)).toString();
+report = report + "|audit.count=" + (audit.count()).toString();
+report = report + "|audit.charge=" + (audit.countByAction("charge")).toString();
+report = report + "|audit.refund=" + (audit.countByAction("refund_applied")).toString();
+report = report + "|audit.overdue=" + (audit.countByAction("overdue")).toString();
+report = report + "|summer.redeemed=" + (summer.redeemed).toString();
 
 return report;
