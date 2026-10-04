@@ -3836,3 +3836,20 @@ test('120_CallResultChaining', () => {
 
     assert.strictEqual('NotCallable', errorOf('let a = [1]; return a[0](1);')?.getErrorCode());
 });
+
+test('121_NewChainInBinaryExpression', () => {
+    // `new T()` с хвостом обращений — целый операнд бинарного выражения. Раньше правый
+    // операнд обрывался на служебном узле после конструктора: `1 + new T().v` давал
+    // TypeMismatch «object and null».
+    const cases: [string, unknown][] = [
+        ['class T { m() { return "x"; } } return "" + new T().m();', 'x'],
+        ['class T { constructor() { this.v = 2; } } return 1 + new T().v;', 3],
+        ['class T { constructor() { this.v = 2; } } return 1 + new T().v * 3;', 7],
+        ['class T { constructor() { this.v = [7]; } } return 1 + new T().v[0];', 8],
+        ['class T { constructor() { this.v = 2; } } return new T().v == 2 && new T().v > 1;', true],
+        ['class T { constructor(n) { this.v = n; } } return new T(1).v + new T(2).v;', 3],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(executeReturnCode(script)?.value, expected, script);
+    }
+});

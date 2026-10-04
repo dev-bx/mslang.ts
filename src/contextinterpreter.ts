@@ -29,6 +29,7 @@ import {ContextException, ControlFlowTransfer, ErrorCode, MSLangException, Resou
 import {StackVariableRef} from "./stackvariableref";
 import {ContextType} from "./contexttype";
 import {InterpreterNode} from "./interpreternode";
+import {InterpreterNodeType} from "./interpreternodetype";
 import type {Interpreter} from "./interpreter";
 
 interface ExecutionStackItem {
@@ -666,7 +667,9 @@ export class ContextInterpreter {
             if (nextToken.isMathNode())
                 break;
 
-            if (nextToken instanceof InterpreterNode)
+            //Служебный узел кадра — конец операнда. Кроме ntCtorReturnInstance: его `new`
+            //вставляет сразу за собой, и операнд продолжается после него (`1 + new T().v`).
+            if (nextToken instanceof InterpreterNode && nextToken.nType !== InterpreterNodeType.ntCtorReturnInstance)
                 break;
         }
     }
