@@ -989,13 +989,14 @@ export class CodeParser {
                     return;
                 }
                 case LexerType.ltShortIncrement:
-                    this.assertNotOptionalTarget(NodeList);
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntShortIncrement);
-                    NodeList.push(SubNode);
-                    break;
                 case LexerType.ltShortDecrement:
                     this.assertNotOptionalTarget(NodeList);
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntShortDecrement);
+                    SubNode = new ParseNode(this.lexer.tokenCursor, this.lexer.tokenSym === LexerType.ltShortIncrement ? NodeType.ntShortIncrement : NodeType.ntShortDecrement);
+                    //В позиции операнда — префиксный (`++a[0]`), после операнда — постфиксный.
+                    //Раньше интерпретатор угадывал это по пустому стеку: `2 * ++a[0]` ломался.
+                    if (!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode() || prevNode.nType === NodeType.ntArrayPushSeparatorKey) {
+                        SubNode.nValue = 'prefix';
+                    }
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltArrayUnpack:
@@ -1193,6 +1194,7 @@ export class CodeParser {
     {
         while (index + 1 < NodeList.length && [
             NodeType.ntMinus, NodeType.ntPlus, NodeType.ntNegativeIf, NodeType.ntTypeof,
+            NodeType.ntShortIncrement, NodeType.ntShortDecrement, //в начале операнда — только префиксные
         ].includes(NodeList[index].nType)) {
             index++;
         }

@@ -835,81 +835,39 @@ export class Interpreter {
     }
 
     shortIncrementHandler(context: ContextInterpreter, token: ParseNode) {
-        if (context._stackVars.length) {
-            const variable = context.popStackVar();
-            Interpreter.numericOperand(token, '++', variable);
-            const variableAsNumber = variable.castAs(VariableType.vtNumber);
-
-            if (!variableAsNumber) {
-                throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
-            }
-
-            const newVariable = context.createVariable(VariableType.vtNumber, variableAsNumber.value);
-            context.pushStackVar(newVariable);
-
-            if (variable instanceof StackVariableRef) {
-                variable.refValue = context.createVariable(VariableType.vtNumber, variableAsNumber.value + 1);
-            } else {
-                //example string.length++;
-                //throw new InterpreterException('Variable must be reference', token.cursorPos);
-            }
-        } else {
-            context.execGetVariable();
-
-            const variable = context.popStackVar();
-            Interpreter.numericOperand(token, '++', variable);
-            const variableAsNumber = variable.castAs(VariableType.vtNumber);
-
-            if (!variableAsNumber) {
-                throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
-            }
-
-            if (variable instanceof StackVariableRef) {
-                variable.refValue = context.createVariable(VariableType.vtNumber, variableAsNumber.value + 1);
-            }
-
-            variableAsNumber.value = variableAsNumber.value + 1;
-            context.pushStackVar(variableAsNumber);
-        }
+        this.updateHandler(context, token, 1);
     }
 
     shortDecrementHandler(context: ContextInterpreter, token: ParseNode) {
-        if (context._stackVars.length) {
-            const variable = context.popStackVar();
-            Interpreter.numericOperand(token, '--', variable);
-            const variableAsNumber = variable.castAs(VariableType.vtNumber);
+        this.updateHandler(context, token, -1);
+    }
 
-            if (!variableAsNumber) {
-                throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
-            }
+    /**
+     * `++x` / `x--` и т.п. Префиксный (парсер ставит nValue = 'prefix') сам вычисляет
+     * операнд и отдаёт новое значение, постфиксный берёт готовый операнд со стека и отдаёт
+     * старое. Запись: в переменную — через Ref; в элемент массива или свойство объекта — в
+     * сам хранимый объект числа (контейнер держит собственную копию, см. StackVariable.stored).
+     */
+    private updateHandler(context: ContextInterpreter, token: ParseNode, delta: number): void {
+        const operator = delta > 0 ? '++' : '--';
+        const prefix = token.nValue === 'prefix';
 
-            const newVariable = context.createVariable(VariableType.vtNumber, variableAsNumber.value);
-            context.pushStackVar(newVariable);
-
-            if (variable instanceof StackVariableRef) {
-                variable.refValue = context.createVariable(VariableType.vtNumber, variableAsNumber.value - 1);
-            } else {
-                //example string.length--;
-                //throw new InterpreterException('Variable must be reference', token.cursorPos);
-            }
-        } else {
+        if (prefix) {
             context.execGetVariable();
-
-            const variable = context.popStackVar();
-            Interpreter.numericOperand(token, '--', variable);
-            const variableAsNumber = variable.castAs(VariableType.vtNumber);
-
-            if (!variableAsNumber) {
-                throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
-            }
-
-            if (variable instanceof StackVariableRef) {
-                variable.refValue = context.createVariable(VariableType.vtNumber, variableAsNumber.value - 1);
-            }
-
-            variableAsNumber.value = variableAsNumber.value - 1;
-            context.pushStackVar(variableAsNumber);
         }
+
+        const variable = context.popStackVar() as StackVariable;
+        const old = Interpreter.numericOperand(token, operator, variable);
+        const value = old + delta;
+
+        const target = Interpreter.unref(variable);
+        if (variable instanceof StackVariableRef) {
+            variable.refValue = context.createVariable(VariableType.vtNumber, value);
+        } else if (target instanceof StackVariableNumber) {
+            target.value = value;
+        }
+
+        context.pushStackVar(context.createVariable(VariableType.vtNumber, prefix ? value : old));
     }
 
     subExpressionHandler(context: ContextInterpreter, token: ParseNode) {

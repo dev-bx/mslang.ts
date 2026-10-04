@@ -661,7 +661,9 @@ export class ContextInterpreter {
             if (!nextToken)
                 break;
 
-            if ([NodeType.ntExpressionCompare, NodeType.ntCompareOr, NodeType.ntCompareAnd].indexOf(nextToken.nType) >= 0)
+            //ntShiftSP — конец инструкции-выражения: дальше идёт уже следующая инструкция.
+            //Раньше `++a[0];` проскакивал его и исполнял остаток программы как свой операнд.
+            if ([NodeType.ntExpressionCompare, NodeType.ntCompareOr, NodeType.ntCompareAnd, NodeType.ntShiftSP].indexOf(nextToken.nType) >= 0)
                 break;
 
             if (nextToken.isMathNode())

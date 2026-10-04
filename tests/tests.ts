@@ -3886,3 +3886,24 @@ test('123_ArraySortComparator', () => {
     }
     assert.strictEqual('TypeMismatch', errorOf('return [1,2].sort((a, b) => "x");')?.getErrorCode());
 });
+
+test('124_IncrementDecrementTargets', () => {
+    // Префикс/постфикс ++/-- определяет парсер; запись идёт в переменную, элемент массива
+    // и свойство объекта. Раньше `++a[0];` исполнял остаток программы как свой операнд,
+    // `a[0]++` не записывал результат, `2 * ++a[0]` ломался.
+    const cases: [string, unknown[]][] = [
+        ['let a = [0]; ++a[0]; return a;', [1]],
+        ['let a = [0]; a[0]++; return a;', [1]],
+        ['let o = {a: [5]}; ++o.a[0]; return o.a;', [6]],
+        ['let a = [1]; return [2 * ++a[0], a[0]];', [4, 2]],
+        ['let a = [1]; return [a[0]++ + 10, a[0]];', [11, 2]],
+        ['let a = [5]; let x = a[0]; a[0]++; return [x, a[0]];', [5, 6]],
+        ['let o = {k: 1}; let x = o.k; o.k++; ++o.k; return [x, o.k];', [1, 3]],
+        ['let i = 0; let r = [i++, i++, ++i]; return [r, i];', [[0, 1, 3], 3]],
+        ['let x = 0; let y = x++ + ++x; return [x, y];', [2, 2]],
+        ['let i = 1; return [3 * ++i * 2, 2 * --i + 1];', [12, 3]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+});
