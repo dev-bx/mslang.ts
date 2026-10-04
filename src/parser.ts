@@ -867,7 +867,8 @@ export class CodeParser {
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntIFValue);
                     //Тернарный `?` тоже останавливает правую часть сравнения,
                     //иначе `n > 5 ? a : b` парсилось бы как `n > (5 ? a : b)`.
-                    this.parseExpression(SubNode, true, StopLex.cloneAdd([LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltNullish, LexerType.ltQuestion]));
+                    //`& ^ |` связывают слабее сравнения (как в JS): `a == 1 | 2` — `(a == 1) | 2`.
+                    this.parseExpression(SubNode, true, StopLex.cloneAdd([LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltNullish, LexerType.ltQuestion, LexerType.ltBitAnd, LexerType.ltBitXor, LexerType.ltBitOr]));
                     NodeList.push(SubNode);
 
                     getNextToken = false;
@@ -1056,101 +1057,22 @@ export class CodeParser {
         if (lastNode.isMathNode() || lastNode.isCompareOrAndNode())
             throw new ParserNodeException("Parse expression failed", lastNode);
 
-        let idx = 0,
-            leftIdx = 0,
-            rightIdx,
-            node;
-
-        //Пост-обработка приоритета операторов: `*` / `/` / `%` / `&` имеют
-        //более высокий приоритет, чем `+` / `-`, поэтому каждый блок таких
-        //высокоприоритетных операций мы оборачиваем в `ntSubExpression` —
-        //интерпретатор сначала вычислит вложенное подвыражение, потом
-        //применит низкоприоритетный `+`/`-` к его результату.
-        //
-        //Зеркало PHP-эталона parseExpression в CodeParser.php.
-        const isHighPri = (n: ParseNode) => (
-            n.nType === NodeType.ntMul
-            || n.nType === NodeType.ntDiv
-            || n.nType === NodeType.ntMod
-            || n.nType === NodeType.ntBitAnd
-            || n.nType === NodeType.ntBitOr
-            || n.nType === NodeType.ntBitXor
-            || n.nType === NodeType.ntShiftLeft
-            || n.nType === NodeType.ntShiftRight
-            || n.nType === NodeType.ntUShiftRight
-        );
-
-        while (idx<NodeList.length-1)
-        {
-            node = NodeList[idx];
-            //`&&` / `||` делят выражение на независимые операнды: высокоприоритетный
-            //блок справа от них не должен захватывать то, что стоит слева.
-            if (node.isCompareOrAndNode())
-            {
-                idx++;
-                leftIdx = idx;
+        //Участки между `&&` / `||` / `??` разбираются по приоритетам независимо,
+        //затем groupLogical собирает сами логические операторы.
+        const result: ParseNode[] = [];
+        let segment: ParseNode[] = [];
+        for (const node of NodeList) {
+            if (node.isCompareOrAndNode()) {
+                result.push(...this.groupByPrecedence(segment));
+                result.push(node);
+                segment = [];
                 continue;
             }
-            if (node.isMathNode())
-            {
-                if (!isHighPri(node))
-                {
-                    //Низкоприоритетный оператор (+ или -) — leftIdx сдвигаем
-                    //на следующий операнд, дальше ищем высокоприоритетные справа.
-                    idx++;
-                    leftIdx = idx;
-                    idx++;
-                    continue;
-                }
-
-                //Высокоприоритетный оператор: расширяем правую границу. Операнд может
-                //начинаться с префиксов (`5 * -3`, `a % !b`) — они часть операнда.
-                rightIdx = this.skipUnaryPrefixes(NodeList, idx + 1);
-                while (rightIdx + 1 < NodeList.length)
-                {
-                    const nextNode = NodeList[rightIdx+1];
-
-                    //Продолжение того же значения через хвостовые операции:
-                    //  .prop                — ntObjProp, цепочка свойств a.b.c
-                    //  [idx]                — ntBracketGetKey, индексация a.m[0]
-                    //  obj.method(args)     — ntSelfFuncCall, метод объекта
-                    //  func(args)           — ntFuncCall
-                    //  Class::method(args)  — ntFuncNameSpaceCall
-                    if (
-                        nextNode.nType === NodeType.ntObjProp
-                        || nextNode.nType === NodeType.ntOptionalChain
-                        || nextNode.nType === NodeType.ntBracketGetKey
-                        || nextNode.nType === NodeType.ntSelfFuncCall
-                        || nextNode.nType === NodeType.ntValueCall
-                        || nextNode.nType === NodeType.ntFuncCall
-                        || nextNode.nType === NodeType.ntFuncNameSpaceCall
-                    ) {
-                        rightIdx++;
-                        continue;
-                    }
-
-                    //Следующий — снова высокоприоритетный оператор:
-                    //объединяем в один SubExpression через шаг на 2
-                    //(оператор + его правый операнд).
-                    if (isHighPri(nextNode)) {
-                        rightIdx = this.skipUnaryPrefixes(NodeList, rightIdx + 2);
-                        continue;
-                    }
-
-                    //Любой другой узел (+, -, &&, ||, конец) — стоп.
-                    break;
-                }
-
-                const SubNode = new ParseNode(NodeList[idx].cursorPos, NodeType.ntSubExpression);
-                const length = rightIdx - leftIdx + 1;
-                SubNode.childItems = NodeList.slice(leftIdx, leftIdx + length);
-                NodeList.splice(leftIdx, length, SubNode);
-                idx = leftIdx;
-            }
-            idx++;
+            segment.push(node);
         }
+        result.push(...this.groupByPrecedence(segment));
 
-        return this.groupLogical(NodeList);
+        return this.groupLogical(result);
     }
 
     /** Узлы, после которых `(` — вызов полученного значения (ntValueCall). */
@@ -1186,20 +1108,103 @@ export class CodeParser {
     }
 
     /**
-     * Индекс первого узла операнда после префиксов `-`, `+`, `!`, `typeof`, начиная с
-     * index (зеркало PHP CodeParser::skipUnaryPrefixes). Раньше `5 * -3` падало
-     * «End of execution code».
+     * Приоритеты бинарных операторов — как в JS (зеркало PHP BINARY_PRECEDENCE). Сравнение
+     * (ntExpressionCompare) стоит в списке как оператор, за ним — его правый операнд ntIFValue.
      */
-    private skipUnaryPrefixes(NodeList: ParseNode[], index: number): number
-    {
-        while (index + 1 < NodeList.length && [
-            NodeType.ntMinus, NodeType.ntPlus, NodeType.ntNegativeIf, NodeType.ntTypeof,
-            NodeType.ntShortIncrement, NodeType.ntShortDecrement, //в начале операнда — только префиксные
-        ].includes(NodeList[index].nType)) {
-            index++;
+    private static readonly BINARY_PRECEDENCE: Partial<Record<number, number>> = {
+        [NodeType.ntMul]: 7, [NodeType.ntDiv]: 7, [NodeType.ntMod]: 7,
+        [NodeType.ntPlus]: 6, [NodeType.ntMinus]: 6,
+        [NodeType.ntShiftLeft]: 5, [NodeType.ntShiftRight]: 5, [NodeType.ntUShiftRight]: 5,
+        [NodeType.ntExpressionCompare]: 4,
+        [NodeType.ntBitAnd]: 3,
+        [NodeType.ntBitXor]: 2,
+        [NodeType.ntBitOr]: 1,
+    };
+
+    private binaryPrecedence(node: ParseNode): number | null {
+        if ((node.nType === NodeType.ntPlus || node.nType === NodeType.ntMinus) && node.nValue === 'unary') {
+            return null;
         }
 
-        return index;
+        return CodeParser.BINARY_PRECEDENCE[node.nType] ?? null;
+    }
+
+    /** Префикс операнда: `-x`, `+x`, `!x`, `typeof x`, `++x`, `--x`. */
+    private isOperandPrefix(node: ParseNode): boolean {
+        switch (node.nType) {
+            case NodeType.ntNegativeIf:
+            case NodeType.ntTypeof:
+                return true;
+            case NodeType.ntPlus:
+            case NodeType.ntMinus:
+                return node.nValue === 'unary';
+            case NodeType.ntShortIncrement:
+            case NodeType.ntShortDecrement:
+                return node.nValue === 'prefix';
+        }
+        return false;
+    }
+
+    /**
+     * Расставляет приоритеты в участке выражения без `&&` / `||` / `??` (зеркало PHP
+     * groupByPrecedence). Интерпретатор исполняет список слева направо, поэтому правый
+     * операнд, у которого есть свои операторы, заворачивается в ntSubExpression:
+     * `a + b * c` → `a + (b * c)`, `1 | 2 << 3` → `1 | (2 << 3)`. Раньше `& | ^ << >> >>>`
+     * стояли наравне с `*`.
+     */
+    private groupByPrecedence(segment: ParseNode[]): ParseNode[] {
+        if (!segment.length) {
+            return [];
+        }
+
+        const cursor = {index: 0};
+        return this.climbPrecedence(segment, cursor, 0).nodes;
+    }
+
+    /** Разбор с подъёмом по приоритетам: операнд, затем операторы не слабее minPrecedence. */
+    private climbPrecedence(segment: ParseNode[], cursor: {index: number}, minPrecedence: number): {nodes: ParseNode[], compound: boolean} {
+        const nodes = this.readOperand(segment, cursor);
+        let compound = false;
+
+        while (cursor.index < segment.length) {
+            const operator = segment[cursor.index];
+            const precedence = this.binaryPrecedence(operator);
+            if (precedence === null || precedence < minPrecedence) {
+                break;
+            }
+            cursor.index++;
+
+            const right = this.climbPrecedence(segment, cursor, precedence + 1);
+            let rightNodes = right.nodes;
+            if (right.compound) {
+                const sub = new ParseNode(rightNodes[0].cursorPos, NodeType.ntSubExpression);
+                sub.childItems = rightNodes;
+                rightNodes = [sub];
+            }
+
+            nodes.push(operator, ...rightNodes);
+            compound = true;
+        }
+
+        return {nodes, compound};
+    }
+
+    /**
+     * Операнд: префиксы, первичное значение и хвост обращений (`.prop`, `[i]`, `(…)`, `x++`) —
+     * всё до следующего бинарного оператора.
+     */
+    private readOperand(segment: ParseNode[], cursor: {index: number}): ParseNode[] {
+        const start = cursor.index;
+        while (cursor.index < segment.length && this.isOperandPrefix(segment[cursor.index])) {
+            cursor.index++;
+        }
+
+        cursor.index++;
+        while (cursor.index < segment.length && this.binaryPrecedence(segment[cursor.index]) === null) {
+            cursor.index++;
+        }
+
+        return segment.slice(start, cursor.index);
     }
 
     /**
