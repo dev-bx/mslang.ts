@@ -3766,3 +3766,20 @@ test('116_ElseIfAndSingleStatementBodies', () => {
         assert.strictEqual(expected, executeReturnCode(script)?.value, script);
     }
 });
+
+test('117_ContinueInForWithDeclaration', () => {
+    // continue в for с объявлением переменной (`let`/`var`) переходит на инкремент. В PHP
+    // точка перехода была зашита числом и при `for (let i …)` пропускала инкремент —
+    // цикл не кончался. Лимит шагов — чтобы зависание не повесило набор.
+    const scripts: [string, number][] = [
+        ['let s = 0; for (let i = 0; i < 5; i++) { if (i == 1) continue; s += i; } return s;', 9],
+        ['let s = 0; for (var i = 0; i < 5; i++) { if (i == 1) continue; s += i; } return s;', 9],
+        ['let s = 0; let i = 0; for (i = 0; i < 5; i++) { if (i == 1) continue; s += i; } return s;', 9],
+        ['let s = 0; for (let i = 0; i < 5; i++) { s += i; continue; } return s;', 10],
+    ];
+    for (const [script, expected] of scripts) {
+        const context = createCodeContext(script);
+        context.setLimitExecInstruction(20000);
+        assert.strictEqual(expected, context.exec(true)?.value, script);
+    }
+});
