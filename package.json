@@ -34,7 +34,7 @@
     "test:mirror": "tsx tests/mirror.ts",
     "test:cross": "tsx tests/cross.ts",
     "test:fuzz": "tsx tests/fuzz.ts --count 200 --seed 42 > tests/.fuzz.jsonl",
-    "test:fuzz:check": "tsx tests/fuzz.ts --count 500 --seed 1 > tests/.fuzz.jsonl && php ../php/tests/fuzz.php tests/.fuzz.jsonl",
+    "test:fuzz:check": "tsx tests/fuzz.ts --count 500 --seed 1 > tests/.fuzz.jsonl && php \"${MSLANG_PHP_ROOT:-../php/src}/../tests/fuzz.php\" tests/.fuzz.jsonl",
     "bench": "tsx tests/bench.ts",
     "test:all": "npm test && npm run test:bugs && npm run test:limits && npm run test:mirror && npm run test:cross",
     "lint": "eslint src tests",

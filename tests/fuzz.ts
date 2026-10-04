@@ -10,11 +10,8 @@
  * При расхождении PHP-runner печатает строки, где результат отличается,
  * и выходит с ненулевым кодом. По умолчанию --count 100.
  */
-import {
-    CodeLexer, CodeParser, Interpreter, ContextInterpreter,
-    LexerTypeArray, LexerType, ParseNode, StackVariable, StackVariableArray,
-    StackVariableNull, StackVariableUndefined, VariableType,
-} from '../src';
+import {MSLangException, Script} from '../src';
+import {unwrap} from './_unwrap';
 
 function arg(name: string, def: string): string {
     const i = process.argv.indexOf('--' + name);
@@ -40,64 +37,65 @@ const rand = makePrng(SEED);
 const pick = <T>(arr: T[]) => arr[Math.floor(rand() * arr.length)];
 const int = () => Math.floor(rand() * 21) - 10;
 
-function genExpr(depth = 0): string {
-    if (depth >= 3 || rand() < 0.4) {
-        const k = pick(['int', 'bool', 'null', 'str']);
-        if (k === 'int') return String(int());
-        if (k === 'bool') return rand() < 0.5 ? 'true' : 'false';
-        if (k === 'null') return 'null';
-        return JSON.stringify(['a', 'b', 'ab', '1', ''][Math.floor(rand() * 5)]);
+// Генератор с типами: при строгой семантике (3.0.0) смешение типов почти всегда даёт
+// ошибку, поэтому основная масса выражений собрана по типам — числовые, строковые и
+// булевы, — а доля намеренно смешанных проверяет, что движки бросают ОДНУ И ТУ ЖЕ ошибку.
+
+function genNum(depth = 0): string {
+    if (depth >= 3 || rand() < 0.35) {
+        const r = rand();
+        if (r < 0.6) return String(int());
+        if (r < 0.8) return (int() / 4).toString();
+        return pick(['0', '1', '(0/0)', '(1/0)']);
     }
-    // Опускаем потенциально расходящиеся операции (% при 0, < null, etc) — это
-    // отдельные направления, для них есть отдельные тесты. Берём базовые.
-    const op = pick(['+', '-', '*', '==', '!=', '&&', '||']);
-    return `(${genExpr(depth + 1)} ${op} ${genExpr(depth + 1)})`;
+    if (rand() < 0.1) return `-(${genNum(depth + 1)})`;
+    const op = pick(['+', '-', '*', '/', '%', '&', '|', '^', '<<', '>>']);
+    return `(${genNum(depth + 1)} ${op} ${genNum(depth + 1)})`;
+}
+
+function genStr(depth = 0): string {
+    if (depth >= 3 || rand() < 0.4) {
+        if (rand() < 0.3) return `(${genNum(depth + 1)}).toString()`;
+        return JSON.stringify(pick(['a', 'b', 'ab', '1', '', 'абв']));
+    }
+    return `(${genStr(depth + 1)} + ${genStr(depth + 1)})`;
+}
+
+function genBool(depth = 0): string {
+    if (depth >= 3 || rand() < 0.3) {
+        const r = rand();
+        if (r < 0.3) return pick(['true', 'false']);
+        if (r < 0.7) return `(${genNum(depth + 1)} ${pick(['<', '>', '<=', '>=', '==', '!='])} ${genNum(depth + 1)})`;
+        return `(${genStr(depth + 1)} ${pick(['==', '!='])} ${genStr(depth + 1)})`;
+    }
+    const r = rand();
+    if (r < 0.15) return `!${genBool(depth + 1)}`;
+    if (r < 0.3) return `(${genBool(depth + 1)} ? ${genBool(depth + 1)} : ${genBool(depth + 1)})`;
+    return `(${genBool(depth + 1)} ${pick(['&&', '||'])} ${genBool(depth + 1)})`;
+}
+
+// Смешанные выражения — значения любых типов через любые операторы (ожидаемо ошибки).
+function genAny(depth = 0): string {
+    if (depth >= 2 || rand() < 0.4) {
+        return pick([String(int()), 'true', 'false', 'null', '"a"', '""', '[1]', '{a: 1}']);
+    }
+    const op = pick(['+', '-', '*', '/', '%', '==', '!=', '<', '>', '&&', '||', '??']);
+    return `(${genAny(depth + 1)} ${op} ${genAny(depth + 1)})`;
 }
 
 function genScript(): string {
-    return 'return ' + genExpr() + ';';
+    const r = rand();
+    const expr = r < 0.35 ? genNum() : r < 0.55 ? genStr() : r < 0.85 ? genBool() : genAny();
+    return 'return ' + expr + ';';
 }
 
+// Результат или {error: <код>} — коды ошибок обязаны совпадать в движках.
 function executeScript(source: string): unknown {
     try {
-        const lexer = new CodeLexer(source);
-        const parser = new CodeParser(lexer);
-        const nodeList: ParseNode[] = [];
-        parser.parseCode(nodeList, true, true, LexerTypeArray.one(LexerType.ltEof));
-
-        const interpreter = new Interpreter();
-        interpreter.registerHandlers();
-
-        const ctx = new ContextInterpreter(nodeList, interpreter);
-        ctx.registerConst();
-
-        return unwrap(ctx.exec(true));
-    } catch {
-        return {error: true};
+        return unwrap(Script.parseProgram(source).createContext().exec(true));
+    } catch (e) {
+        return {error: e instanceof MSLangException ? e.getErrorCode() : 'HostError'};
     }
-}
-
-function unwrap(v: unknown): unknown {
-    if (v === null || v === undefined) return null;
-    if (typeof v === 'object' && 'refValue' in (v as object)) {
-        v = (v as { refValue: unknown }).refValue;
-    }
-    if (v instanceof StackVariableArray) {
-        const r: unknown[] = [];
-        v.value.forEach(inner => r.push(unwrap(inner)));
-        return r;
-    }
-    if (v instanceof StackVariableUndefined) return null;
-    if (v instanceof StackVariableNull) return null;
-    if (v instanceof StackVariable) {
-        if (v.type === VariableType.vtVoid) return null;
-        let val = v.value;
-        if (typeof val === 'number' && !Number.isFinite(val)) {
-            val = Number.isNaN(val) ? 'NaN' : val > 0 ? 'Infinity' : '-Infinity';
-        }
-        return val;
-    }
-    return v;
 }
 
 for (let i = 0; i < COUNT; i++) {

@@ -3722,3 +3722,29 @@ test('108_FunctionParameterDefaultType', () => {
     assert.throws(() => new FunctionParameter('x', null, false, false, 5).createVariableDefaultValue(context),
         (e: unknown) => e instanceof MSLangException && e.message === 'Parameter "x" has a default value but no type');
 });
+
+test('109_UnaryMinusAndNegativeZero', () => {
+    // Унарный минус помечает парсер, а не угадывает интерпретатор по пустому стеку:
+    // раньше `5 - -3` давало -2, а `5 * -3` и `5 * (-3)` падали.
+    const cases: [string, number][] = [['return 5 - -3;', 8], ['return 5 * -3;', -15], ['return 5 * (-3);', -15], ['return 1 % -8;', 1],
+        ['return 2 * -3 * -4;', 24], ['return 6 / -2 + 1;', -2], ['return 2 * - - 3;', 6], ['return 1 + +2;', 3]];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(expected, executeReturnCode(script)?.value, script);
+    }
+    // Знак нуля по IEEE: целая арифметика PHP его теряла (1 / (0 * -1) давало Infinity).
+    for (const script of ['return 1 / -(0);', 'return 1 / (0 * -1);', 'return 1 / (-7 % 1);', 'return 1 / (0 / -5);']) {
+        assert.strictEqual(-Infinity, executeReturnCode(script)?.value, script);
+    }
+    assert.strictEqual(Infinity, executeReturnCode('return 1 / (3 - 3);')?.value);
+});
+
+test('110_ThrowInsideOperand', () => {
+    // throw внутри операнда бинарного оператора: оператор прерывается, исполнение идёт
+    // в catch (раньше обработчик оператора продолжал и снимал со стека мусор —
+    // «End of execution code» у `t * f()`).
+    const prefix = 'function f() { throw new Error("x"); } ';
+    assert.strictEqual(5, executeReturnCode(prefix + 'let t = 1; try { t = t * f(); } catch (e) { t = 5; } return t;')?.value);
+    assert.strictEqual(1, executeReturnCode(prefix + 'let t = 1; try { t = t + f(); } catch (e) { t = t + 0; } return t;')?.value);
+    assert.strictEqual(5, executeReturnCode(prefix + 'let t = 1; try { t = t < f() ? 1 : 2; } catch (e) { t = 5; } return t;')?.value);
+    assert.deepStrictEqual([9], (executeReturnCode(prefix + 'let r = []; try { r.push(2 * f()); } catch (e) { r.push(9); } return r;') as StackVariableArray).convertToNativeArray());
+});

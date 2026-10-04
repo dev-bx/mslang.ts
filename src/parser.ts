@@ -368,11 +368,14 @@ export class CodeParser {
             switch (this.lexer.tokenSym)
             {
                 case LexerType.ltPlus:
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntPlus);
-                    NodeList.push(SubNode);
-                    break;
                 case LexerType.ltMinus:
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntMinus);
+                    //В позиции операнда (начало выражения, после оператора) `+`/`-` —
+                    //унарный: помечаем nValue = 'unary' (зеркало PHP). Раньше интерпретатор
+                    //угадывал это по пустому стеку и ошибался внутри выражения: `5 - -3` давало -2.
+                    SubNode = new ParseNode(this.lexer.tokenCursor, this.lexer.tokenSym === LexerType.ltPlus ? NodeType.ntPlus : NodeType.ntMinus);
+                    if (!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode() || prevNode.nType === NodeType.ntArrayPushSeparatorKey) {
+                        SubNode.nValue = 'unary';
+                    }
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltMul:
@@ -1087,8 +1090,9 @@ export class CodeParser {
                     continue;
                 }
 
-                //Высокоприоритетный оператор: расширяем правую границу.
-                rightIdx = idx+1;
+                //Высокоприоритетный оператор: расширяем правую границу. Операнд может
+                //начинаться с префиксов (`5 * -3`, `a % !b`) — они часть операнда.
+                rightIdx = this.skipUnaryPrefixes(NodeList, idx + 1);
                 while (rightIdx + 1 < NodeList.length)
                 {
                     const nextNode = NodeList[rightIdx+1];
@@ -1115,7 +1119,7 @@ export class CodeParser {
                     //объединяем в один SubExpression через шаг на 2
                     //(оператор + его правый операнд).
                     if (isHighPri(nextNode)) {
-                        rightIdx += 2;
+                        rightIdx = this.skipUnaryPrefixes(NodeList, rightIdx + 2);
                         continue;
                     }
 
@@ -1159,6 +1163,22 @@ export class CodeParser {
                 throw new ParserCursorException("Cannot assign to '?.' expression", this.lexer.tokenCursor);
             }
         }
+    }
+
+    /**
+     * Индекс первого узла операнда после префиксов `-`, `+`, `!`, `typeof`, начиная с
+     * index (зеркало PHP CodeParser::skipUnaryPrefixes). Раньше `5 * -3` падало
+     * «End of execution code».
+     */
+    private skipUnaryPrefixes(NodeList: ParseNode[], index: number): number
+    {
+        while (index + 1 < NodeList.length && [
+            NodeType.ntMinus, NodeType.ntPlus, NodeType.ntNegativeIf, NodeType.ntTypeof,
+        ].includes(NodeList[index].nType)) {
+            index++;
+        }
+
+        return index;
     }
 
     /**

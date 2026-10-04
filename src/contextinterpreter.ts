@@ -25,7 +25,7 @@ import {Base64Functions} from "./base64functions";
 import {UrlFunctions} from "./urlfunctions";
 import {HashFunctions} from "./hashfunctions";
 import {StackVariableDateTime} from "./stackvariabledatetime";
-import {ContextException, ErrorCode, MSLangException, ResourceLimitException} from "./exceptions";
+import {ContextException, ControlFlowTransfer, ErrorCode, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {ContextType} from "./contexttype";
 import {InterpreterNode} from "./interpreternode";
@@ -642,6 +642,13 @@ export class ContextInterpreter {
 
         do {
             this.execOne();
+
+            //Скриптовый throw увёл исполнение в catch ниже кадра этого шага: вычисление
+            //операнда прервано, обработчик оператора дальше работать не должен
+            //(зеркало PHP execStepOver).
+            if (this._executionStack.length < executionPos) {
+                throw new ControlFlowTransfer();
+            }
         } while (executionPos !== this._executionStack.length)
     }
 
@@ -683,20 +690,23 @@ export class ContextInterpreter {
             try {
                 this.execOne();
             } catch (e) {
-                //Ресурсный лимит (инструкции/время/данные) скриптовый try/catch ловить
-                //НЕ должен: иначе скрипт перехватил бы остановку и продолжил работу.
-                if (e instanceof ResourceLimitException) {
-                    throw e;
-                }
+                //Управление уже передано в catch (ControlFlowTransfer) — ничего не делаем.
+                if (!(e instanceof ControlFlowTransfer)) {
+                    //Ресурсный лимит (инструкции/время/данные) скриптовый try/catch ловить
+                    //НЕ должен: иначе скрипт перехватил бы остановку и продолжил работу.
+                    if (e instanceof ResourceLimitException) {
+                        throw e;
+                    }
 
-                //Системная ошибка интерпретатора. Если в стеке есть try — оборачиваем
-                //её в Error-объект и продолжаем с catch-блока. Иначе пробрасываем дальше.
-                if (!this._interpreter.hasCatchInStack(this)) {
-                    throw e;
-                }
+                    //Системная ошибка интерпретатора. Если в стеке есть try — оборачиваем
+                    //её в Error-объект и продолжаем с catch-блока. Иначе пробрасываем дальше.
+                    if (!this._interpreter.hasCatchInStack(this)) {
+                        throw e;
+                    }
 
-                const errorObj = this._interpreter.wrapAsError(this, e);
-                this._interpreter.unwindThrow(this, errorObj, this.currentToken ?? null);
+                    const errorObj = this._interpreter.wrapAsError(this, e);
+                    this._interpreter.unwindThrow(this, errorObj, this.currentToken ?? null);
+                }
             }
             if (this._type === ContextType.ctReturn)
                 break;

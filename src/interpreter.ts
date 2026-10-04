@@ -671,15 +671,15 @@ export class Interpreter {
 
     /**
      * Общий шаблон арифметического оператора (зеркало PHP binaryArithmeticHandler):
-     * правый операнд вычисляется здесь, левый уже лежит на стеке. Пустой стек —
-     * унарная форма (`-x`, `+x`), она определена только для числа.
+     * правый операнд вычисляется здесь, левый уже лежит на стеке. Унарная форма
+     * (`-x`, `+x`) помечена парсером (nValue = 'unary') и определена только для числа.
      */
     protected binaryArithmeticHandler(context: ContextInterpreter, token: ParseNode, operator: string) {
         context.execGetVariable();
 
         const rightVar = context.popStackVar();
 
-        if (!context._stackVars.length) {
+        if (token.nValue === 'unary') {
             const value = Interpreter.numericOperand(token, operator, rightVar);
 
             switch (operator) {
