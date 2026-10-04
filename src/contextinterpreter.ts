@@ -960,7 +960,7 @@ export class ContextInterpreter {
             throw new ContextException('Invalid number of arguments for function "' + name + '"');
         }
 
-        ContextInterpreter.checkArgumentTypes(funcEntry, name, parameters);
+        parameters = this.coerceArguments(funcEntry, parameters);
 
         const callFuncArgs: (StackVariable|null)[] = [null];
 
@@ -991,46 +991,40 @@ export class ContextInterpreter {
         return returnVal;
     }
 
-    /** Типы параметров, которые проверяются на входе в функцию (остальные — без типа). */
-    private static readonly CHECKED_PARAMETER_TYPES: Partial<Record<number, string>> = {
-        [VariableType.vtNumber]: 'number',
-        [VariableType.vtString]: 'string',
-        [VariableType.vtBoolean]: 'boolean',
-        [VariableType.vtArray]: 'array',
-    };
-
     /**
-     * Строгая семантика для встроенных функций и функций хоста (зеркало PHP checkArgumentTypes):
-     * аргумент не того типа, что объявлен у параметра, — TypeMismatch с именем функции и номером
-     * аргумента. Раньше TS приводил всё по правилам JS (Math.abs("0x1A") → 26, Math.abs(null) → 0).
-     * null допустим только на месте необязательного параметра.
+     * Аргументы встроенных функций и функций хоста приводятся к объявленному типу параметра по
+     * правилам JS (зеркало PHP coerceArguments): `Math.abs("5")` → 5, `Math.abs("0x1A")` → 26,
+     * `Math.abs(null)` → 0, `Math.abs("abc")` → NaN. null вместо необязательного аргумента —
+     * «нет значения». Параметры без типа получают значение как есть.
      */
-    private static checkArgumentTypes(funcEntry: FunctionEntry, name: string, parameters: StackVariable[]): void {
+    private coerceArguments(funcEntry: FunctionEntry, parameters: StackVariable[]): StackVariable[] {
+        const result = [...parameters];
         funcEntry.getParameters().forEach((funcParameter, index) => {
             const declared = funcParameter.getType();
-            const expected = declared === null ? undefined : ContextInterpreter.CHECKED_PARAMETER_TYPES[declared];
-            if (expected === undefined || index >= parameters.length) {
+            if (index >= result.length || declared === null
+                || ![VariableType.vtNumber, VariableType.vtString, VariableType.vtBoolean].includes(declared)) {
                 return;
             }
 
-            let argument = parameters[index];
+            let argument = result[index];
             if (argument instanceof StackVariableRef) {
                 argument = argument.getRefValue();
             }
 
             const type = argument.type;
-            if (type === declared) {
-                return;
-            }
-            if (type === VariableType.vtNull && !funcParameter.isRequired()) {
+            if (type === declared || (type === VariableType.vtNull && !funcParameter.isRequired())) {
                 return;
             }
 
-            throw new ContextException(
-                'Argument ' + (index + 1) + ' of "' + name + '" must be ' + expected + ', ' + argument.typeName + ' given',
-                ErrorCode.TypeMismatch,
+            //Функция, объект без приведения: число — NaN, строка — строковый вид, как JS.
+            result[index] = argument.castAs(declared) ?? (
+                declared === VariableType.vtNumber ? this.createVariable(VariableType.vtNumber, NaN)
+                : declared === VariableType.vtString ? this.createVariable(VariableType.vtString, argument.type === VariableType.vtFunction ? 'function' : '[object Object]')
+                : this.createVariable(VariableType.vtBoolean, true)
             );
         });
+
+        return result;
     }
 
     selfCallFunction(self: StackVariable, name: string, parameters: StackVariable[]) {
@@ -1046,7 +1040,7 @@ export class ContextInterpreter {
             throw new ContextException('Invalid number of arguments for function "' + name + '"');
         }
 
-        ContextInterpreter.checkArgumentTypes(funcEntry, name, parameters);
+        parameters = this.coerceArguments(funcEntry, parameters);
 
         const callFuncArgs = [self instanceof StackVariableRef ? self.getRefValue() as StackVariable : self];
 
