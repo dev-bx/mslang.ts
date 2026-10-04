@@ -4,6 +4,7 @@ import {ParseNode} from "./parser";
 import {Interpreter} from "./interpreter";
 import {ContextInterpreter} from "./contextinterpreter";
 import {AstBuilder, type AstExpressionRoot, type AstProgram} from "./astbuilder";
+import type {LexerWarning} from "./lexer";
 
 export type ParsedScriptKind = 'expression' | 'program';
 
@@ -15,7 +16,16 @@ export class ParsedScript {
         private readonly kind: ParsedScriptKind,
         private readonly nodes: ParseNode[],
         private readonly source: string,
+        private readonly warnings: LexerWarning[] = [],
     ) {
+    }
+
+    /**
+     * Предупреждения разбора (CodeLexer.WARNING_*): исходник корректен, но, скорее всего,
+     * значит не то, что хотел автор (`'a\nb'` в одинарных кавычках — не перенос строки).
+     */
+    getWarnings(): LexerWarning[] {
+        return this.warnings;
     }
 
     /** `expression` или `program`. */

@@ -30,17 +30,18 @@ export class Script {
             throw new ParserCursorException(e.getRawMessage(), lexer.tokenCursor, e.getErrorCode());
         }
 
-        return new ParsedScript(ParsedScript.KIND_EXPRESSION, [returnNode], source);
+        return new ParsedScript(ParsedScript.KIND_EXPRESSION, [returnNode], source, lexer.getWarnings());
     }
 
     /** Программа — последовательность инструкций; значение отдаёт `return`. */
     static parseProgram(source: string): ParsedScript {
-        const parser = new CodeParser(new CodeLexer(source));
+        const lexer = new CodeLexer(source);
+        const parser = new CodeParser(lexer);
 
         const nodes: ParseNode[] = [];
         parser.parseCode(nodes, true, true, LexerTypeArray.one(LexerType.ltEof));
 
-        return new ParsedScript(ParsedScript.KIND_PROGRAM, nodes, source);
+        return new ParsedScript(ParsedScript.KIND_PROGRAM, nodes, source, lexer.getWarnings());
     }
 
     /**

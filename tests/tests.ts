@@ -3801,3 +3801,21 @@ test('118_ContainersStoreValues', () => {
     // Массивы и объекты по-прежнему по ссылке.
     assert.deepStrictEqual([[1, 2]], (executeReturnCode('let a = [1]; let r = []; r.push(a); a.push(2); return r;') as StackVariableArray).convertToNativeArray());
 });
+
+test('119_StringEscapeWarnings', () => {
+    // Подозрительные escape-последовательности дают предупреждение разбора с местом;
+    // значение литерала не меняется.
+    let parsed = Script.parse("let a = 1;\nreturn 'x\\ny';");
+    assert.strictEqual(parsed.createContext().exec(true)?.value, 'x\\ny');
+    assert.deepStrictEqual(parsed.getWarnings().map(w => ({code: w.code, line: w.line, column: w.column})),
+        [{code: 'SuspiciousEscape', line: 2, column: 10}]);
+
+    parsed = Script.parseExpression('"a\\qb"');
+    assert.strictEqual(parsed.createContext().exec(true)?.value, 'a\\qb');
+    assert.deepStrictEqual(parsed.getWarnings().map(w => w.code), ['UnknownEscape']);
+
+    // Без предупреждений: известные последовательности и обычные строки.
+    for (const source of ["'a\\'b'", "'a\\\\b'", '"a\\n\\t\\r\\\\\\"b"', "'plain'", "x ? 'a' : 'b'"]) {
+        assert.deepStrictEqual(Script.parseExpression(source).getWarnings(), [], source);
+    }
+});

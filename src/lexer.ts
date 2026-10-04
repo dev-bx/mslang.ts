@@ -296,6 +296,14 @@ export class Lexer {
     }
 }
 
+/** Предупреждение разбора (зеркало PHP: массив code/message/line/column). */
+export interface LexerWarning {
+    code: string;
+    message: string;
+    line: number;
+    column: number;
+}
+
 export class TokenCursor {
     startCursorLine: number | null = null
     startCursorCol: number | null = null
@@ -380,6 +388,7 @@ export class CodeLexer extends Lexer {
         state.tokenSym = this._tokenSym;
         state.tokenValue = this._tokenValue;
         state.tokenCursor = this._tokenCursor;
+        state.warningCount = this._warnings.length;
         return state;
     }
 
@@ -390,6 +399,29 @@ export class CodeLexer extends Lexer {
         //Курсор восстанавливаем безусловно (включая undefined) — как PHP:
         //иначе после lookahead-отката позиции ошибок укажут не на тот токен.
         this._tokenCursor = state.tokenCursor as (TokenCursor | undefined);
+        //Заглядывание вперёд перечитает те же токены — их предупреждения не задваиваем.
+        if (typeof state.warningCount === 'number') {
+            this._warnings.length = state.warningCount;
+        }
+    }
+
+    /** `'a\nb'` — в одинарных кавычках `\n` остаётся двумя символами (обратный слэш и n). */
+    static readonly WARNING_SUSPICIOUS_ESCAPE = 'SuspiciousEscape';
+    /** `"a\qb"` — неизвестная escape-последовательность остаётся двумя символами. */
+    static readonly WARNING_UNKNOWN_ESCAPE = 'UnknownEscape';
+
+    /**
+     * Предупреждения разбора: исходник корректен, но, скорее всего, значит не то, что
+     * хотел автор. Исполнение они не меняют.
+     */
+    protected _warnings: LexerWarning[] = [];
+
+    getWarnings(): LexerWarning[] {
+        return this._warnings;
+    }
+
+    protected addWarning(code: string, message: string, line: number, column: number): void {
+        this._warnings.push({code, message, line, column});
     }
 
     /**
@@ -670,6 +702,14 @@ export class CodeLexer extends Lexer {
                         this.getCh();
                         this._tokenValue += strSpecSym[nextCh];
                         continue;
+                    }
+
+                    //Значение не меняется (обратный слэш остаётся), но автор почти наверняка
+                    //хотел другого: `'\n'` в одинарных кавычках — не перенос строки.
+                    if (strSym === '\'' && nextCh !== null && ['n', 't', 'r'].includes(nextCh)) {
+                        this.addWarning(CodeLexer.WARNING_SUSPICIOUS_ESCAPE, `In single quotes \\${nextCh} is two characters (backslash and ${nextCh}); use double quotes for an escape sequence`, this._lastCursorLine, this._lastCursorCol);
+                    } else if (strSym === '"' && nextCh !== null) {
+                        this.addWarning(CodeLexer.WARNING_UNKNOWN_ESCAPE, `Unknown escape sequence \\${nextCh} is kept as two characters`, this._lastCursorLine, this._lastCursorCol);
                     }
                 }
 

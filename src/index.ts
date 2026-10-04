@@ -1,5 +1,5 @@
 import {Version} from "./version";
-import {CodeLexer, LexerTypeArray, LexerType, Lexer, TokenCursor, FullTokenInfo} from "./lexer";
+import {CodeLexer, LexerTypeArray, LexerType, Lexer, TokenCursor, FullTokenInfo, type LexerWarning} from "./lexer";
 import {CodeParser, NodeType, CompareType, ParseNode} from "./parser";
 import {Interpreter} from "./interpreter";
 import {InterpreterNode} from "./interpreternode";
@@ -76,6 +76,7 @@ export {
     AstBuilder,
     ParsedScript,
     type ParsedScriptKind,
+    type LexerWarning,
     ErrorCode,
     type ErrorCodeValue,
     MSLangException,
