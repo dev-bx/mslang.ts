@@ -2577,7 +2577,7 @@ export class Interpreter {
                 if (name === '') continue;
                 //Уже объявлена (let/const до или сам var повторно) — пропускаем,
                 //runtime varDeclHandler сам перезапишет значение при выполнении.
-                if (!Object.prototype.hasOwnProperty.call(context._variables, name)) {
+                if (context.getLocalVariable(name) === undefined) {
                     context._variables[name] = new StackVariableNull(false);
                 }
                 continue;
@@ -2647,7 +2647,7 @@ export class Interpreter {
         //объемлющая функция) — иначе функция третьего уровня вложенности
         //теряет переменные «деда»: `a => b => c => a + b + c`. Локальные
         //переменные затеняют внешние захваты.
-        func.setCapturedScope(Object.assign({}, context._currentCapturedScope ?? {}, context._variables));
+        func.setCapturedScope(Object.assign({}, context._currentCapturedScope ?? {}, context.snapshotVariables()));
 
         //Стрелочная функция: this лексический — запоминаем this и владельца
         //метода из места создания. invokeUserFunction подставит их при вызове
@@ -3274,7 +3274,7 @@ export class Interpreter {
         if (name === '') {
             throw new InterpreterException('Class definition has empty name', token.cursorPos);
         }
-        if (!(context._variables[name] instanceof StackVariableClass)) {
+        if (!(context.getLocalVariable(name) instanceof StackVariableClass)) {
             const cls = this.buildUserClass(context, token);
             context._variables[name] = cls;
         }

@@ -360,7 +360,9 @@ export class ContextInterpreter {
         //letNames сбрасывается: новый блок начинает свой block scope для let/const.
         this._letNames = {};
 
-        this._variables = Object.assign({}, this._variables);
+        //Кадр хранит только свои записи; родительские видны через findHolder. Раньше здесь
+        //копировалась вся таблица переменных — 66% времени горячего цикла.
+        this._variables = {};
         this._functions = Object.assign({}, this._functions);
         this._stackVars = [];
 
@@ -387,13 +389,25 @@ export class ContextInterpreter {
         //сохранить своё значение (let лишь временно перекрыл его).
         const blockLetNames = this._letNames;
 
-        if (saveVariables !== true) {
-            const tmp = this._variables;
+        const tmp = this._variables;
+        this._variables = data.variables;
 
-            this._variables = data.variables;
+        if (saveVariables === true) {
+            //Кадр присваивания: всё, что он записал, остаётся видимым — переносим в родителя
+            //(раньше таблица-копия кадра сама становилась текущей).
+            for (const k of Object.keys(tmp)) {
+                this._variables[k] = tmp[k];
+            }
+        } else {
+            //Переносим наружу только то, что кадр записал сам. Имя, не видимое у родителя,
+            //объявлено в блоке — наружу не утекает.
+            Object.keys(tmp).forEach(k => {
+                const holder = this.findHolder(k, this._executionStack.length);
+                if (holder === undefined)
+                    return;
 
-            Object.keys(this._variables).forEach(k => {
-                if (this._variables[k].isConst)
+                const outer = holder[k];
+                if (outer.isConst)
                     return;
 
                 //let/const блока: значение из tmp в parent не копируем.
@@ -401,18 +415,12 @@ export class ContextInterpreter {
                 if (blockLetNames[k] === true)
                     return;
 
-                //Если внутри scope переменную не трогали (например, она была обновлена
-                //прямо в snapshot через closure-walk в setVariable) — пропускаем
-                //копирование, иначе попадём в установку value на undefined.
-                if (!hasOwn(tmp, k))
-                    return;
-
                 //Тот же объект — копировать нечего. Раньше массив переприсваивался сам себе
                 //на каждом выходе из блока: полная пересборка всех элементов на итерацию.
-                if (this._variables[k] === tmp[k])
+                if (outer === tmp[k])
                     return;
 
-                if (this._variables[k].type !== tmp[k].type) {
+                if (outer.type !== tmp[k].type) {
                     //createVariable не умеет vtObject (объекты, классы-экземпляры)
                     //и vtFunction — для них нет понятного «скопировать значение»,
                     //они всегда разделяются по ссылке. Если в блоке переменная
@@ -428,7 +436,7 @@ export class ContextInterpreter {
                     //Один и тот же тип, но обновлённый в блоке через присваивание.
                     //У null/undefined/void нет осмысленного «нового значения»:
                     //setter read-only. Пропускаем — иначе «value is read only».
-                    const t = this._variables[k].type;
+                    const t = outer.type;
                     if (t === VariableType.vtNull || t === VariableType.vtUndefined || t === VariableType.vtVoid)
                         return;
                     if (t === VariableType.vtObject || t === VariableType.vtFunction) {
@@ -436,12 +444,10 @@ export class ContextInterpreter {
                         //переносим эту новую ссылку в parent. Если тот же объект
                         //(мутировался через свой метод) — parent уже видит изменения
                         //через общую ссылку, ничего делать не нужно.
-                        if (this._variables[k] !== tmp[k]) {
-                            this._variables[k] = tmp[k];
-                        }
+                        this._variables[k] = tmp[k];
                         return;
                     }
-                    this._variables[k].value = tmp[k].value;
+                    outer.value = tmp[k].value;
                 }
             });
         }
@@ -734,6 +740,44 @@ export class ContextInterpreter {
         }
     }
 
+    /**
+     * Таблица, в которой имя видно с уровня `level` (0..длина стека; длина стека — текущий
+     * кадр): сам кадр, затем кадры ниже по стеку до границы функции. Это ровно то, что
+     * раньше содержала полная копия таблицы кадра.
+     */
+    findHolder(name: string, level: number): Record<string, StackVariable> | undefined {
+        for (let i = level; i >= 0; i--) {
+            const table = i === this._executionStack.length ? this._variables : this._executionStack[i].variables;
+            if (hasOwn(table, name))
+                return table;
+            //Кадр i — корень функции: ниже лежит уже вызывающий код.
+            if (i > 0 && this._executionStack[i - 1].isFunctionScope === true)
+                return undefined;
+        }
+        return undefined;
+    }
+
+    /** Переменная, видимая в текущем кадре в пределах функции (или верхнего уровня). */
+    getLocalVariable(name: string): StackVariable | undefined {
+        return this.findHolder(name, this._executionStack.length)?.[name];
+    }
+
+    /** Плоский снимок видимых в пределах функции переменных (для замыкания): ближний кадр затеняет дальний. */
+    snapshotVariables(): Record<string, StackVariable> {
+        const tables: Record<string, StackVariable>[] = [];
+        for (let i = this._executionStack.length; i >= 0; i--) {
+            tables.push(i === this._executionStack.length ? this._variables : this._executionStack[i].variables);
+            if (i > 0 && this._executionStack[i - 1].isFunctionScope === true)
+                break;
+        }
+
+        const snapshot: Record<string, StackVariable> = {};
+        for (let t = tables.length - 1; t >= 0; t--) {
+            Object.assign(snapshot, tables[t]);
+        }
+        return snapshot;
+    }
+
     getVariable(name: string): StackVariable|undefined {
         if (hasOwn(this._variables, name)) {
             return this._variables[name];
@@ -786,7 +830,7 @@ export class ContextInterpreter {
      * replace = true — явная замена, в том числе встроенного значения и константы.
      */
     registerFunction(name: string, value: StackVariable, replace: boolean = false): void {
-        if (!replace && hasOwn(this._variables, name)) {
+        if (!replace && this.getLocalVariable(name) !== undefined) {
             throw new ContextException('Name "' + name + '" is already registered', ErrorCode.DuplicateName);
         }
 
@@ -808,14 +852,15 @@ export class ContextInterpreter {
             }
         }
 
-        if (isInsideFunction && !hasOwn(this._variables, name)) {
-            //Идём по execution stack: если переменная есть наверху — обновляем там.
+        if (isInsideFunction && this.getLocalVariable(name) === undefined) {
+            //Идём по execution stack: если переменная видна в кадре ниже — пишем в этот кадр
+            //(при выходе из него значение уйдёт дальше, как и раньше).
             for (let i = this._executionStack.length - 1; i >= 0; i--) {
-                const vars = this._executionStack[i].variables;
-                if (vars && hasOwn(vars, name)) {
-                    if (vars[name].isConst)
+                const holder = this.findHolder(name, i);
+                if (holder !== undefined) {
+                    if (holder[name].isConst)
                         throw new ContextException('Cannot override constant ' + name);
-                    vars[name] = value;
+                    this._executionStack[i].variables[name] = value;
                     return;
                 }
             }
@@ -840,7 +885,7 @@ export class ContextInterpreter {
             }
         }
 
-        if (hasOwn(this._variables, name) && this._variables[name].isConst)
+        if (this.getLocalVariable(name)?.isConst)
             throw new ContextException('Cannot override constant ' + name);
 
         this._variables[name] = value;
