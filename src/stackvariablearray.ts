@@ -564,12 +564,20 @@ export class StackVariableArray extends StackVariable {
         return VariableType.vtArray;
     }
 
-    funcInvoke_slice(...args: unknown[]): StackVariable {
+    //Зеркало PHP funcInvoke_slice(?int $start = null, ?int $end = null).
+    funcInvoke_sliceArgs() {
+        return [
+            new FunctionParameter('start', VariableType.vtNumber, false),
+            new FunctionParameter('end', VariableType.vtNumber, false),
+        ];
+    }
+
+    funcInvoke_slice(startArg: number | null, endArg: number | null): StackVariable {
         const values = Array.from(this.value.values());
         const n = values.length;
 
-        const start = StackVariableArray.argToIntOrNull(args[0]);
-        const end = StackVariableArray.argToIntOrNull(args[1]);
+        const start = typeof startArg === 'number' ? Math.trunc(startArg) : null;
+        const end = typeof endArg === 'number' ? Math.trunc(endArg) : null;
         const begin = start === null ? 0 : (start < 0 ? Math.max(n + start, 0) : Math.min(start, n));
         let stop = end === null ? n : (end < 0 ? Math.max(n + end, 0) : Math.min(end, n));
         if (stop < begin) {
@@ -657,15 +665,16 @@ export class StackVariableArray extends StackVariable {
         return VariableType.vtArray;
     }
 
-    funcInvoke_flat(...args: unknown[]): StackVariable {
-        let levels: number;
-        const depthArg = args[0];
-        if (!(depthArg instanceof StackVariable)) {
-            levels = 1;
-        } else {
-            const d = Number(depthArg.castAs(VariableType.vtNumber)?.value ?? 1);
-            levels = !Number.isFinite(d) ? Number.MAX_SAFE_INTEGER : Math.trunc(d);
-        }
+    //Зеркало PHP funcInvoke_flat(?float $depth = null).
+    funcInvoke_flatArgs() {
+        return [
+            new FunctionParameter('depth', VariableType.vtNumber, false),
+        ];
+    }
+
+    funcInvoke_flat(depth: number | null): StackVariable {
+        const levels = typeof depth !== 'number' ? 1
+            : (!Number.isFinite(depth) ? Number.MAX_SAFE_INTEGER : Math.trunc(depth));
 
         return new StackVariableArray(false, this.flattenArray(Array.from(this.value.values()), levels), this.getContext());
     }
