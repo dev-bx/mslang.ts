@@ -157,6 +157,7 @@ b.values()            // [10, 20]
 [1,2,3].unshift(0)    // 4 (новый length), [0,1,2,3]
 [1,2,3].join("-")     // "1-2-3"
 [1,2,3].concat([4,5]).join()  // "1,2,3,4,5"
+[1,[2,3],null].toString()     // "1,2,3," — как JS: то же, что join(","), null — пустая строка
 [1,2,3].reverse()     // [3,2,1]
 [1,2,3].indexOf(2)    // 1
 [1,2,3].contains(2)   // true
@@ -455,6 +456,7 @@ exists(rule) && rule.mode == "x" // проверка наличия — явно
 
 ```mslang
 "Итого: " + total.toString()          // число → строка (как JS: 0.1 + 0.2 → "0.30000000000000004")
+"Список: " + list.toString()          // массив → "1,2,3" (как JS)
 "Итого: " + total.toFixed(2)          // с округлением
 Number.parseFloat("10.5") * 2         // строка → число
 "флаг: " + ok.ToString()              // boolean → "true"/"false"
