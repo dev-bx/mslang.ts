@@ -965,12 +965,8 @@ export class ContextInterpreter {
         const callFuncArgs: (StackVariable|null)[] = [null];
 
         const funcParameters = funcEntry.getParameters();
-        // ЯЗЫКОВОЕ ОТЛИЧИЕ от PHP (P2-12): PHP идёт строго по объявленным
-        // параметрам (вариативные builtin'ы там объявлены как variadic). В TS
-        // встроенные вариативные функции (String.fromCharCode, Array.fill и т.п.)
-        // недо-объявляют параметры и опираются на позиционную передачу всех
-        // фактических аргументов через Math.max. Для пользовательских функций
-        // разницы нет (в MSLang нет объекта arguments). Поэтому оставляем Math.max.
+        //Как JS и PHP-эталон: функция получает все переданные аргументы, недостающие
+        //объявленные — значением по умолчанию.
         const paramCount = Math.max(parameters.length, funcParameters.length);
 
         for (let index = 0; index < paramCount; index++) {
@@ -1045,7 +1041,7 @@ export class ContextInterpreter {
         const callFuncArgs = [self instanceof StackVariableRef ? self.getRefValue() as StackVariable : self];
 
         const funcParameters = funcEntry.getParameters();
-        // См. комментарий в callFunction: Math.max нужен для вариативных builtin'ов TS.
+        //Как в callFunction: все переданные аргументы, недостающие — по умолчанию.
         const paramCount = Math.max(parameters.length, funcParameters.length);
 
         for (let index = 0; index < paramCount; index++) {
