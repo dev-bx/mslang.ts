@@ -1,0 +1,114 @@
+{
+    "type": "Expression",
+    "version": 1,
+    "expression": {
+        "type": "Binary",
+        "operator": "|",
+        "left": {
+            "type": "Literal",
+            "value": 1,
+            "loc": {
+                "line": 1,
+                "column": 1,
+                "endLine": 1,
+                "endColumn": 1
+            }
+        },
+        "right": {
+            "type": "Binary",
+            "operator": "^",
+            "left": {
+                "type": "Binary",
+                "operator": "&",
+                "left": {
+                    "type": "Binary",
+                    "operator": "<<",
+                    "left": {
+                        "type": "Literal",
+                        "value": 2,
+                        "loc": {
+                            "line": 1,
+                            "column": 5,
+                            "endLine": 1,
+                            "endColumn": 5
+                        }
+                    },
+                    "right": {
+                        "type": "Literal",
+                        "value": 3,
+                        "loc": {
+                            "line": 1,
+                            "column": 10,
+                            "endLine": 1,
+                            "endColumn": 10
+                        }
+                    },
+                    "loc": {
+                        "line": 1,
+                        "column": 5,
+                        "endLine": 1,
+                        "endColumn": 10
+                    }
+                },
+                "right": {
+                    "type": "Literal",
+                    "value": 4,
+                    "loc": {
+                        "line": 1,
+                        "column": 14,
+                        "endLine": 1,
+                        "endColumn": 14
+                    }
+                },
+                "loc": {
+                    "line": 1,
+                    "column": 5,
+                    "endLine": 1,
+                    "endColumn": 14
+                }
+            },
+            "right": {
+                "type": "Binary",
+                "operator": "==",
+                "left": {
+                    "type": "Literal",
+                    "value": 5,
+                    "loc": {
+                        "line": 1,
+                        "column": 18,
+                        "endLine": 1,
+                        "endColumn": 18
+                    }
+                },
+                "right": {
+                    "type": "Literal",
+                    "value": 5,
+                    "loc": {
+                        "line": 1,
+                        "column": 23,
+                        "endLine": 1,
+                        "endColumn": 23
+                    }
+                },
+                "loc": {
+                    "line": 1,
+                    "column": 18,
+                    "endLine": 1,
+                    "endColumn": 23
+                }
+            },
+            "loc": {
+                "line": 1,
+                "column": 5,
+                "endLine": 1,
+                "endColumn": 23
+            }
+        },
+        "loc": {
+            "line": 1,
+            "column": 1,
+            "endLine": 1,
+            "endColumn": 23
+        }
+    }
+}
