@@ -151,11 +151,18 @@ export class StackVariable {
             case VariableType.vtString:
             case VariableType.vtBoolean:
             case VariableType.vtNull:
-                //Поверхностная копия того же класса — как `clone` в PHP (без повторного учёта бюджета).
-                return Object.assign(Object.create(Object.getPrototypeOf(value)), value) as StackVariable;
+                return value.clone();
         }
 
         return value;
+    }
+
+    /**
+     * Поверхностная копия того же класса — как `clone` в PHP (без повторного учёта бюджета).
+     * Скалярные классы переопределяют её прямым конструктором: общий путь медленный.
+     */
+    clone(): StackVariable {
+        return Object.assign(Object.create(Object.getPrototypeOf(this)), this) as StackVariable;
     }
 
     /**

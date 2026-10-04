@@ -407,6 +407,11 @@ export class ContextInterpreter {
                 if (!hasOwn(tmp, k))
                     return;
 
+                //Тот же объект — копировать нечего. Раньше массив переприсваивался сам себе
+                //на каждом выходе из блока: полная пересборка всех элементов на итерацию.
+                if (this._variables[k] === tmp[k])
+                    return;
+
                 if (this._variables[k].type !== tmp[k].type) {
                     //createVariable не умеет vtObject (объекты, классы-экземпляры)
                     //и vtFunction — для них нет понятного «скопировать значение»,
