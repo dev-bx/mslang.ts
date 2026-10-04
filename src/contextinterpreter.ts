@@ -960,6 +960,8 @@ export class ContextInterpreter {
             throw new ContextException('Invalid number of arguments for function "' + name + '"');
         }
 
+        ContextInterpreter.checkArgumentTypes(funcEntry, name, parameters);
+
         const callFuncArgs: (StackVariable|null)[] = [null];
 
         const funcParameters = funcEntry.getParameters();
@@ -989,6 +991,48 @@ export class ContextInterpreter {
         return returnVal;
     }
 
+    /** Типы параметров, которые проверяются на входе в функцию (остальные — без типа). */
+    private static readonly CHECKED_PARAMETER_TYPES: Partial<Record<number, string>> = {
+        [VariableType.vtNumber]: 'number',
+        [VariableType.vtString]: 'string',
+        [VariableType.vtBoolean]: 'boolean',
+        [VariableType.vtArray]: 'array',
+    };
+
+    /**
+     * Строгая семантика для встроенных функций и функций хоста (зеркало PHP checkArgumentTypes):
+     * аргумент не того типа, что объявлен у параметра, — TypeMismatch с именем функции и номером
+     * аргумента. Раньше TS приводил всё по правилам JS (Math.abs("0x1A") → 26, Math.abs(null) → 0).
+     * null допустим только на месте необязательного параметра.
+     */
+    private static checkArgumentTypes(funcEntry: FunctionEntry, name: string, parameters: StackVariable[]): void {
+        funcEntry.getParameters().forEach((funcParameter, index) => {
+            const declared = funcParameter.getType();
+            const expected = declared === null ? undefined : ContextInterpreter.CHECKED_PARAMETER_TYPES[declared];
+            if (expected === undefined || index >= parameters.length) {
+                return;
+            }
+
+            let argument = parameters[index];
+            if (argument instanceof StackVariableRef) {
+                argument = argument.getRefValue();
+            }
+
+            const type = argument.type;
+            if (type === declared) {
+                return;
+            }
+            if (type === VariableType.vtNull && !funcParameter.isRequired()) {
+                return;
+            }
+
+            throw new ContextException(
+                'Argument ' + (index + 1) + ' of "' + name + '" must be ' + expected + ', ' + argument.typeName + ' given',
+                ErrorCode.TypeMismatch,
+            );
+        });
+    }
+
     selfCallFunction(self: StackVariable, name: string, parameters: StackVariable[]) {
         /** @var self StackVariable  */
 
@@ -1001,6 +1045,8 @@ export class ContextInterpreter {
         if (funcEntry.getRequiredCount() > parameters.length) {
             throw new ContextException('Invalid number of arguments for function "' + name + '"');
         }
+
+        ContextInterpreter.checkArgumentTypes(funcEntry, name, parameters);
 
         const callFuncArgs = [self instanceof StackVariableRef ? self.getRefValue() as StackVariable : self];
 
