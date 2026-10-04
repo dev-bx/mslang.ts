@@ -4035,3 +4035,14 @@ test('131_JsOperatorPrecedence', () => {
     // `&` слабее `==`: `6 & 3 == 2` — это `6 & (3 == 2)`, число & boolean.
     assert.strictEqual('TypeMismatch', errorOf('return 6 & 3 == 2;')?.getErrorCode());
 });
+
+test('132_InvokeMethodArgumentMessage', () => {
+    // Хост вызывает метод встроенного объекта с аргументом, который не значение языка:
+    // текст ошибки одинаков в обоих движках (короткое имя класса).
+    const context = Script.parse('return 1;').createContext();
+    const math = context.getVariable('Math') as StackVariable;
+    const entry = math.getFunctionEntry('abs');
+
+    assert.throws(() => entry?.invokeArguments([math, 5]),
+        (e: unknown) => e instanceof MSLangException && e.getRawMessage() === 'Argument must be instance of StackVariable');
+});
