@@ -17,9 +17,9 @@ import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
     CodeLexer, CodeParser, Interpreter, ContextInterpreter,
-    LexerTypeArray, LexerType, ParseNode, StackVariable, StackVariableArray, StackVariableString, StackVariableNumber,
-    StackVariableBoolean, StackVariableNull, StackVariableUndefined, VariableType,
+    LexerTypeArray, LexerType, ParseNode,
 } from '../src';
+import {unwrap} from './_unwrap';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS_DIR = path.join(__dirname, 'scripts');
@@ -39,29 +39,6 @@ function executeScript(source: string): unknown {
     return context.exec(true);
 }
 
-// Превращает StackVariable* в простое JS-значение для сравнения с .expected.
-function unwrap(v: unknown): unknown {
-    if (v === null || v === undefined) return v;
-    // прозрачная обёртка StackVariableRef: подсмотреть refValue, если есть
-    if (typeof v === 'object' && 'refValue' in (v as object)) {
-        v = (v as { refValue: unknown }).refValue;
-    }
-    if (v instanceof StackVariableArray) {
-        const r: unknown[] = [];
-        v.value.forEach(inner => r.push(unwrap(inner)));
-        return r;
-    }
-    if (v instanceof StackVariableString || v instanceof StackVariableNumber || v instanceof StackVariableBoolean) {
-        return v.value;
-    }
-    if (v instanceof StackVariableNull) return null;
-    if (v instanceof StackVariableUndefined) return undefined;
-    if (v instanceof StackVariable) {
-        if (v.type === VariableType.vtVoid) return undefined;
-        return v.value;
-    }
-    return v;
-}
 
 const files = fs.readdirSync(SCRIPTS_DIR).filter(f => f.endsWith('.msl')).sort();
 

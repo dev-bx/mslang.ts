@@ -4,6 +4,12 @@ import {defineConfig} from 'vite';
 //   mslang.umd.js — для подключения <script src="..."> и глобального DevBX.MSLang;
 //   mslang.es.js  — для `import` в современных проектах через "exports" в package.json.
 export default defineConfig({
+    // Имена классов и функций сохраняются при минификации: funcEntryCache ключуется по
+    // this.constructor.name (src/stackvariable.ts) — без имён классы получили бы чужую
+    // таблицу методов.
+    esbuild: {
+        keepNames: true,
+    },
     build: {
         lib: {
             entry: 'src/index.ts',
@@ -21,10 +27,7 @@ export default defineConfig({
         emptyOutDir: false,
         // es2020 нужен для BigInt (64-битные битовые операции) и прочих фич.
         target: 'es2020',
-        // Минификация выключена сознательно: при включении сначала нужен
-        // keep_classnames/keepNames (funcEntryCache опирается на constructor.name).
-        minify: false,
-        // Не публикуем sourcemap (~1.2 МБ): сборка не минифицирована и читаема и так.
+        minify: 'esbuild',
         sourcemap: false,
     },
 });

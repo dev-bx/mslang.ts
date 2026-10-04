@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {
     StackVariable, VariableType, StackVariableBoolean, StackVariableNumber, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString,
-    StackVariableObject, ParseNode, MSLangException, Script, ParsedScript
+    StackVariableObject, ParseNode, MSLangException, Script, ParsedScript, FunctionParameter
 } from "../src";
 
 class FieldsObject extends StackVariable {
@@ -2505,6 +2505,13 @@ test('077_LetSimple', () => {
     assert.strictEqual(5, r?.value);
 });
 
+// P1-22: зеркало PHP Test.php testMSLang077_VarRedeclaresLetFails (перенесён из bugs.ts,
+// чтобы пары файлов совпадали: tests.ts ↔ Test.php).
+test('077_VarRedeclaresLetFails', () => {
+    assert.throws(() => executeReturnCode('let x = 1; let x = 2; return x;'),
+        /Identifier 'x' has already been declared/);
+});
+
 test('077_LetWithoutInitIsNull', () => {
     const r = executeReturnCode('let x; return x;');
     assert.strictEqual(VariableType.vtNull, r?.type);
@@ -3679,4 +3686,285 @@ test('115_IncludesUniqueEquality', () => {
     assert.deepStrictEqual([3], (executeReturnCode('return [1.5 * 2, 3].unique();') as StackVariableArray).convertToNativeArray());
     assert.strictEqual(false, executeReturnCode('return [[1]].includes([1]);')?.value);
     assert.strictEqual(false, executeReturnCode('return [(0/0)].includes(0/0);')?.value);
+});
+
+test('105_ScalarOffsetWrite', () => {
+    // Запись по ключу — только в массив и объект-литерал; у скаляра, хост-объекта и даты —
+    // «Cannot set offset» (TS раньше молча ничего не делал).
+    for (const script of ['let n = 5; n[0] = 1;', 'let t = true; t[0] = 1;', 'let x = null; x[0] = 1;', 'let s = "abc"; s[0] = "x";', 'let d = DateTime.Now; d[0] = 1;']) {
+        assert.strictEqual('Cannot set offset', errorOf(script)?.getRawMessage(), script);
+    }
+    assert.strictEqual(2, executeReturnCode('let a = [1]; a[0] = 2; return a[0];')?.value);
+    assert.strictEqual(1, executeReturnCode('let o = {}; o["k"] = 1; return o.k;')?.value);
+});
+
+test('106_IndexOfEntryName', () => {
+    // Имя FunctionEntry метода indexOf — «IndexOf», как у прочих методов (funcInvokeIndexOf);
+    // раньше TS держал funcInvoke_indexOf и отдавал «indexOf».
+    assert.strictEqual('IndexOf', new StackVariableString(false, 'abc').getFunctionEntry('indexOf')?.getName());
+    assert.strictEqual('IndexOf', new StackVariableArray(false, []).getFunctionEntry('indexOf')?.getName());
+    assert.strictEqual(2, executeReturnCode('return "hello".indexOf("l");')?.value);
+});
+
+test('107_ArrayKeysNumeric', () => {
+    // keys(): целочисленный ключ — число, прочие — строка (как PHP array_keys); TS раньше
+    // отдавал строки, и при строгом == выходило [10,20].keys()[1] == 1 → false.
+    assert.deepStrictEqual([0, 1], (executeReturnCode('return [10, 20].keys();') as StackVariableArray).convertToNativeArray());
+    assert.deepStrictEqual(['a', 5, '05', -2], (executeReturnCode('return ["a" => 1, 5 => 2, "05" => 3, -2 => 4].keys();') as StackVariableArray).convertToNativeArray());
+    assert.strictEqual(true, executeReturnCode('return [10, 20].keys()[1] == 1;')?.value);
+});
+
+test('108_FunctionParameterDefaultType', () => {
+    // Тип параметра без явного указания — null («любой»), как ?int $_type = null в эталоне.
+    assert.strictEqual(null, new FunctionParameter('x').getType());
+    // Значение по умолчанию без типа — понятная ошибка описания функции, а не сырой TypeError.
+    const context = createCodeContext('return 1;');
+    assert.throws(() => new FunctionParameter('x', null, false, false, 5).createVariableDefaultValue(context),
+        (e: unknown) => e instanceof MSLangException && e.message === 'Parameter "x" has a default value but no type');
+});
+
+test('109_UnaryMinusAndNegativeZero', () => {
+    // Унарный минус помечает парсер, а не угадывает интерпретатор по пустому стеку:
+    // раньше `5 - -3` давало -2, а `5 * -3` и `5 * (-3)` падали.
+    const cases: [string, number][] = [['return 5 - -3;', 8], ['return 5 * -3;', -15], ['return 5 * (-3);', -15], ['return 1 % -8;', 1],
+        ['return 2 * -3 * -4;', 24], ['return 6 / -2 + 1;', -2], ['return 2 * - - 3;', 6], ['return 1 + +2;', 3]];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(expected, executeReturnCode(script)?.value, script);
+    }
+    // Знак нуля по IEEE: целая арифметика PHP его теряла (1 / (0 * -1) давало Infinity).
+    for (const script of ['return 1 / -(0);', 'return 1 / (0 * -1);', 'return 1 / (-7 % 1);', 'return 1 / (0 / -5);']) {
+        assert.strictEqual(-Infinity, executeReturnCode(script)?.value, script);
+    }
+    assert.strictEqual(Infinity, executeReturnCode('return 1 / (3 - 3);')?.value);
+});
+
+test('110_ThrowInsideOperand', () => {
+    // throw внутри операнда бинарного оператора: оператор прерывается, исполнение идёт
+    // в catch (раньше обработчик оператора продолжал и снимал со стека мусор —
+    // «End of execution code» у `t * f()`).
+    const prefix = 'function f() { throw new Error("x"); } ';
+    assert.strictEqual(5, executeReturnCode(prefix + 'let t = 1; try { t = t * f(); } catch (e) { t = 5; } return t;')?.value);
+    assert.strictEqual(1, executeReturnCode(prefix + 'let t = 1; try { t = t + f(); } catch (e) { t = t + 0; } return t;')?.value);
+    assert.strictEqual(5, executeReturnCode(prefix + 'let t = 1; try { t = t < f() ? 1 : 2; } catch (e) { t = 5; } return t;')?.value);
+    assert.deepStrictEqual([9], (executeReturnCode(prefix + 'let r = []; try { r.push(2 * f()); } catch (e) { r.push(9); } return r;') as StackVariableArray).convertToNativeArray());
+});
+
+test('116_ElseIfAndSingleStatementBodies', () => {
+    // Тело из одной инструкции `if (…) {…}` без else заглядывает вперёд за else — этот
+    // токен больше не пропускается: инструкция после `else if (…) {…}` не теряется.
+    const cases: [string, number][] = [
+        ['let x = 5; if (x > 3) { x = 1; } else if (x == 5) { x = 2; } return x;', 1],
+        ['let x = 1; if (x > 3) { return 1; } else if (x == 5) { return 2; } return 3;', 3],
+        ['let x = 5; if (x > 9) { x = 1; } else if (x == 5) { x = 2; } else { x = 3; } return x;', 2],
+        ['let x = 0; if (x > 9) x = 1; else if (x == 0) x = 2; return x;', 2],
+        ['let r = 0; for (let i = 0; i < 3; i++) if (i == 1) { r = r + 10; } return r;', 10],
+        ['let r = 0; let i = 0; while (i < 3) if (i++ == 1) { r = 5; } return r;', 5],
+        ['let r = 0; for (const v of [1, 2]) if (v == 2) { r = v; } return r;', 2],
+        ['let a = 1; if (a == 1) if (a == 2) { a = 9; } return a;', 1],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(expected, executeReturnCode(script)?.value, script);
+    }
+});
+
+test('117_ContinueInForWithDeclaration', () => {
+    // continue в for с объявлением переменной (`let`/`var`) переходит на инкремент. В PHP
+    // точка перехода была зашита числом и при `for (let i …)` пропускала инкремент —
+    // цикл не кончался. Лимит шагов — чтобы зависание не повесило набор.
+    const scripts: [string, number][] = [
+        ['let s = 0; for (let i = 0; i < 5; i++) { if (i == 1) continue; s += i; } return s;', 9],
+        ['let s = 0; for (var i = 0; i < 5; i++) { if (i == 1) continue; s += i; } return s;', 9],
+        ['let s = 0; let i = 0; for (i = 0; i < 5; i++) { if (i == 1) continue; s += i; } return s;', 9],
+        ['let s = 0; for (let i = 0; i < 5; i++) { s += i; continue; } return s;', 10],
+    ];
+    for (const [script, expected] of scripts) {
+        const context = createCodeContext(script);
+        context.setLimitExecInstruction(20000);
+        assert.strictEqual(expected, context.exec(true)?.value, script);
+    }
+});
+
+test('118_ContainersStoreValues', () => {
+    // Массив и объект хранят ЗНАЧЕНИЕ скаляра, а не саму переменную: раньше переменная
+    // цикла, изменённая «на месте», меняла и уже сохранённые элементы — [3,3,3].
+    const cases: [string, unknown[]][] = [
+        ['let r = []; for (let i = 0; i < 3; i++) r.push(i); return r;', [0, 1, 2]],
+        ['let r = []; for (let i = 0; i < 3; i++) { r[i] = i; } return r;', [0, 1, 2]],
+        ['let r = []; let i = 0; while (i < 3) { r.push(i); i = i + 1; } return r;', [0, 1, 2]],
+        ['let r = []; for (let i = 0; i < 3; i++) r.unshift(i); return r;', [2, 1, 0]],
+        ['let o = {}; for (let i = 0; i < 2; i++) { o["k" + i.toString()] = i; } return [o.k0, o.k1];', [0, 1]],
+        ['function mk() { let c = 0; let r = []; return () => { r.push(c); c = c + 1; return r; }; } let g = mk(); g(); g(); return g();', [0, 1, 2]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual(expected, (executeReturnCode(script) as StackVariableArray).convertToNativeArray(), script);
+    }
+    // Массивы и объекты по-прежнему по ссылке.
+    assert.deepStrictEqual([[1, 2]], (executeReturnCode('let a = [1]; let r = []; r.push(a); a.push(2); return r;') as StackVariableArray).convertToNativeArray());
+});
+
+test('119_StringEscapeWarnings', () => {
+    // Подозрительные escape-последовательности дают предупреждение разбора с местом;
+    // значение литерала не меняется.
+    let parsed = Script.parse("let a = 1;\nreturn 'x\\ny';");
+    assert.strictEqual(parsed.createContext().exec(true)?.value, 'x\\ny');
+    assert.deepStrictEqual(parsed.getWarnings().map(w => ({code: w.code, line: w.line, column: w.column})),
+        [{code: 'SuspiciousEscape', line: 2, column: 10}]);
+
+    parsed = Script.parseExpression('"a\\qb"');
+    assert.strictEqual(parsed.createContext().exec(true)?.value, 'a\\qb');
+    assert.deepStrictEqual(parsed.getWarnings().map(w => w.code), ['UnknownEscape']);
+
+    // Без предупреждений: известные последовательности и обычные строки.
+    for (const source of ["'a\\'b'", "'a\\\\b'", '"a\\n\\t\\r\\\\\\"b"', "'plain'", "x ? 'a' : 'b'"]) {
+        assert.deepStrictEqual(Script.parseExpression(source).getWarnings(), [], source);
+    }
+});
+
+test('120_CallResultChaining', () => {
+    // `(` после результата вызова, элемента или скобок вызывает полученное значение.
+    const cases: [string, number][] = [
+        ['let f = a => b => a + b; return f(40)(2);', 42],
+        ['let f = a => b => c => a + b + c; return f(1)(2)(3);', 6],
+        ['let f = a => b => a * b; return 1 + f(2)(3) * 2;', 13],
+        ['let a = [(x => x + 1)]; return a[0](1);', 2],
+        ['return (x => x * 3)(2);', 6],
+        ['let o = {f: () => (n => n + 100)}; return o.f()(1);', 101],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(executeReturnCode(script)?.value, expected, script);
+    }
+
+    assert.strictEqual('NotCallable', errorOf('let a = [1]; return a[0](1);')?.getErrorCode());
+});
+
+test('121_NewChainInBinaryExpression', () => {
+    // `new T()` с хвостом обращений — целый операнд бинарного выражения. Раньше правый
+    // операнд обрывался на служебном узле после конструктора: `1 + new T().v` давал
+    // TypeMismatch «object and null».
+    const cases: [string, unknown][] = [
+        ['class T { m() { return "x"; } } return "" + new T().m();', 'x'],
+        ['class T { constructor() { this.v = 2; } } return 1 + new T().v;', 3],
+        ['class T { constructor() { this.v = 2; } } return 1 + new T().v * 3;', 7],
+        ['class T { constructor() { this.v = [7]; } } return 1 + new T().v[0];', 8],
+        ['class T { constructor() { this.v = 2; } } return new T().v == 2 && new T().v > 1;', true],
+        ['class T { constructor(n) { this.v = n; } } return new T(1).v + new T(2).v;', 3],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(executeReturnCode(script)?.value, expected, script);
+    }
+});
+
+test('122_StatementStartsWithBracketOrNew', () => {
+    // Инструкция может начинаться с литерала массива и с `new`; `{` в начале — по-прежнему блок.
+    const cases: [string, unknown][] = [
+        ['let r = []; [1,2,3].forEach(x => { r.push(x * 2); }); return r;', [2, 4, 6]],
+        ['let s = 0; for (let i = 0; i < 2; i++) [10, 20].forEach(v => { s += v; }); return s;', 60],
+        ['class T { constructor() { log.push(1); } } let log = []; new T(); return log;', [1]],
+        ['let a = 1; { a = 2; } return a;', 2],
+    ];
+    for (const [script, expected] of cases) {
+        const result = executeReturnCode(script);
+        assert.deepStrictEqual(result instanceof StackVariableArray ? result.convertToNativeArray() : result?.value, expected, script);
+    }
+});
+
+test('123_ArraySortComparator', () => {
+    // sort(cmp): устойчивая сортировка слиянием, порядок вызовов cmp одинаков в обоих
+    // движках. Без компаратора — прежняя сортировка по строковому виду.
+    const cases: [string, unknown[]][] = [
+        ['return [3,1,2].sort((a, b) => b - a);', [3, 2, 1]],
+        ['return [10,9,1].sort((a, b) => a - b);', [1, 9, 10]],
+        ['return [10,9,1].sort();', [1, 10, 9]],
+        ['return [].sort((a, b) => a - b);', []],
+        ['let a = [5,3,8,1]; a.sort((x, y) => x - y); return a;', [1, 3, 5, 8]],
+        ['return [{k:1,n:"a"},{k:0,n:"b"},{k:1,n:"c"},{k:0,n:"d"}].sort((a, b) => a.k - b.k).map(o => o.n);', ['b', 'd', 'a', 'c']],
+        ['let calls = []; [3,1,2,5,4].sort((a, b) => { calls.push([a, b]); return a - b; }); return calls;',
+            [[3, 1], [2, 5], [1, 2], [3, 2], [3, 5], [1, 4], [2, 4], [3, 4], [5, 4]]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+    assert.strictEqual('TypeMismatch', errorOf('return [1,2].sort((a, b) => "x");')?.getErrorCode());
+});
+
+test('124_IncrementDecrementTargets', () => {
+    // Префикс/постфикс ++/-- определяет парсер; запись идёт в переменную, элемент массива
+    // и свойство объекта. Раньше `++a[0];` исполнял остаток программы как свой операнд,
+    // `a[0]++` не записывал результат, `2 * ++a[0]` ломался.
+    const cases: [string, unknown[]][] = [
+        ['let a = [0]; ++a[0]; return a;', [1]],
+        ['let a = [0]; a[0]++; return a;', [1]],
+        ['let o = {a: [5]}; ++o.a[0]; return o.a;', [6]],
+        ['let a = [1]; return [2 * ++a[0], a[0]];', [4, 2]],
+        ['let a = [1]; return [a[0]++ + 10, a[0]];', [11, 2]],
+        ['let a = [5]; let x = a[0]; a[0]++; return [x, a[0]];', [5, 6]],
+        ['let o = {k: 1}; let x = o.k; o.k++; ++o.k; return [x, o.k];', [1, 3]],
+        ['let i = 0; let r = [i++, i++, ++i]; return [r, i];', [[0, 1, 3], 3]],
+        ['let x = 0; let y = x++ + ++x; return [x, y];', [2, 2]],
+        ['let i = 1; return [3 * ++i * 2, 2 * --i + 1];', [12, 3]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+});
+
+test('125_LexerTypeArrayShape', () => {
+    // Форма LexerTypeArray одинакова в обоих движках: hasValue, one, cloneAdd без
+    // изменения исходного набора, asNames, MSLangException на неизвестном типе.
+    const base = LexerTypeArray.one(LexerType.ltSemicolon);
+    const wide = base.cloneAdd([LexerType.ltComma, LexerType.ltRPar]);
+
+    assert.ok(base.hasValue(LexerType.ltSemicolon));
+    assert.ok(!base.hasValue(LexerType.ltComma));
+    assert.ok(wide.hasValue(LexerType.ltRPar));
+    assert.strictEqual(base.count(), 1);
+    assert.deepStrictEqual(wide.asNames, ['ltSemicolon', 'ltComma', 'ltRPar']);
+
+    assert.throws(() => new LexerTypeArray([9999]).asNames, MSLangException);
+});
+
+test('126_SharedBuiltinProperties', () => {
+    // Свойства и методы встроенных типов одинаковы у каждого экземпляра (TS держит их
+    // общими на всех — проверяем, что разные экземпляры не путаются).
+    const cases: [string, unknown[]][] = [
+        ['let a = "ab"; let b = "😀x"; return [a.length, b.length, "".length];', [2, 2, 0]],
+        ['let a = [1]; let b = [1, 2, 3]; return [a.Count(), b.Count(), b.indexOf(3)];', [1, 3, 2]],
+        ['return [(1.25).toFixed(1), (2).toFixed(2), "a-b".split("-").Count()];', ['1.3', '2.00', 2]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+});
+
+test('127_ReferenceDelegation', () => {
+    // Переменная и свойство на стеке — ссылки: методы, свойства, switch, JSON и запись
+    // через них работают как на самом значении (TS — явные делегаты, без Proxy).
+    const cases: [string, unknown[]][] = [
+        ['let a = [1]; a.push(2); return [a.Count(), a.join("-")];', [2, '1-2']],
+        ['let s = "abc"; return [s.length, s.ToUpper()];', [3, 'ABC']],
+        ['let o = {n: 1, t: "x"}; o.n++; return [o.n, o.t.length];', [2, 1]],
+        ['let v = "b"; let r = ""; switch (v) { case "b": r = "B"; break; } return [r, JSON.stringify(v)];', ['B', '"b"']],
+        ['class P { constructor() { let p = []; p.push(0); this.p = p; } } let a = new P(); let b = new P(); b.p.push(1); return [a.p.Count(), b.p.Count()];', [1, 2]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+});
+
+test('128_BlockScopeVisibility', () => {
+    // Видимость переменных в блоках, циклах и замыканиях (страж схемы кадров в TS:
+    // кадр хранит только свои записи, родительские ищутся по стеку).
+    const cases: [string, unknown[]][] = [
+        ['let x = 1; let f = () => x; { x = 2; } return [f(), x];', [2, 2]],
+        ['let x = 1; { let x = 5; x = 6; } return [x];', [1]],
+        ['let s = 0; for (let i = 0; i < 3; i++) { let t = i * 2; s = s + t; } return [s];', [6]],
+        ['function f() { if (true) { var v = 3; } return v; } return [f()];', [3]],
+        ['let c = 0; function inc() { c = c + 1; } for (let i = 0; i < 3; i++) { if (i > 0) { inc(); } } return [c];', [2]],
+        ['function mk() { let n = 0; return () => { { n = n + 1; } return n; }; } let g = mk(); g(); return [g()];', [2]],
+        ['let a = 1; function f() { let a = 10; { a = a + 1; } return a; } return [f(), a];', [11, 1]],
+        ['const k = 5; let r = 0; { r = k + 1; } return [r == 6, k == 5];', [true, true]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
 });

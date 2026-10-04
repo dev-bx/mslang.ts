@@ -401,6 +401,9 @@ export class AstBuilder {
                     value = {type: 'Call', callee, arguments: this.arguments(next), optional, loc};
                     break;
                 }
+                case NodeType.ntValueCall:
+                    value = {type: 'Call', callee: value, arguments: this.arguments(next), optional, loc};
+                    break;
                 case NodeType.ntShortIncrement:
                 case NodeType.ntShortDecrement:
                     value = {type: 'Update', operator: next.nType === NodeType.ntShortIncrement ? '++' : '--', prefix: false, argument: value, loc};

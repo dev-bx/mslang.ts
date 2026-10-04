@@ -1,4 +1,4 @@
-import {LexerException} from "./exceptions.js";
+import {LexerException, MSLangException} from "./exceptions.js";
 
 
 interface CharMapTable {
@@ -93,42 +93,48 @@ export class FullTokenInfo {
     tokenSym: number = 0;
 }
 
-export class LexerTypeArray extends Array<number> {
-    get asNames() {
-        const result: string[] = [],
-            k = Object.keys(LexerType),
-            v = Object.values(LexerType);
+/**
+ * Набор типов токенов-ограничителей (зеркало PHP LexerTypeArray): значения в поле,
+ * проверка — hasValue(), расширение — cloneAdd() без изменения исходного набора.
+ */
+export class LexerTypeArray implements Iterable<number> {
+    protected _values: number[];
 
-        this.forEach(value => {
-            const idx = v.indexOf(value);
+    constructor(values: number[] | null = null) {
+        this._values = values ? [...values] : [];
+    }
 
+    hasValue(value: number): boolean {
+        return this._values.includes(value);
+    }
+
+    static one(value: number): LexerTypeArray {
+        return new LexerTypeArray([value]);
+    }
+
+    cloneAdd(value: number | number[]): LexerTypeArray {
+        return new LexerTypeArray(this._values.concat(value));
+    }
+
+    get asNames(): string[] {
+        const names = Object.keys(LexerType);
+        const values: number[] = Object.values(LexerType);
+
+        return this._values.map(value => {
+            const idx = values.indexOf(value);
             if (idx === -1)
-                throw new LexerException('Unknown LexerType ' + value);
+                throw new MSLangException('Unknown LexerType ' + value);
 
-            result.push(k[idx]);
+            return names[idx];
         });
-
-        return result;
     }
 
-    static one(value: number) {
-        const r = new LexerTypeArray();
-        r.push(value);
-        return r;
+    count(): number {
+        return this._values.length;
     }
 
-    cloneAdd(value: number | number[]) {
-        const r = new LexerTypeArray();
-
-        r.push(...this);
-
-        if (Array.isArray(value)) {
-            r.push(...value);
-        } else {
-            r.push(value);
-        }
-
-        return r;
+    [Symbol.iterator](): Iterator<number> {
+        return this._values[Symbol.iterator]();
     }
 }
 
@@ -296,6 +302,14 @@ export class Lexer {
     }
 }
 
+/** Предупреждение разбора (зеркало PHP: массив code/message/line/column). */
+export interface LexerWarning {
+    code: string;
+    message: string;
+    line: number;
+    column: number;
+}
+
 export class TokenCursor {
     startCursorLine: number | null = null
     startCursorCol: number | null = null
@@ -380,6 +394,7 @@ export class CodeLexer extends Lexer {
         state.tokenSym = this._tokenSym;
         state.tokenValue = this._tokenValue;
         state.tokenCursor = this._tokenCursor;
+        state.warningCount = this._warnings.length;
         return state;
     }
 
@@ -390,6 +405,29 @@ export class CodeLexer extends Lexer {
         //Курсор восстанавливаем безусловно (включая undefined) — как PHP:
         //иначе после lookahead-отката позиции ошибок укажут не на тот токен.
         this._tokenCursor = state.tokenCursor as (TokenCursor | undefined);
+        //Заглядывание вперёд перечитает те же токены — их предупреждения не задваиваем.
+        if (typeof state.warningCount === 'number') {
+            this._warnings.length = state.warningCount;
+        }
+    }
+
+    /** `'a\nb'` — в одинарных кавычках `\n` остаётся двумя символами (обратный слэш и n). */
+    static readonly WARNING_SUSPICIOUS_ESCAPE = 'SuspiciousEscape';
+    /** `"a\qb"` — неизвестная escape-последовательность остаётся двумя символами. */
+    static readonly WARNING_UNKNOWN_ESCAPE = 'UnknownEscape';
+
+    /**
+     * Предупреждения разбора: исходник корректен, но, скорее всего, значит не то, что
+     * хотел автор. Исполнение они не меняют.
+     */
+    protected _warnings: LexerWarning[] = [];
+
+    getWarnings(): LexerWarning[] {
+        return this._warnings;
+    }
+
+    protected addWarning(code: string, message: string, line: number, column: number): void {
+        this._warnings.push({code, message, line, column});
     }
 
     /**
@@ -670,6 +708,14 @@ export class CodeLexer extends Lexer {
                         this.getCh();
                         this._tokenValue += strSpecSym[nextCh];
                         continue;
+                    }
+
+                    //Значение не меняется (обратный слэш остаётся), но автор почти наверняка
+                    //хотел другого: `'\n'` в одинарных кавычках — не перенос строки.
+                    if (strSym === '\'' && nextCh !== null && ['n', 't', 'r'].includes(nextCh)) {
+                        this.addWarning(CodeLexer.WARNING_SUSPICIOUS_ESCAPE, `In single quotes \\${nextCh} is two characters (backslash and ${nextCh}); use double quotes for an escape sequence`, this._lastCursorLine, this._lastCursorCol);
+                    } else if (strSym === '"' && nextCh !== null) {
+                        this.addWarning(CodeLexer.WARNING_UNKNOWN_ESCAPE, `Unknown escape sequence \\${nextCh} is kept as two characters`, this._lastCursorLine, this._lastCursorCol);
                     }
                 }
 

@@ -36,16 +36,18 @@ export class StackVariableString extends StackVariable {
 
     /** indexOf */
 
-    funcInvoke_indexOfReturn = () => VariableType.vtNumber;
+    funcInvokeIndexOfReturn() {
+        return VariableType.vtNumber;
+    }
 
-    funcInvoke_indexOfArgs() {
+    funcInvokeIndexOfArgs() {
         return [
             new FunctionParameter('searchString', VariableType.vtString, true),
             new FunctionParameter('position', VariableType.vtNumber, false),
         ];
     }
 
-    funcInvoke_indexOf(searchString: string, position?: number) {
+    funcInvokeIndexOf(searchString: string, position?: number) {
         if (typeof this.value !== 'string')
             return -1;
 
@@ -53,11 +55,15 @@ export class StackVariableString extends StackVariable {
     }
 
     /** charCodeAt */
-    funcInvokeCharCodeAtReturn = () => VariableType.vtNumber;
+    funcInvokeCharCodeAtReturn() {
+        return VariableType.vtNumber;
+    }
 
-    funcInvokeCharCodeAtArgs = () => [
-        new FunctionParameter('index', VariableType.vtNumber, true),
-    ];
+    funcInvokeCharCodeAtArgs() {
+        return [
+            new FunctionParameter('index', VariableType.vtNumber, true),
+        ];
+    }
 
     funcInvokeCharCodeAt(index: number): number {
         if (typeof this.value !== 'string') return NaN;
@@ -66,11 +72,15 @@ export class StackVariableString extends StackVariable {
     }
 
     /** charAt */
-    funcInvokeCharAtReturn = () => VariableType.vtString;
+    funcInvokeCharAtReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokeCharAtArgs = () => [
-        new FunctionParameter('index', VariableType.vtNumber, true),
-    ];
+    funcInvokeCharAtArgs() {
+        return [
+            new FunctionParameter('index', VariableType.vtNumber, true),
+        ];
+    }
 
     funcInvokeCharAt(index: number): string {
         if (typeof this.value !== 'string') return '';
@@ -78,12 +88,16 @@ export class StackVariableString extends StackVariable {
     }
 
     /** split */
-    funcInvokeSplitReturn = () => VariableType.vtArray;
+    funcInvokeSplitReturn() {
+        return VariableType.vtArray;
+    }
 
-    funcInvokeSplitArgs = () => [
-        new FunctionParameter('separator', VariableType.vtString, false, false, undefined),
-        new FunctionParameter('limit', VariableType.vtNumber, false, false, undefined),
-    ];
+    funcInvokeSplitArgs() {
+        return [
+            new FunctionParameter('separator', VariableType.vtString, false, false, undefined),
+            new FunctionParameter('limit', VariableType.vtNumber, false, false, undefined),
+        ];
+    }
 
     funcInvokeSplit(separator?: string, limit?: number): string[] {
         const value = this.value;
@@ -107,12 +121,16 @@ export class StackVariableString extends StackVariable {
     }
 
     /** replace */
-    funcInvokeReplaceReturn = () => VariableType.vtString;
+    funcInvokeReplaceReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokeReplaceArgs = () => [
-        new FunctionParameter('search', VariableType.vtString, true),
-        new FunctionParameter('replacement', VariableType.vtString, true),
-    ];
+    funcInvokeReplaceArgs() {
+        return [
+            new FunctionParameter('search', VariableType.vtString, true),
+            new FunctionParameter('replacement', VariableType.vtString, true),
+        ];
+    }
 
     funcInvokeReplace(search: string, replacement: string): string {
         const value = this.value;
@@ -132,12 +150,16 @@ export class StackVariableString extends StackVariable {
     }
 
     /** replaceAll */
-    funcInvokeReplaceAllReturn = () => VariableType.vtString;
+    funcInvokeReplaceAllReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokeReplaceAllArgs = () => [
-        new FunctionParameter('search', VariableType.vtString, true),
-        new FunctionParameter('replacement', VariableType.vtString, true),
-    ];
+    funcInvokeReplaceAllArgs() {
+        return [
+            new FunctionParameter('search', VariableType.vtString, true),
+            new FunctionParameter('replacement', VariableType.vtString, true),
+        ];
+    }
 
     funcInvokeReplaceAll(search: string, replacement: string): string {
         const value = this.value;
@@ -155,11 +177,15 @@ export class StackVariableString extends StackVariable {
     }
 
     /** repeat */
-    funcInvokeRepeatReturn = () => VariableType.vtString;
+    funcInvokeRepeatReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokeRepeatArgs = () => [
-        new FunctionParameter('count', VariableType.vtNumber, true),
-    ];
+    funcInvokeRepeatArgs() {
+        return [
+            new FunctionParameter('count', VariableType.vtNumber, true),
+        ];
+    }
 
     funcInvokeRepeat(count: number): string {
         if (count < 0) {
@@ -170,12 +196,16 @@ export class StackVariableString extends StackVariable {
     }
 
     /** slice */
-    funcInvokeSliceReturn = () => VariableType.vtString;
+    funcInvokeSliceReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokeSliceArgs = () => [
-        new FunctionParameter('start', VariableType.vtNumber, true),
-        new FunctionParameter('end', VariableType.vtNumber, false, false, undefined),
-    ];
+    funcInvokeSliceArgs() {
+        return [
+            new FunctionParameter('start', VariableType.vtNumber, true),
+            new FunctionParameter('end', VariableType.vtNumber, false, false, undefined),
+        ];
+    }
 
     funcInvokeSlice(start: number, end?: number): string {
         //ToInteger (усечение к нулю) ДО логики «от конца» — иначе на отрицательном дробном
@@ -205,24 +235,32 @@ export class StackVariableString extends StackVariable {
     }
 
     /** padStart */
-    funcInvokePadStartReturn = () => VariableType.vtString;
+    funcInvokePadStartReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokePadStartArgs = () => [
-        new FunctionParameter('targetLength', VariableType.vtNumber, true),
-        new FunctionParameter('padString', VariableType.vtString, false, false, ' '),
-    ];
+    funcInvokePadStartArgs() {
+        return [
+            new FunctionParameter('targetLength', VariableType.vtNumber, true),
+            new FunctionParameter('padString', VariableType.vtString, false, false, ' '),
+        ];
+    }
 
     funcInvokePadStart(targetLength: number, padString: string = ' '): string {
         return this.pad(targetLength, padString, true);
     }
 
     /** padEnd */
-    funcInvokePadEndReturn = () => VariableType.vtString;
+    funcInvokePadEndReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokePadEndArgs = () => [
-        new FunctionParameter('targetLength', VariableType.vtNumber, true),
-        new FunctionParameter('padString', VariableType.vtString, false, false, ' '),
-    ];
+    funcInvokePadEndArgs() {
+        return [
+            new FunctionParameter('targetLength', VariableType.vtNumber, true),
+            new FunctionParameter('padString', VariableType.vtString, false, false, ' '),
+        ];
+    }
 
     funcInvokePadEnd(targetLength: number, padString: string = ' '): string {
         return this.pad(targetLength, padString, false);
@@ -253,14 +291,18 @@ export class StackVariableString extends StackVariable {
     }
 
     /** trimStart — нативный trimStart режет ровно ECMAScript-набор пробелов (см. PHP JS_WHITESPACE). */
-    funcInvokeTrimStartReturn = () => VariableType.vtString;
+    funcInvokeTrimStartReturn() {
+        return VariableType.vtString;
+    }
 
     funcInvokeTrimStart(): string {
         return this.value.trimStart();
     }
 
     /** trimEnd */
-    funcInvokeTrimEndReturn = () => VariableType.vtString;
+    funcInvokeTrimEndReturn() {
+        return VariableType.vtString;
+    }
 
     funcInvokeTrimEnd(): string {
         return this.value.trimEnd();
@@ -283,26 +325,19 @@ export class StackVariableString extends StackVariable {
         return null;
     }
 
-    override properties = {
-        // Длина в символах (код-поинтах), как у slice/padStart/charAt и как PHP
-        // mb_strlen — а не в единицах UTF-16 (эмодзи — один символ, не два).
-        length: {
-            get: () => {
-                if (typeof this._value === 'string')
-                    return new StackVariableNumber(false, Array.from(this._value).length);
-
-                return new StackVariableNull(false);
-            }
-        },
-    }
+    override properties = STRING_PROPERTIES;
 
     /** Contains */
 
-    funcInvokeContainsReturn = () => VariableType.vtBoolean;
+    funcInvokeContainsReturn() {
+        return VariableType.vtBoolean;
+    }
 
-    funcInvokeContainsArgs = () => [
-        new FunctionParameter('searchString', VariableType.vtString, true)
-    ]
+    funcInvokeContainsArgs() {
+        return [
+            new FunctionParameter('searchString', VariableType.vtString, true)
+        ];
+    }
 
     funcInvokeContains(searchString: string)
     {
@@ -314,11 +349,15 @@ export class StackVariableString extends StackVariable {
 
     /** StartsWith */
 
-    funcInvokeStartsWithReturn = () => VariableType.vtBoolean;
+    funcInvokeStartsWithReturn() {
+        return VariableType.vtBoolean;
+    }
 
-    funcInvokeStartsWithArgs = () => [
-        new FunctionParameter('searchString', VariableType.vtString, true)
-    ]
+    funcInvokeStartsWithArgs() {
+        return [
+            new FunctionParameter('searchString', VariableType.vtString, true)
+        ];
+    }
 
     funcInvokeStartsWith(searchString: string)
     {
@@ -330,11 +369,15 @@ export class StackVariableString extends StackVariable {
 
     /** EndsWith */
 
-    funcInvokeEndsWithReturn = () => VariableType.vtBoolean;
+    funcInvokeEndsWithReturn() {
+        return VariableType.vtBoolean;
+    }
 
-    funcInvokeEndsWithArgs = () => [
-        new FunctionParameter('searchString', VariableType.vtString, true)
-    ]
+    funcInvokeEndsWithArgs() {
+        return [
+            new FunctionParameter('searchString', VariableType.vtString, true)
+        ];
+    }
 
     funcInvokeEndsWith(searchString: string)
     {
@@ -346,7 +389,9 @@ export class StackVariableString extends StackVariable {
 
     /** ToUpper */
 
-    funcInvokeToUpperReturn = () => VariableType.vtString;
+    funcInvokeToUpperReturn() {
+        return VariableType.vtString;
+    }
 
     funcInvokeToUpper()
     {
@@ -358,7 +403,9 @@ export class StackVariableString extends StackVariable {
 
     /** ToLower */
 
-    funcInvokeToLowerReturn = () => VariableType.vtString;
+    funcInvokeToLowerReturn() {
+        return VariableType.vtString;
+    }
 
     funcInvokeToLower()
     {
@@ -370,7 +417,9 @@ export class StackVariableString extends StackVariable {
 
     /** Length */
 
-    funcInvokeLengthReturn = () => VariableType.vtNumber;
+    funcInvokeLengthReturn() {
+        return VariableType.vtNumber;
+    }
 
     funcInvokeLength()
     {
@@ -382,7 +431,9 @@ export class StackVariableString extends StackVariable {
 
     /** Trim */
 
-    funcInvokeTrimReturn = () => VariableType.vtString;
+    funcInvokeTrimReturn() {
+        return VariableType.vtString;
+    }
 
     funcInvokeTrim()
     {
@@ -394,12 +445,16 @@ export class StackVariableString extends StackVariable {
 
     /** SubString */
 
-    funcInvokeSubStringReturn = () => VariableType.vtString;
+    funcInvokeSubStringReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokeSubStringArgs = () => [
-        new FunctionParameter('start', VariableType.vtNumber, true),
-        new FunctionParameter('end', VariableType.vtNumber, false, false, undefined),
-    ]
+    funcInvokeSubStringArgs() {
+        return [
+            new FunctionParameter('start', VariableType.vtNumber, true),
+            new FunctionParameter('end', VariableType.vtNumber, false, false, undefined),
+        ];
+    }
 
     funcInvokeSubString(start: number, end?: number)
     {
@@ -430,7 +485,9 @@ export class StackVariableString extends StackVariable {
 
     /** Concat */
 
-    funcInvokeConcatReturn = () => VariableType.vtString;
+    funcInvokeConcatReturn() {
+        return VariableType.vtString;
+    }
 
     funcInvokeConcat()
     {
@@ -452,3 +509,18 @@ export class StackVariableString extends StackVariable {
     }
 
 }
+
+// Один общий набор свойств на все строки (как NUMBER_PROPERTIES): раньше литерал с
+// замыканием на this создавался в каждом экземпляре. Геттер получает экземпляр через apply.
+const STRING_PROPERTIES = Object.freeze({
+    // Длина в символах (код-поинтах), как у slice/padStart/charAt и как PHP
+    // mb_strlen — а не в единицах UTF-16 (эмодзи — один символ, не два).
+    length: {
+        get(this: StackVariableString) {
+            if (typeof this._value === 'string')
+                return new StackVariableNumber(false, Array.from(this._value).length);
+
+            return new StackVariableNull(false);
+        }
+    },
+});

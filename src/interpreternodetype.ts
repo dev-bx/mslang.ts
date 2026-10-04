@@ -80,4 +80,6 @@ export const InterpreterNodeType = {
     'ntLogicalRightFinish': 1043,
     //Финиш `exists(x)`: снимает значение аргумента и кладёт boolean «значение есть».
     'ntExistsFinish': 1044,
+    //Финиш ntValueCall: снимает аргументы и вызываемое значение, вызывает функцию.
+    'ntValueCallFinish': 1045,
 }

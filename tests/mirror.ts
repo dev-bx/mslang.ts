@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {Version} from '../src/version';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TS_ROOT = path.resolve(__dirname, '../src');
@@ -32,6 +33,8 @@ function readPhpConsts(file: string): Record<string, number> {
     for (const m of text.matchAll(/const\s+(\w+)\s*=\s*(-?\d+)\s*;/g)) {
         out[m[1]] = parseInt(m[2], 10);
     }
+    //Пустой разбор — ошибка, а не тихий успех: формат записи мог смениться в обоих файлах сразу.
+    assert.ok(Object.keys(out).length > 0, `В ${file} не найдено ни одной числовой константы`);
     return out;
 }
 
@@ -44,6 +47,7 @@ function readTsConsts(filePath: string, name: string): Record<string, number> {
     if (m) {
         for (const e of m[1].matchAll(/^\s*(\w+)\s*=\s*(-?\d+)/gm))
             out[e[1]] = parseInt(e[2], 10);
+        assert.ok(Object.keys(out).length > 0, `${name}: в ${filePath} не разобрано ни одной константы`);
         return out;
     }
 
@@ -51,6 +55,7 @@ function readTsConsts(filePath: string, name: string): Record<string, number> {
     if (m) {
         for (const e of m[1].matchAll(/['"](\w+)['"]\s*:\s*(-?\d+)/g))
             out[e[1]] = parseInt(e[2], 10);
+        assert.ok(Object.keys(out).length > 0, `${name}: в ${filePath} не разобрано ни одной константы`);
         return out;
     }
     throw new Error(`Failed to find constants for ${name} in ${filePath}`);
@@ -172,6 +177,7 @@ function readTsHandlers(): Set<string> {
 test('mirror_handlers — какие NodeType зарегистрированы в обоих интерпретаторах', {skip: !PHP_AVAILABLE}, () => {
     const tsH = readTsHandlers();
     const phpH = readPhpHandlers();
+    assert.ok(tsH.size > 0 && phpH.size > 0, `Не найдено ни одной регистрации обработчика: TS=${tsH.size} PHP=${phpH.size}`);
 
     const onlyTs = [...tsH].filter(x => !phpH.has(x)).sort();
     const onlyPhp = [...phpH].filter(x => !tsH.has(x)).sort();
@@ -197,6 +203,7 @@ function readPhpFuncInvokes(file: string): Set<string> {
     for (const m of text.matchAll(/function\s+funcInvoke(_)?(\w+?)(?:Args|Return)?\s*\(/g)) {
         out.add(normalize(m[2]));
     }
+    assert.ok(out.size > 0 || !/function\s+funcInvoke/.test(text), `${file}: методы funcInvoke есть, но не разобраны`);
     return out;
 }
 
@@ -206,6 +213,7 @@ function readTsFuncInvokes(file: string): Set<string> {
     for (const m of text.matchAll(/funcInvoke(_)?(\w+?)(?:Args|Return)?\s*[(=]/g)) {
         out.add(normalize(m[2]));
     }
+    assert.ok(out.size > 0 || !/funcInvoke\w*\s*[(=]/.test(text), `${file}: методы funcInvoke есть, но не разобраны`);
     return out;
 }
 
@@ -257,8 +265,21 @@ test('mirror_Version — VERSION/REVISION совпадают', {skip: !PHP_AVAIL
     const ts = readVersionFields(fs.readFileSync(path.join(TS_ROOT, 'version.ts'), 'utf-8'));
     const php = readVersionFields(fs.readFileSync(path.join(PHP_ROOT, 'Version.php'), 'utf-8'));
 
+    //null === null — не совпадение, а потерянный разбор (формат записи сменился).
+    assert.ok(ts.version && ts.revision && php.version && php.revision, 'VERSION/REVISION не разобраны в одном из файлов');
     assert.strictEqual(ts.version, php.version, `VERSION: TS=${ts.version} PHP=${php.version}`);
     assert.strictEqual(ts.revision, php.revision, `REVISION: TS=${ts.revision} PHP=${php.revision}`);
+});
+
+test('mirror_Version — getFullVersion даёт ту же строку', {skip: !PHP_AVAILABLE}, () => {
+    //PHP: sprintf('<формат>', VERSION, REVISION) — подставляем значения в формат и сверяем с TS.
+    const phpText = fs.readFileSync(path.join(PHP_ROOT, 'Version.php'), 'utf-8');
+    const format = phpText.match(/getFullVersion[\s\S]*?sprintf\(\s*'([^']*)'\s*,\s*static::VERSION\s*,\s*static::REVISION\s*\)/);
+    assert.ok(format, 'В Version.php не найден sprintf(формат, VERSION, REVISION) в getFullVersion');
+    const php = readVersionFields(phpText);
+    const expected = format[1].replace('%s', String(php.version)).replace('%s', String(php.revision));
+
+    assert.strictEqual(Version.getFullVersion(), expected);
 });
 
 // --- Зеркало набора тестов ---
@@ -288,13 +309,28 @@ function readPhpTestNames(files: string[]): Set<string> {
     return out;
 }
 
-test('mirror_test_parity — имена тест-кейсов совпадают (tests+bugs)', {skip: !PHP_AVAILABLE}, () => {
-    const ts = readTsTestNames(['tests.ts', 'bugs.ts']);
-    const php = readPhpTestNames(['Test.php', 'TestBugs.php']);
+//Сверка по ПАРАМ файлов, а не по объединению: переезд теста в другой файл одной
+//стороны тоже расхождение (раньше 077_VarRedeclaresLetFails жил в bugs.ts и в Test.php).
+for (const [tsFile, phpFile] of [['tests.ts', 'Test.php'], ['bugs.ts', 'TestBugs.php']]) {
+    test(`mirror_test_parity — имена тест-кейсов совпадают (${tsFile} ↔ ${phpFile})`, {skip: !PHP_AVAILABLE}, () => {
+        const ts = readTsTestNames([tsFile]);
+        const php = readPhpTestNames([phpFile]);
+        assert.ok(ts.size > 0 && php.size > 0, `Не найдено тестов: ${tsFile}=${ts.size} ${phpFile}=${php.size}`);
 
-    const onlyTs = [...ts].filter(x => !php.has(x)).sort();
-    const onlyPhp = [...php].filter(x => !ts.has(x)).sort();
+        const onlyTs = [...ts].filter(x => !php.has(x)).sort();
+        const onlyPhp = [...php].filter(x => !ts.has(x)).sort();
 
-    assert.deepStrictEqual(onlyTs, [], `тест только в TS: ${onlyTs.join(', ')}`);
-    assert.deepStrictEqual(onlyPhp, [], `тест только в PHP: ${onlyPhp.join(', ')}`);
+        assert.deepStrictEqual(onlyTs, [], `тест только в ${tsFile}: ${onlyTs.join(', ')}`);
+        assert.deepStrictEqual(onlyPhp, [], `тест только в ${phpFile}: ${onlyPhp.join(', ')}`);
+    });
+}
+
+//limits.ts ↔ TestLimits.php: имена разные (русские описания против английских имён
+//методов), поэтому сверяем хотя бы число тестов.
+test('mirror_test_parity — число тестов совпадает (limits.ts ↔ TestLimits.php)', {skip: !PHP_AVAILABLE}, () => {
+    const ts = readTsTestNames(['limits.ts']);
+    const php = readPhpTestNames(['TestLimits.php']);
+
+    assert.ok(ts.size > 0, 'В limits.ts не найдено тестов');
+    assert.strictEqual(ts.size, php.size, `limits.ts: ${ts.size} тестов, TestLimits.php: ${php.size}`);
 });

@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    CodeLexer, CodeParser, LexerTypeArray, LexerType, Interpreter, ContextInterpreter, ResourceLimitException,
+    CodeLexer, CodeParser, LexerTypeArray, LexerType, Interpreter, ContextInterpreter, ResourceLimitException, StackVariableArray,
 } from "../src";
 import {ParseNode} from "../src/parser";
 
@@ -120,4 +120,30 @@ test('бюджет данных: Array.keys/values списываются', () =
     context.exec(true);
     //keys и values создают по 3-элементному массиву → не меньше 6*16 байт (совпадает с PHP).
     assert.ok(context.getAllocatedBytes() >= 96);
+});
+
+//P1-10 (хвост): reverse/flip/concat списывают ровно как PHP — 16 байт за каждую ячейку
+//результата, в том числе без присваивания результата переменной.
+test('бюджет данных: reverse/flip/concat списываются как в PHP', () => {
+    const delta = (call: string) => {
+        const base = createCodeContext('let a = [1, 2, 3]; return 1;');
+        base.exec(true);
+        const context = createCodeContext('let a = [1, 2, 3]; a.' + call + '; return 1;');
+        context.exec(true);
+        return context.getAllocatedBytes() - base.getAllocatedBytes();
+    };
+    assert.deepEqual(
+        ['keys()', 'values()', 'reverse()', 'flip()', 'concat(4, 5)'].map(delta),
+        [48, 48, 48, 48, 80],
+    );
+});
+
+//P2-6 (хвост): значения массива хоста создаются с контекстом — строки списывают бюджет
+//песочницы, как в PHP: 5 ячеек × 16 + "abcd" (4) + "xy" (2) = 86 байт.
+test('бюджет данных: строки массива хоста списываются', () => {
+    const context = createCodeContext('return 1;');
+    const before = context.getAllocatedBytes();
+    const array = new StackVariableArray(false, ['abcd', 'xy', 5, true, null], context);
+    assert.equal(context.getAllocatedBytes() - before, 86);
+    assert.equal(array.value.get('2')?.getContext(), context);
 });

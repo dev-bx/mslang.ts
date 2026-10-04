@@ -3,6 +3,11 @@ import {VariableType} from "./variabletype.js";
 import {StackVariableNull} from "./stackvariablenull";
 import type {ContextInterpreter} from "./contextinterpreter.js";
 
+/**
+ * Ссылка на ячейку переменной (зеркало PHP StackVariableRef): чтение и запись идут во
+ * внутренний объект через явные методы-делегаты. Proxy больше нет — методы конкретного
+ * типа (массива, строки…) вызываются на развёрнутом значении (см. selfCallFunction).
+ */
 export class StackVariableRef extends StackVariable {
 
     private _refProxy: RefProxyCallback;
@@ -12,88 +17,41 @@ export class StackVariableRef extends StackVariable {
         this._refProxy = refProxy;
     }
 
-    getRefValue() {
+    getRefValue(): StackVariable {
         // Зеркало PHP: если переменная по ссылке исчезла (вышел её scope), отдаём
-        // значение null, а не голый JS null — иначе дальше падает
-        // "Reflect.get called on non-object".
+        // значение null, а не голый JS null.
         const value = this._refProxy.get();
         if (value === null || value === undefined) {
             return new StackVariableNull(false);
         }
-        return value;
+        return value as StackVariable;
     }
 
     setRefValue(value: object) {
         return this._refProxy.set(value);
     }
 
-    get refValue()
-    {
+    get refValue(): StackVariable {
         return this.getRefValue();
     }
 
-    set refValue(value)
-    {
+    set refValue(value: object) {
         this.setRefValue(value);
     }
 
-    toPrimitive(): StackVariable {
-        return (this.getRefValue() as StackVariable).toPrimitive();
-    }
+    get isNumeric() { return this.getRefValue().isNumeric; }
+    get type() { return this.getRefValue().type; }
+    get typeName() { return this.getRefValue().typeName; }
+    get value() { return this.getRefValue().value; }
+    set value(value: unknown) { this.getRefValue().value = value; }
+    get isConst() { return this.getRefValue().isConst; }
+    get functions() { return this.getRefValue().functions; }
 
-    // Зеркало PHP funcInvokeToString — делегирует во внутренний объект.
-    funcInvokeToString() {
-        return (this.getRefValue() as StackVariable).funcInvokeToString();
-    }
-
-    getProxy() {
-        // O-1: единый общий обработчик (ниже) вместо свежего объекта с 6
-        // замыканиями на каждое чтение переменной. target Proxy === сам Ref,
-        // поэтому трапы берут Ref из target, а не из захваченного this — это
-        // позволяет вынести обработчик в модульную константу.
-        return new Proxy(this, REF_PROXY_HANDLER);
-    }
-
+    getProperty(name: string) { return this.getRefValue().getProperty(name); }
+    setProperty(name: string, value: StackVariable) { this.getRefValue().setProperty(name, value); }
+    getFunctionEntry(name: string) { return this.getRefValue().getFunctionEntry(name); }
+    castAs<T extends VariableType>(variableType: T) { return this.getRefValue().castAs(variableType); }
+    offsetSet(offset: string | number, value: StackVariable) { this.getRefValue().offsetSet(offset, value); }
+    toPrimitive(): StackVariable { return this.getRefValue().toPrimitive(); }
+    funcInvokeToString() { return this.getRefValue().funcInvokeToString(); }
 }
-
-// Один экземпляр обработчика на все Ref-прокси: getProxy больше не аллоцирует
-// замыкания. Трапы используют target (это и есть StackVariableRef).
-const REF_PROXY_HANDLER: ProxyHandler<StackVariableRef> = {
-    get(target, prop) {
-        if (prop === 'refValue')
-            return target.getRefValue();
-
-        const ref = target.getRefValue();
-        return Reflect.get(ref, prop, ref);
-    },
-    set(target, prop, val) {
-        if (prop === 'refValue') {
-            target.setRefValue(val);
-            return true;
-        }
-
-        const ref = target.getRefValue();
-        return Reflect.set(ref, prop, val, ref);
-    },
-    deleteProperty(target, prop) {
-        return Reflect.deleteProperty(target.getRefValue() as object, prop);
-    },
-    ownKeys(target) {
-        let v: object | null = target.getRefValue();
-        const keys: (string | symbol)[] = [];
-
-        while (v) {
-            keys.push(...Reflect.ownKeys(v));
-            v = Object.getPrototypeOf(v);
-        }
-
-        return [...new Set(keys)];
-    },
-    has(target, prop) {
-        return prop in (target.getRefValue() as object);
-    },
-    apply(target, thisArg, args) {
-        const ref = target.getRefValue();
-        return (ref as unknown as (...a: unknown[]) => unknown).apply(ref, args as unknown[]);
-    },
-};

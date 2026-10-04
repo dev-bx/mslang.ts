@@ -101,7 +101,6 @@ npm run build        # tsc (типы в dist/types), затем vite build (сб
 npm test             # прогон основного набора тестов (tests/tests.ts)
 npm run test:bugs    # тесты-ловушки на известные баги (tests/bugs.ts)
 npm run test:mirror  # зеркальная проверка констант TS ↔ PHP (tests/mirror.ts)
-npm run test:compile # собрать src и тесты через tsc, затем node dist/tests/tests.js
 npm run test:watch   # перезапуск тестов при изменении файлов
 npm run dev          # dev-сервер vite
 ```

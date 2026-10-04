@@ -25,10 +25,11 @@ import {Base64Functions} from "./base64functions";
 import {UrlFunctions} from "./urlfunctions";
 import {HashFunctions} from "./hashfunctions";
 import {StackVariableDateTime} from "./stackvariabledatetime";
-import {ContextException, ErrorCode, MSLangException, ResourceLimitException} from "./exceptions";
+import {ContextException, ControlFlowTransfer, ErrorCode, MSLangException, ResourceLimitException} from "./exceptions";
 import {StackVariableRef} from "./stackvariableref";
 import {ContextType} from "./contexttype";
 import {InterpreterNode} from "./interpreternode";
+import {InterpreterNodeType} from "./interpreternodetype";
 import type {Interpreter} from "./interpreter";
 
 interface ExecutionStackItem {
@@ -406,6 +407,11 @@ export class ContextInterpreter {
                 if (!hasOwn(tmp, k))
                     return;
 
+                //Тот же объект — копировать нечего. Раньше массив переприсваивался сам себе
+                //на каждом выходе из блока: полная пересборка всех элементов на итерацию.
+                if (this._variables[k] === tmp[k])
+                    return;
+
                 if (this._variables[k].type !== tmp[k].type) {
                     //createVariable не умеет vtObject (объекты, классы-экземпляры)
                     //и vtFunction — для них нет понятного «скопировать значение»,
@@ -642,6 +648,13 @@ export class ContextInterpreter {
 
         do {
             this.execOne();
+
+            //Скриптовый throw увёл исполнение в catch ниже кадра этого шага: вычисление
+            //операнда прервано, обработчик оператора дальше работать не должен
+            //(зеркало PHP execStepOver).
+            if (this._executionStack.length < executionPos) {
+                throw new ControlFlowTransfer();
+            }
         } while (executionPos !== this._executionStack.length)
     }
 
@@ -653,13 +666,17 @@ export class ContextInterpreter {
             if (!nextToken)
                 break;
 
-            if ([NodeType.ntExpressionCompare, NodeType.ntCompareOr, NodeType.ntCompareAnd].indexOf(nextToken.nType) >= 0)
+            //ntShiftSP — конец инструкции-выражения: дальше идёт уже следующая инструкция.
+            //Раньше `++a[0];` проскакивал его и исполнял остаток программы как свой операнд.
+            if ([NodeType.ntExpressionCompare, NodeType.ntCompareOr, NodeType.ntCompareAnd, NodeType.ntShiftSP].indexOf(nextToken.nType) >= 0)
                 break;
 
             if (nextToken.isMathNode())
                 break;
 
-            if (nextToken instanceof InterpreterNode)
+            //Служебный узел кадра — конец операнда. Кроме ntCtorReturnInstance: его `new`
+            //вставляет сразу за собой, и операнд продолжается после него (`1 + new T().v`).
+            if (nextToken instanceof InterpreterNode && nextToken.nType !== InterpreterNodeType.ntCtorReturnInstance)
                 break;
         }
     }
@@ -683,20 +700,23 @@ export class ContextInterpreter {
             try {
                 this.execOne();
             } catch (e) {
-                //Ресурсный лимит (инструкции/время/данные) скриптовый try/catch ловить
-                //НЕ должен: иначе скрипт перехватил бы остановку и продолжил работу.
-                if (e instanceof ResourceLimitException) {
-                    throw e;
-                }
+                //Управление уже передано в catch (ControlFlowTransfer) — ничего не делаем.
+                if (!(e instanceof ControlFlowTransfer)) {
+                    //Ресурсный лимит (инструкции/время/данные) скриптовый try/catch ловить
+                    //НЕ должен: иначе скрипт перехватил бы остановку и продолжил работу.
+                    if (e instanceof ResourceLimitException) {
+                        throw e;
+                    }
 
-                //Системная ошибка интерпретатора. Если в стеке есть try — оборачиваем
-                //её в Error-объект и продолжаем с catch-блока. Иначе пробрасываем дальше.
-                if (!this._interpreter.hasCatchInStack(this)) {
-                    throw e;
-                }
+                    //Системная ошибка интерпретатора. Если в стеке есть try — оборачиваем
+                    //её в Error-объект и продолжаем с catch-блока. Иначе пробрасываем дальше.
+                    if (!this._interpreter.hasCatchInStack(this)) {
+                        throw e;
+                    }
 
-                const errorObj = this._interpreter.wrapAsError(this, e);
-                this._interpreter.unwindThrow(this, errorObj, this.currentToken ?? null);
+                    const errorObj = this._interpreter.wrapAsError(this, e);
+                    this._interpreter.unwindThrow(this, errorObj, this.currentToken ?? null);
+                }
             }
             if (this._type === ContextType.ctReturn)
                 break;
@@ -756,7 +776,7 @@ export class ContextInterpreter {
             }
         }));
 
-        return refValue.getProxy();
+        return refValue;
     }
 
     /**
@@ -937,7 +957,7 @@ export class ContextInterpreter {
             throw new ContextException('Invalid number of arguments for function "' + name + '"');
         }
 
-        const callFuncArgs = [self];
+        const callFuncArgs = [self instanceof StackVariableRef ? self.getRefValue() as StackVariable : self];
 
         const funcParameters = funcEntry.getParameters();
         // См. комментарий в callFunction: Math.max нужен для вариативных builtin'ов TS.

@@ -22,7 +22,7 @@ export class FunctionEntry {
         return this._name;
     }
 
-    addParameter(name: string|FunctionParameter, type?: VariableType, isRequired = false, isPassedByReference = false, defaultValue = null)
+    addParameter(name: string|FunctionParameter, type: VariableType | null = null, isRequired = false, isPassedByReference = false, defaultValue = null)
     {
         if (isRequired && this._parameters.length>0) {
 

@@ -137,6 +137,9 @@ export const NodeType =
         'ntOptionalChain': 79,
         //`exists(x)` — true, если значение есть (не null); неизвестное голое имя — false.
         'ntExists': 80,
+        //Вызов значения, полученного слева: `f(40)(2)`, `a[0](1)`, `(x => x * 3)(2)`.
+        //Звено цепочки обращений, как ntSelfFuncCall; childItems = аргументы (ntFuncParam).
+        'ntValueCall': 81,
     }
 
 export class ParseNode
@@ -359,7 +362,7 @@ export class CodeParser {
                 this.lexer.getToken();
 
             getNextToken = true;
-            if (StopLex.indexOf(this.lexer.tokenSym) !== -1)
+            if (StopLex.hasValue(this.lexer.tokenSym))
                 break;
 
             let SubNode = null;
@@ -368,11 +371,14 @@ export class CodeParser {
             switch (this.lexer.tokenSym)
             {
                 case LexerType.ltPlus:
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntPlus);
-                    NodeList.push(SubNode);
-                    break;
                 case LexerType.ltMinus:
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntMinus);
+                    //В позиции операнда (начало выражения, после оператора) `+`/`-` —
+                    //унарный: помечаем nValue = 'unary' (зеркало PHP). Раньше интерпретатор
+                    //угадывал это по пустому стеку и ошибался внутри выражения: `5 - -3` давало -2.
+                    SubNode = new ParseNode(this.lexer.tokenCursor, this.lexer.tokenSym === LexerType.ltPlus ? NodeType.ntPlus : NodeType.ntMinus);
+                    if (!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode() || prevNode.nType === NodeType.ntArrayPushSeparatorKey) {
+                        SubNode.nValue = 'unary';
+                    }
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltMul:
@@ -675,6 +681,15 @@ export class CodeParser {
                         break;
                     }
 
+                    //Вызов значения слева: результат вызова `f(40)(2)`, элемент `a[0](1)`,
+                    //выражение в скобках `(x => x * 3)(2)`.
+                    if (prevNode && CodeParser.VALUE_CALL_TARGETS.includes(prevNode.nType)) {
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntValueCall);
+                        this.parseFunctionParams(SubNode);
+                        NodeList.push(SubNode);
+                        break;
+                    }
+
                     //Стрелочная функция со списком параметров в скобках:
                     //`(a, b) => тело`, `() => тело`, `(x) => тело`. Распознаём
                     //заглядыванием вперёд: ищем парную `)` и смотрим, стоит ли
@@ -731,7 +746,7 @@ export class CodeParser {
 
                             const NodePush = new ParseNode(this.lexer.tokenCursor, NodeType.ntArrayPush);
 
-                            this.parseExpression(NodePush, false, new LexerTypeArray(LexerType.ltComma, LexerType.ltBracketClose));
+                            this.parseExpression(NodePush, false, new LexerTypeArray([LexerType.ltComma, LexerType.ltBracketClose]));
 
                             SubNode.childItems.push(NodePush);
 
@@ -812,7 +827,7 @@ export class CodeParser {
                                 throw new ParserCursorException("Object literal: ':' expected", this.lexer.tokenCursor);
 
                             const EntryNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntObjectEntry, key);
-                            this.parseExpression(EntryNode, true, new LexerTypeArray(LexerType.ltComma, LexerType.ltEndCode));
+                            this.parseExpression(EntryNode, true, new LexerTypeArray([LexerType.ltComma, LexerType.ltEndCode]));
 
                             SubNode.childItems.push(EntryNode);
 
@@ -852,7 +867,7 @@ export class CodeParser {
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntIFValue);
                     //Тернарный `?` тоже останавливает правую часть сравнения,
                     //иначе `n > 5 ? a : b` парсилось бы как `n > (5 ? a : b)`.
-                    this.parseExpression(SubNode, true, new LexerTypeArray(...StopLex, LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltNullish, LexerType.ltQuestion));
+                    this.parseExpression(SubNode, true, StopLex.cloneAdd([LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltNullish, LexerType.ltQuestion]));
                     NodeList.push(SubNode);
 
                     getNextToken = false;
@@ -974,13 +989,14 @@ export class CodeParser {
                     return;
                 }
                 case LexerType.ltShortIncrement:
-                    this.assertNotOptionalTarget(NodeList);
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntShortIncrement);
-                    NodeList.push(SubNode);
-                    break;
                 case LexerType.ltShortDecrement:
                     this.assertNotOptionalTarget(NodeList);
-                    SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntShortDecrement);
+                    SubNode = new ParseNode(this.lexer.tokenCursor, this.lexer.tokenSym === LexerType.ltShortIncrement ? NodeType.ntShortIncrement : NodeType.ntShortDecrement);
+                    //В позиции операнда — префиксный (`++a[0]`), после операнда — постфиксный.
+                    //Раньше интерпретатор угадывал это по пустому стеку: `2 * ++a[0]` ломался.
+                    if (!prevNode || prevNode.isMathNode() || prevNode.isCompareOrAndNode() || prevNode.nType === NodeType.ntArrayPushSeparatorKey) {
+                        SubNode.nValue = 'prefix';
+                    }
                     NodeList.push(SubNode);
                     break;
                 case LexerType.ltArrayUnpack:
@@ -1087,8 +1103,9 @@ export class CodeParser {
                     continue;
                 }
 
-                //Высокоприоритетный оператор: расширяем правую границу.
-                rightIdx = idx+1;
+                //Высокоприоритетный оператор: расширяем правую границу. Операнд может
+                //начинаться с префиксов (`5 * -3`, `a % !b`) — они часть операнда.
+                rightIdx = this.skipUnaryPrefixes(NodeList, idx + 1);
                 while (rightIdx + 1 < NodeList.length)
                 {
                     const nextNode = NodeList[rightIdx+1];
@@ -1104,6 +1121,7 @@ export class CodeParser {
                         || nextNode.nType === NodeType.ntOptionalChain
                         || nextNode.nType === NodeType.ntBracketGetKey
                         || nextNode.nType === NodeType.ntSelfFuncCall
+                        || nextNode.nType === NodeType.ntValueCall
                         || nextNode.nType === NodeType.ntFuncCall
                         || nextNode.nType === NodeType.ntFuncNameSpaceCall
                     ) {
@@ -1115,7 +1133,7 @@ export class CodeParser {
                     //объединяем в один SubExpression через шаг на 2
                     //(оператор + его правый операнд).
                     if (isHighPri(nextNode)) {
-                        rightIdx += 2;
+                        rightIdx = this.skipUnaryPrefixes(NodeList, rightIdx + 2);
                         continue;
                     }
 
@@ -1135,12 +1153,18 @@ export class CodeParser {
         return this.groupLogical(NodeList);
     }
 
+    /** Узлы, после которых `(` — вызов полученного значения (ntValueCall). */
+    private static readonly VALUE_CALL_TARGETS: number[] = [
+        NodeType.ntFuncCall, NodeType.ntSelfFuncCall, NodeType.ntValueCall,
+        NodeType.ntBracketGetKey, NodeType.ntSubExpression,
+    ];
+
     /** Индекс первого узла текущей цепочки обращений (зеркало PHP CodeParser::chainStart). */
     private chainStart(NodeList: ParseNode[]): number
     {
         let index = NodeList.length;
         while (index > 0 && [
-            NodeType.ntObjProp, NodeType.ntBracketGetKey, NodeType.ntSelfFuncCall, NodeType.ntOptionalChain,
+            NodeType.ntObjProp, NodeType.ntBracketGetKey, NodeType.ntSelfFuncCall, NodeType.ntOptionalChain, NodeType.ntValueCall,
         ].includes(NodeList[index - 1].nType)) {
             index--;
         }
@@ -1159,6 +1183,23 @@ export class CodeParser {
                 throw new ParserCursorException("Cannot assign to '?.' expression", this.lexer.tokenCursor);
             }
         }
+    }
+
+    /**
+     * Индекс первого узла операнда после префиксов `-`, `+`, `!`, `typeof`, начиная с
+     * index (зеркало PHP CodeParser::skipUnaryPrefixes). Раньше `5 * -3` падало
+     * «End of execution code».
+     */
+    private skipUnaryPrefixes(NodeList: ParseNode[], index: number): number
+    {
+        while (index + 1 < NodeList.length && [
+            NodeType.ntMinus, NodeType.ntPlus, NodeType.ntNegativeIf, NodeType.ntTypeof,
+            NodeType.ntShortIncrement, NodeType.ntShortDecrement, //в начале операнда — только префиксные
+        ].includes(NodeList[index].nType)) {
+            index++;
+        }
+
+        return index;
     }
 
     /**
@@ -1273,11 +1314,8 @@ export class CodeParser {
 
         const bodyNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
         bodyNode.childItems = [];
-        if (this.lexer.tokenSym === LexerType.ltStartCode) {
-            this.parseCode(bodyNode.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-        } else {
-            this.parseCode(bodyNode.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
-        }
+        //Признак «следующий токен уже прочитан» вызывающий parseCode берёт из pendingToken.
+        this.parseStatementBody(bodyNode.childItems);
 
         const forOf = new ParseNode(forCursor, NodeType.ntForOf, varName);
         forOf.nValue2 = kind;
@@ -1310,7 +1348,7 @@ export class CodeParser {
                 break;
 
             const SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncParam);
-            this.parseExpression(SubNode,false, new LexerTypeArray(LexerType.ltComma, LexerType.ltRPar));
+            this.parseExpression(SubNode,false, new LexerTypeArray([LexerType.ltComma, LexerType.ltRPar]));
             NodeList.push(SubNode);
 
             if (this.lexer.tokenSym === LexerType.ltRPar)
@@ -1334,7 +1372,7 @@ export class CodeParser {
                 break;
 
             const SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncParam);
-            this.parseExpression(SubNode,false, new LexerTypeArray(LexerType.ltComma, LexerType.ltRPar));
+            this.parseExpression(SubNode,false, new LexerTypeArray([LexerType.ltComma, LexerType.ltRPar]));
             NodeList.push(SubNode);
 
             if (this.lexer.tokenSym === LexerType.ltRPar)
@@ -1387,14 +1425,18 @@ export class CodeParser {
             //лексер ровно там, где он стоит (обычно на `;`), внешний parseCode
             //сам решит, что дальше.
             if (singleStatement && parsedOne) {
+                //Инструкция могла оставить заглядывание вперёд (зеркало PHP pendingToken).
+                this.pendingToken = !getNextToken;
                 return;
             }
 
             if (getNextToken)
                 this.lexer.getToken();
 
-            if (endLineType.indexOf(this.lexer.tokenSym) !== -1)
+            if (endLineType.hasValue(this.lexer.tokenSym)) {
+                this.pendingToken = false;
                 return;
+            }
 
             getNextToken = true;
 
@@ -1443,7 +1485,9 @@ export class CodeParser {
                 continue;
             }
 
-            if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement, LexerType.ltThis, LexerType.ltSuper].indexOf(this.lexer.tokenSym)>=0)
+            //Инструкция-выражение. `[` в начале инструкции — литерал массива (`[1, 2].forEach(…);`),
+            //`{` — блок (ветка ltStartCode ниже), как в JS.
+            if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement, LexerType.ltThis, LexerType.ltSuper, LexerType.ltBracketOpen, LexerType.ltNew].indexOf(this.lexer.tokenSym)>=0)
             {
                 let Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntNotSet);
 
@@ -1508,6 +1552,7 @@ export class CodeParser {
 
                         if (isForOf) {
                             this.parseForOf(NodeList, forCursor, kind ?? 'let', varName as string);
+                            getNextToken = !this.pendingToken;
                             break;
                         }
 
@@ -1547,12 +1592,7 @@ export class CodeParser {
                         Node2 = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
                         Node2.childItems = [];
 
-                        if (this.lexer.tokenSym === LexerType.ltStartCode)
-                        {
-                            this.parseCode(Node2.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-                        } else {
-                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
-                        }
+                        getNextToken = !this.parseStatementBody(Node2.childItems);
 
                         Node.childItems.push(Node2);
 
@@ -1579,12 +1619,7 @@ export class CodeParser {
 
                         this.lexer.getToken();
 
-                        if (this.lexer.tokenSym === LexerType.ltStartCode)
-                        {
-                            this.parseCode(Node2.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-                        } else {
-                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
-                        }
+                        getNextToken = !this.parseStatementBody(Node2.childItems);
 
                         break;
                     case LexerType.ltBreak:
@@ -1622,14 +1657,11 @@ export class CodeParser {
 
                         this.lexer.getToken();
 
-                        if (this.lexer.tokenSym === LexerType.ltStartCode)
-                        {
-                            this.parseCode(Node.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-                        } else {
-                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
+                        //Заглядываем за тело: нет ли else. Если тело само уже заглянуло
+                        //вперёд (вложенный if без else), следующий токен уже прочитан.
+                        if (!this.parseStatementBody(Node.childItems)) {
+                            this.lexer.getToken();
                         }
-
-                        this.lexer.getToken();
                         if (this.lexer.tokenSym !== LexerType.ltELSE)
                         {
                             getNextToken = false;
@@ -1646,12 +1678,7 @@ export class CodeParser {
 
                         this.lexer.getToken();
 
-                        if (this.lexer.tokenSym === LexerType.ltStartCode)
-                        {
-                            this.parseCode(Node.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-                        } else {
-                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
-                        }
+                        getNextToken = !this.parseStatementBody(Node.childItems);
                         break;
                     case LexerType.ltStartCode:
 
@@ -1674,9 +1701,35 @@ export class CodeParser {
                 parsedOne = true;
             }
 
-            if (inline && endLineType.indexOf(this.lexer.tokenSym) !== -1)
+            if (inline && endLineType.hasValue(this.lexer.tokenSym)) {
+                this.pendingToken = false;
                 return;
+            }
         }
+    }
+
+    /**
+     * Текущий токен (после разбора тела из одной инструкции) уже следующий и ещё не
+     * обработан — его нельзя пропускать новым getToken (зеркало PHP).
+     */
+    protected pendingToken = false;
+
+    /**
+     * Тело if / else / for / while / for-of: блок `{ … }` или одна инструкция (зеркало PHP
+     * CodeParser::parseStatementBody). Возвращает true, если после тела лексер уже стоит на
+     * следующем, ещё не разобранном токене (телом был `if (…) {…}` без else).
+     */
+    protected parseStatementBody(childItems: (ParseNode | ParseNode[])[]): boolean
+    {
+        if (this.lexer.tokenSym === LexerType.ltStartCode) {
+            this.parseCode(childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+            this.pendingToken = false;
+        } else {
+            this.pendingToken = false;
+            this.parseCode(childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
+        }
+
+        return this.pendingToken;
     }
 
     /**
@@ -2143,7 +2196,7 @@ export class CodeParser {
     /**
      * Парсит объявление переменных: `let name [= expr] [, name [= expr]]* ;`.
      * `var` и `const` — аналогично с одной разницей: для `const` инициализатор
-     * обязателен, без него сразу даём ParserException.
+     * обязателен, без него сразу даём ParserCursorException.
      *
      * На входе: tokenSym = ltLet | ltVar | ltConst.
      * На выходе: лексер стоит на `;` (если inline-форма) или на следующем

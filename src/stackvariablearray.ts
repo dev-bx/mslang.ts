@@ -47,25 +47,27 @@ export class StackVariableArray extends StackVariable {
             } else if (v === null) {
                 // typeof null === 'object' в JS — без явной проверки null ушёл бы
                 // в StackVariableObject. PHP отдаёт createStackVariableNull.
-                v = new StackVariableNull(false);
+                v = new StackVariableNull(false, this.getContext());
             } else {
 
                 switch (typeof v) {
+                    // Зеркало PHP: все ветки создают значение с контекстом — строка
+                    // хоста списывает бюджет песочницы так же, как в эталоне.
                     case "string":
-                        v = new StackVariableString(false, v);
+                        v = new StackVariableString(false, v, this.getContext());
                         break;
                     case "boolean":
-                        v = new StackVariableBoolean(false, v);
+                        v = new StackVariableBoolean(false, v, this.getContext());
                         break;
                     case "bigint":
                     case "number":
-                        v = new StackVariableNumber(false, v);
+                        v = new StackVariableNumber(false, v, this.getContext());
                         break;
                     case "object":
-                        v = new StackVariableObject(false, v);
+                        v = new StackVariableObject(false, v, this.getContext());
                         break;
                     case "undefined":
-                        v = new StackVariableNull(false);
+                        v = new StackVariableNull(false, this.getContext());
                         break;
                     default:
                         throw new InterpreterException('Incompatible array value ' + typeof v, this.getContext()?.currentToken?.cursorPos);
@@ -77,7 +79,7 @@ export class StackVariableArray extends StackVariable {
             this._nextNumKey = Number(k) + 1;
         }
 
-        map.set(k, v);
+        map.set(k, v instanceof StackVariable ? StackVariable.stored(v) : v);
     }
 
     set value(value: unknown) {
@@ -112,6 +114,11 @@ export class StackVariableArray extends StackVariable {
         return this.value.get(name.toString());
     }
 
+    /** Запись по ключу `a[k] = v` (зеркало PHP StackVariableArray::offsetSet). */
+    override offsetSet(offset: string | number, value: StackVariable): void {
+        this.setProperty(String(offset), value);
+    }
+
     setProperty(name: string, value: StackVariable) {
         if (name === 'length') {
             const asNumber = value.castAs(VariableType.vtNumber);
@@ -136,12 +143,14 @@ export class StackVariableArray extends StackVariable {
             }
             return;
         }
-        this.value.set(name.toString(), value);
+        this.value.set(name.toString(), StackVariable.stored(value));
     }
 
     /** Count */
 
-    funcInvoke_countReturn = () => VariableType.vtNumber;
+    funcInvoke_countReturn() {
+        return VariableType.vtNumber;
+    }
 
     funcInvoke_count() {
         return this.value.size;
@@ -149,7 +158,9 @@ export class StackVariableArray extends StackVariable {
 
     /** Contains */
 
-    funcInvoke_containsReturn = () => VariableType.vtBoolean;
+    funcInvoke_containsReturn() {
+        return VariableType.vtBoolean;
+    }
 
     funcInvoke_containsArgs() {
         return [
@@ -193,15 +204,17 @@ export class StackVariableArray extends StackVariable {
 
     /** IndexOf */
 
-    funcInvoke_indexOfReturn = () => VariableType.vtInteger;
+    funcInvokeIndexOfReturn() {
+        return VariableType.vtInteger;
+    }
 
-    funcInvoke_indexOfArgs() {
+    funcInvokeIndexOfArgs() {
         return [
             new FunctionParameter('searchValue', undefined, true),
         ];
     }
 
-    funcInvoke_indexOf(searchValue: unknown) {
+    funcInvokeIndexOf(searchValue: unknown) {
         const keys = Array.from(this.value.keys());
         const values = Array.from(this.value.values());
 
@@ -228,7 +241,9 @@ export class StackVariableArray extends StackVariable {
 
     /** push */
 
-    funcInvoke_pushReturn = () => VariableType.vtNumber;
+    funcInvoke_pushReturn() {
+        return VariableType.vtNumber;
+    }
 
     funcInvoke_push(...args: unknown[]) {
         Object.values(args).forEach(rawValue => {
@@ -239,10 +254,7 @@ export class StackVariableArray extends StackVariable {
             //Ref-аргумент (например, параметр функции) указывает на ячейку scope-а,
             //который умрёт вместе с frame. Кладём в массив сам объект StackVariable —
             //тогда он переживёт возврат из функции, и значения не пропадут.
-            let value: StackVariable = rawValue;
-            if (value instanceof StackVariableRef) {
-                value = value.refValue as StackVariable;
-            }
+            const value: StackVariable = StackVariable.stored(rawValue);
 
             let key;
 
@@ -280,7 +292,9 @@ export class StackVariableArray extends StackVariable {
 
     /** join */
 
-    funcInvoke_joinReturn = () => VariableType.vtString;
+    funcInvoke_joinReturn() {
+        return VariableType.vtString;
+    }
 
     funcInvoke_joinArgs() {
         return [
@@ -294,10 +308,16 @@ export class StackVariableArray extends StackVariable {
 
     /** concat */
 
-    funcInvoke_concatReturn = () => VariableType.vtArray;
+    funcInvoke_concatReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_concat() {
-        const result = new StackVariableArray(false, this._value, this.getContext());
+        //Содержимое собираем без учёта бюджета, а итоговый массив создаём целиком — так
+        //конструктор спишет 16 байт за КАЖДУЮ ячейку результата, как PHP (там метод
+        //возвращает готовый массив, и его оборачивает createVariable). Раньше
+        //допушенные ячейки не учитывались.
+        const result = new StackVariableArray(false, this._value, null);
 
         Array.from(arguments).forEach(param => {
             if (param instanceof StackVariableArray) {
@@ -313,20 +333,29 @@ export class StackVariableArray extends StackVariable {
             }
         });
 
-        return result;
+        return new StackVariableArray(false, result.value, this.getContext());
     }
 
     /** keys */
 
-    funcInvoke_keysReturn = () => VariableType.vtArray;
+    funcInvoke_keysReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_keys() {
-        return new StackVariableArray(false, Array.from(this.value.keys()), this.getContext());
+        //Зеркало PHP array_keys: целочисленный ключ — число, прочие — строка
+        //(раньше TS отдавал строки и для [10,20].keys() → ["0","1"]).
+        const keys = Array.from(this.value.keys()).map((k) =>
+            /^(0|-?[1-9]\d*)$/.test(k) && Number.isSafeInteger(Number(k)) ? Number(k) : k);
+
+        return new StackVariableArray(false, keys, this.getContext());
     }
 
     /** values */
 
-    funcInvoke_valuesReturn = () => VariableType.vtArray;
+    funcInvoke_valuesReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_values() {
         return new StackVariableArray(false, Array.from(this.value.values()), this.getContext());
@@ -334,7 +363,9 @@ export class StackVariableArray extends StackVariable {
 
     /** reverse */
 
-    funcInvoke_reverseReturn = () => VariableType.vtArray;
+    funcInvoke_reverseReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_reverse() {
         return new StackVariableArray(false, Array.from(this.value.values()).reverse(), this.getContext());
@@ -342,10 +373,13 @@ export class StackVariableArray extends StackVariable {
 
     /** flip */
 
-    funcInvoke_flipReturn = () => VariableType.vtArray;
+    funcInvoke_flipReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_flip() {
-        const result = new StackVariableArray(false, [], this.getContext());
+        //Как concat: собираем без учёта, итог создаём целиком (бюджет — как в PHP).
+        const result = new StackVariableArray(false, [], null);
 
         Array.from(this.value.keys()).forEach(k => {
             const value = this.value.get(k)?.castAs(VariableType.vtString);
@@ -359,7 +393,7 @@ export class StackVariableArray extends StackVariable {
             }
         });
 
-        return result;
+        return new StackVariableArray(false, result.value, this.getContext());
     }
 
     /** shift */
@@ -394,7 +428,9 @@ export class StackVariableArray extends StackVariable {
 
     /** unshift */
 
-    funcInvoke_unshiftReturn = () => VariableType.vtNumber;
+    funcInvoke_unshiftReturn() {
+        return VariableType.vtNumber;
+    }
 
     funcInvoke_unshift() {
         const oldValue = this.value;
@@ -418,7 +454,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** fill */
-    funcInvoke_fillReturn = () => VariableType.vtArray;
+    funcInvoke_fillReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_fill(...args: unknown[]): unknown {
         const rawValue = args[0];
@@ -439,13 +477,15 @@ export class StackVariableArray extends StackVariable {
         if (from > n) from = n;
         if (to > n) to = n;
         for (let i = from; i < to; i++) {
-            this.value.set(keys[i], value);
+            this.value.set(keys[i], StackVariable.stored(value));
         }
         return this;
     }
 
     /** includes */
-    funcInvoke_includesReturn = () => VariableType.vtBoolean;
+    funcInvoke_includesReturn() {
+        return VariableType.vtBoolean;
+    }
 
     funcInvoke_includes(...args: unknown[]): boolean {
         const needle = args[0];
@@ -464,7 +504,9 @@ export class StackVariableArray extends StackVariable {
      * вхождение (порядок сохраняется). Сравнение — как у `==` (Interpreter.valuesEqual).
      * Исходный массив не меняется.
      */
-    funcInvoke_uniqueReturn = () => VariableType.vtArray;
+    funcInvoke_uniqueReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_unique(): StackVariable {
         const result: StackVariable[] = [];
@@ -485,7 +527,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** slice — новый массив-срез (как JS). Отрицательные индексы от конца, end не включается. */
-    funcInvoke_sliceReturn = () => VariableType.vtArray;
+    funcInvoke_sliceReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_slice(...args: unknown[]): StackVariable {
         const values = Array.from(this.value.values());
@@ -503,7 +547,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** splice — удаляет/вставляет НА МЕСТЕ, возвращает удалённые (как JS). Изменяет массив. */
-    funcInvoke_spliceReturn = () => VariableType.vtArray;
+    funcInvoke_spliceReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_splice(...args: unknown[]): StackVariable {
         const values = Array.from(this.value.values());
@@ -527,7 +573,7 @@ export class StackVariableArray extends StackVariable {
                 item = item.refValue;
             }
             if (item instanceof StackVariable) {
-                insert.push(item);
+                insert.push(StackVariable.stored(item));
             }
         }
 
@@ -541,7 +587,9 @@ export class StackVariableArray extends StackVariable {
      * sort — сортировка по СТРОКОВОМУ виду (компаратор JS по умолчанию: `[10,9,1].sort()`
      * → `[1,10,9]`). Изменяет массив и возвращает его. undefined уходят в конец.
      */
-    funcInvoke_sortReturn = () => VariableType.vtArray;
+    funcInvoke_sortReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_sort(): StackVariable {
         const defined: StackVariable[] = [];
@@ -572,7 +620,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** flat — разворачивает вложенные массивы до глубины depth (новый массив). */
-    funcInvoke_flatReturn = () => VariableType.vtArray;
+    funcInvoke_flatReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_flat(...args: unknown[]): StackVariable {
         let levels: number;

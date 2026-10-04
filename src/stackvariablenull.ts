@@ -3,10 +3,11 @@ import {VariableType} from "./variabletype.js";
 import {StackVariableString} from "./stackvariablestring.js";
 import {StackVariableBoolean} from "./stackvariableboolean.js";
 import {StackVariableNumber} from "./stackvariablenumber.js";
+import type {ContextInterpreter} from "./contextinterpreter.js";
 
 export class StackVariableNull extends StackVariable {
-    constructor(isConst: boolean = false) {
-        super(VariableType.vtNull, isConst);
+    constructor(isConst: boolean = false, context: ContextInterpreter | null = null) {
+        super(VariableType.vtNull, isConst, context);
 
         this._value = null;
     }

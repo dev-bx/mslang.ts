@@ -135,6 +135,46 @@ export class StackVariable {
         return this.properties[name].get.apply(this);
     }
 
+    /**
+     * Значение для хранения в контейнере (элемент массива, свойство объекта) — зеркало
+     * PHP StackVariable::stored. Скаляр (число, строка, boolean, null) кладём копией:
+     * переменную при выходе из блока и в `++x` меняют «на месте», и без копии вместе с
+     * ней менялся бы уже сохранённый элемент — `for (let i …) r.push(i)` давало [3,3,3].
+     * Массив, объект, функция — тот же объект. Ссылка (Ref) разворачивается.
+     */
+    static stored(variable: StackVariable): StackVariable {
+        const referenced = (variable as unknown as {refValue?: unknown}).refValue;
+        const value = referenced instanceof StackVariable ? referenced : variable;
+
+        switch (value.type) {
+            case VariableType.vtNumber:
+            case VariableType.vtString:
+            case VariableType.vtBoolean:
+            case VariableType.vtNull:
+                return value.clone();
+        }
+
+        return value;
+    }
+
+    /**
+     * Поверхностная копия того же класса — как `clone` в PHP (без повторного учёта бюджета).
+     * Скалярные классы переопределяют её прямым конструктором: общий путь медленный.
+     */
+    clone(): StackVariable {
+        return Object.assign(Object.create(Object.getPrototypeOf(this)), this) as StackVariable;
+    }
+
+    /**
+     * Запись по ключу `x[k] = v` (зеркало PHP StackVariable::offsetSet): по умолчанию
+     * запрещена — «Cannot set offset». Разрешают массив и объект-литерал.
+     */
+    offsetSet(offset: string | number, value: StackVariable): void {
+        void offset;
+        void value;
+        throw new InterpreterException('Cannot set offset', this.getContext()?.currentToken?.cursorPos);
+    }
+
     setProperty(name: string, value: unknown) {
         if (!this.properties.hasOwnProperty(name))
             return;
@@ -172,20 +212,10 @@ export class StackVariable {
             funcReturnType = (this as any)[methodName + 'Return'];
         }
 
-        //Если this — это Proxy от StackVariableRef (см. stackvariableref.getProxy),
-        //захватывать его в closure нельзя: ref завязан на запись в текущем scope
-        //(_variables / let-кадр). Когда первый вызов прошёл через Proxy на
-        //короткоживущей let-переменной (например, `let p = []; p.push(0); this.p = p;`
-        //в конструкторе класса), scope умирает, refValue становится undefined,
-        //и следующий вызов того же метода — даже на совсем другом объекте —
-        //падает с "Reflect.get called on non-object". Свойство `refValue`
-        //через Proxy специально отдаёт реальный объект (см. getProxy.get),
-        //у обычных StackVariable его нет — берём this как есть.
-        const refValueNow = (this as any).refValue;
-        const captured: StackVariable = (refValueNow instanceof StackVariable) ? refValueNow : (this as unknown as StackVariable);
-
+        //Запись кэшируется на класс (funcEntryCache), поэтому замыкание не должно держать
+        //конкретный экземпляр: invokeMethod вызывается на self из первого аргумента.
         const entry = new FunctionEntry(name, funcReturnType, (...args: InvokeArguments[]) => {
-            return captured.invokeMethod(entry, methodName, args);
+            return this.invokeMethod(entry, methodName, args);
         });
 
         funcArguments.forEach(funcArgument => {

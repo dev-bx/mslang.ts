@@ -35,6 +35,17 @@ function toInt64(v: number): bigint {
     return Number.isFinite(v) ? BigInt.asIntN(64, BigInt(Math.trunc(v))) : 0n;
 }
 
+/** Состояние пошаговой сортировки слиянием `arr.sort(cmp)` (зеркало PHP `__cb_sort`). */
+interface SortState {
+    width: number;
+    lo: number;
+    mid: number;
+    hi: number;
+    i: number | null;
+    j: number;
+    out: StackVariable[];
+}
+
 export class Interpreter {
     _nodeHandler: NodeHandlerItems
 
@@ -142,6 +153,8 @@ export class Interpreter {
         this.registerNodeHandler(NodeType.ntOptionalChain, this.optionalChainHandler.bind(this));
         this.registerNodeHandler(NodeType.ntExists, this.existsHandler.bind(this));
         this.registerNodeHandler(InterpreterNodeType.ntExistsFinish, this.existsFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntValueCall, this.valueCallHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntValueCallFinish, this.valueCallFinishHandler.bind(this));
 
         this.registerNodeHandler(InterpreterNodeType.ntIFFinish, this.ifFinishHandler.bind(this));
         this.registerNodeHandler(NodeType.ntSubCode, this.subCodeHandler.bind(this));
@@ -418,6 +431,7 @@ export class Interpreter {
     static readonly ARRAY_CALLBACK_METHODS: Record<string, string> = {
         'map': 'map', 'filter': 'filter', 'reduce': 'reduce', 'foreach': 'foreach',
         'find': 'find', 'findindex': 'findindex', 'some': 'some', 'every': 'every',
+        'sort': 'sort', //только с компаратором; без него — StackVariableArray.funcInvoke_sort
     };
 
     /**
@@ -445,6 +459,12 @@ export class Interpreter {
         context._codeData['__cb_idx'] = 0;
         context._codeData['__cb_results'] = [];
 
+        if (op === 'sort') {
+            context._codeData['__cb_elems'] = elements.map(v => Interpreter.unref(v));
+            //i === null — очередное слияние ещё не начато.
+            context._codeData['__cb_sort'] = {width: 1, lo: 0, mid: 0, hi: 0, i: null, j: 0, out: []} satisfies SortState;
+        }
+
         if (op === 'reduce') {
             if (parameters.length >= 2) {
                 let acc: unknown = parameters[1];
@@ -467,6 +487,11 @@ export class Interpreter {
 
     arrayCallbackTickHandler(context: ContextInterpreter, token: ParseNode): void {
         const op = context._codeData['__cb_op'] as string;
+        if (op === 'sort') {
+            this.sortTick(context, token);
+            return;
+        }
+
         const elements = context._codeData['__cb_elems'] as StackVariable[];
         const idx = context._codeData['__cb_idx'] as number;
 
@@ -500,6 +525,55 @@ export class Interpreter {
         this.invokeUserFunction(context, fn, args, token);
     }
 
+    /**
+     * `arr.sort(cmp)`: восходящая сортировка слиянием (устойчивая), каждое сравнение — вызов
+     * cmp. Состояние слияния живёт в _codeData кадра; tick двигает его до следующего
+     * сравнения или до конца. Алгоритм один в обоих движках — порядок вызовов cmp виден скрипту.
+     */
+    private sortTick(context: ContextInterpreter, token: ParseNode): void {
+        const state = context._codeData['__cb_sort'] as SortState;
+        let elements = context._codeData['__cb_elems'] as StackVariable[];
+        const n = elements.length;
+
+        while (true) {
+            if (state.i === null) {
+                if (state.lo >= n) {
+                    //Проход по всем парам отрезков закончен — следующий вдвое шире.
+                    elements = context._codeData['__cb_elems'] = state.out;
+                    state.out = [];
+                    state.lo = 0;
+                    state.width *= 2;
+                }
+                if (state.width >= n) {
+                    const array = context._codeData['__cb_self'] as StackVariableArray;
+                    array.value = elements;
+                    context.popExecutionStack();
+                    context.pushStackVar(array);
+                    return;
+                }
+                state.mid = Math.min(state.lo + state.width, n);
+                state.hi = Math.min(state.lo + 2 * state.width, n);
+                state.i = state.lo;
+                state.j = state.mid;
+            }
+
+            if (state.i < state.mid && state.j < state.hi) {
+                const collect = new InterpreterNode(token.cursorPos);
+                collect.nType = InterpreterNodeType.ntArrayCallbackCollect;
+                context._codeItems!.push(collect);
+
+                const fn = context._codeData['__cb_fn'] as StackVariableUserFunction;
+                this.invokeUserFunction(context, fn, this.trimCallbackArgs(fn, [elements[state.i], elements[state.j]]), token);
+                return;
+            }
+
+            //Одна половина кончилась — остаток другой переносим как есть.
+            state.out.push(...elements.slice(state.i, state.mid), ...elements.slice(state.j, state.hi));
+            state.lo = state.hi;
+            state.i = null;
+        }
+    }
+
     arrayCallbackCollectHandler(context: ContextInterpreter, token: ParseNode): void {
         const op = context._codeData['__cb_op'] as string;
         const idx = context._codeData['__cb_idx'] as number;
@@ -508,6 +582,20 @@ export class Interpreter {
         let result: StackVariable = context.popStackVar();
         if (result instanceof StackVariableRef) {
             result = result.refValue as StackVariable;
+        }
+
+        if (op === 'sort') {
+            if (result.type !== VariableType.vtNumber) {
+                throw new InterpreterException('Sort comparator must return a number, got ' + result.typeName, token.cursorPos, ErrorCode.TypeMismatch);
+            }
+            //Больше нуля — правый раньше; иначе (в том числе 0 и NaN) — левый: сортировка устойчива.
+            const state = context._codeData['__cb_sort'] as SortState;
+            state.out.push((result.value as number) > 0 ? elements[state.j++] : elements[(state.i as number)++]);
+
+            const tick = new InterpreterNode(token.cursorPos);
+            tick.nType = InterpreterNodeType.ntArrayCallbackTick;
+            context._codeItems!.push(tick);
+            return;
         }
 
         //Условие нужно только колбэкам-предикатам; map/reduce/forEach отдают что угодно.
@@ -671,15 +759,15 @@ export class Interpreter {
 
     /**
      * Общий шаблон арифметического оператора (зеркало PHP binaryArithmeticHandler):
-     * правый операнд вычисляется здесь, левый уже лежит на стеке. Пустой стек —
-     * унарная форма (`-x`, `+x`), она определена только для числа.
+     * правый операнд вычисляется здесь, левый уже лежит на стеке. Унарная форма
+     * (`-x`, `+x`) помечена парсером (nValue = 'unary') и определена только для числа.
      */
     protected binaryArithmeticHandler(context: ContextInterpreter, token: ParseNode, operator: string) {
         context.execGetVariable();
 
         const rightVar = context.popStackVar();
 
-        if (!context._stackVars.length) {
+        if (token.nValue === 'unary') {
             const value = Interpreter.numericOperand(token, operator, rightVar);
 
             switch (operator) {
@@ -747,81 +835,39 @@ export class Interpreter {
     }
 
     shortIncrementHandler(context: ContextInterpreter, token: ParseNode) {
-        if (context._stackVars.length) {
-            const variable = context.popStackVar();
-            Interpreter.numericOperand(token, '++', variable);
-            const variableAsNumber = variable.castAs(VariableType.vtNumber);
-
-            if (!variableAsNumber) {
-                throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
-            }
-
-            const newVariable = context.createVariable(VariableType.vtNumber, variableAsNumber.value);
-            context.pushStackVar(newVariable);
-
-            if (variable instanceof StackVariableRef) {
-                variable.refValue = context.createVariable(VariableType.vtNumber, variableAsNumber.value + 1);
-            } else {
-                //example string.length++;
-                //throw new InterpreterException('Variable must be reference', token.cursorPos);
-            }
-        } else {
-            context.execGetVariable();
-
-            const variable = context.popStackVar();
-            Interpreter.numericOperand(token, '++', variable);
-            const variableAsNumber = variable.castAs(VariableType.vtNumber);
-
-            if (!variableAsNumber) {
-                throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
-            }
-
-            if (variable instanceof StackVariableRef) {
-                variable.refValue = context.createVariable(VariableType.vtNumber, variableAsNumber.value + 1);
-            }
-
-            variableAsNumber.value = variableAsNumber.value + 1;
-            context.pushStackVar(variableAsNumber);
-        }
+        this.updateHandler(context, token, 1);
     }
 
     shortDecrementHandler(context: ContextInterpreter, token: ParseNode) {
-        if (context._stackVars.length) {
-            const variable = context.popStackVar();
-            Interpreter.numericOperand(token, '--', variable);
-            const variableAsNumber = variable.castAs(VariableType.vtNumber);
+        this.updateHandler(context, token, -1);
+    }
 
-            if (!variableAsNumber) {
-                throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
-            }
+    /**
+     * `++x` / `x--` и т.п. Префиксный (парсер ставит nValue = 'prefix') сам вычисляет
+     * операнд и отдаёт новое значение, постфиксный берёт готовый операнд со стека и отдаёт
+     * старое. Запись: в переменную — через Ref; в элемент массива или свойство объекта — в
+     * сам хранимый объект числа (контейнер держит собственную копию, см. StackVariable.stored).
+     */
+    private updateHandler(context: ContextInterpreter, token: ParseNode, delta: number): void {
+        const operator = delta > 0 ? '++' : '--';
+        const prefix = token.nValue === 'prefix';
 
-            const newVariable = context.createVariable(VariableType.vtNumber, variableAsNumber.value);
-            context.pushStackVar(newVariable);
-
-            if (variable instanceof StackVariableRef) {
-                variable.refValue = context.createVariable(VariableType.vtNumber, variableAsNumber.value - 1);
-            } else {
-                //example string.length--;
-                //throw new InterpreterException('Variable must be reference', token.cursorPos);
-            }
-        } else {
+        if (prefix) {
             context.execGetVariable();
-
-            const variable = context.popStackVar();
-            Interpreter.numericOperand(token, '--', variable);
-            const variableAsNumber = variable.castAs(VariableType.vtNumber);
-
-            if (!variableAsNumber) {
-                throw new InterpreterException('Failed cast ' + variable.typeName + ' as number', token.cursorPos);
-            }
-
-            if (variable instanceof StackVariableRef) {
-                variable.refValue = context.createVariable(VariableType.vtNumber, variableAsNumber.value - 1);
-            }
-
-            variableAsNumber.value = variableAsNumber.value - 1;
-            context.pushStackVar(variableAsNumber);
         }
+
+        const variable = context.popStackVar() as StackVariable;
+        const old = Interpreter.numericOperand(token, operator, variable);
+        const value = old + delta;
+
+        const target = Interpreter.unref(variable);
+        if (variable instanceof StackVariableRef) {
+            variable.refValue = context.createVariable(VariableType.vtNumber, value);
+        } else if (target instanceof StackVariableNumber) {
+            target.value = value;
+        }
+
+        context.pushStackVar(context.createVariable(VariableType.vtNumber, prefix ? value : old));
     }
 
     subExpressionHandler(context: ContextInterpreter, token: ParseNode) {
@@ -991,7 +1037,7 @@ export class Interpreter {
         //funcInvoke-диспетчера. См. startArrayCallback.
         if (selfResolved instanceof StackVariableArray) {
             const op = Interpreter.ARRAY_CALLBACK_METHODS[funcName.toLowerCase()];
-            if (op !== undefined) {
+            if (op !== undefined && (op !== 'sort' || parameters.length > 0)) {
                 this.startArrayCallback(context, selfResolved, op, parameters as StackVariable[], token);
                 return;
             }
@@ -1037,6 +1083,37 @@ export class Interpreter {
 
         //Fallback на хост-функции через FunctionEntry (Math.abs, [1,2,3].push и т.п.).
         context.pushStackVar(context.selfCallFunction(self, funcName, parameters));
+    }
+
+    /**
+     * `f(40)(2)`: вызываемое значение уже лежит на стеке. Аргументы считаем в новом кадре,
+     * финиш снимает их и значение и вызывает функцию.
+     */
+    valueCallHandler(context: ContextInterpreter, token: ParseNode) {
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const node = new InterpreterNode(token.cursorPos);
+        node.nType = InterpreterNodeType.ntValueCallFinish;
+        node.nValue = token;
+        context._codeItems.push(node);
+    }
+
+    valueCallFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const parameters: StackVariable[] = [];
+        while (context._stackVars.length) {
+            parameters.unshift(context.popStackVar() as StackVariable);
+        }
+
+        context.popExecutionStack();
+
+        const callee = Interpreter.unref(context.popStackVar() as StackVariable);
+        if (!(callee instanceof StackVariableUserFunction)) {
+            throw new InterpreterException('Value of type ' + callee.typeName + ' is not a function', token.cursorPos, ErrorCode.NotCallable);
+        }
+
+        this.invokeUserFunction(context, callee, parameters, token.nValue as ParseNode);
     }
 
     shiftSPHandler(context: ContextInterpreter, token: ParseNode) {
@@ -1136,12 +1213,6 @@ export class Interpreter {
         // Зеркало PHP objPropHandler: если у объекта есть это свойство,
         // отдаём его обёрткой StackVariableRef через get/set — тогда `obj.prop++`
         // запишется обратно через setProperty.
-        // ЯЗЫКОВОЕ ОТЛИЧИЕ от PHP (P2-7): PHP передаёт сюда $context в Ref, но в
-        // TS это нельзя — funcEntryCache захватывает Proxy(StackVariableRef) с его
-        // scope, и после выхода из короткоживущего scope ломается чужой вызов
-        // (баг исправлен в 5c6d5ad, страж — Bug_FuncEntryCache_ProxyOnDeadScope).
-        // Поэтому Ref здесь без context, а отсутствующее свойство отдаём обычным
-        // значением null, а не записываемым Ref.
         if (getVar instanceof StackVariable) {
             const refProp = new StackVariableRef({
                 get: () => variable.getProperty(propname) as object,
@@ -1150,8 +1221,8 @@ export class Interpreter {
                         throw new MSLangException('set property value must be instance of StackVariable');
                     variable.setProperty(propname, value);
                 },
-            });
-            context.pushStackVar(refProp.getProxy());
+            }, context);
+            context.pushStackVar(refProp);
             return;
         }
 
@@ -2066,7 +2137,9 @@ export class Interpreter {
             accessTo = accessTo.refValue as StackVariable;
         }
 
-        accessTo.setProperty(token.nValue.value as string, variable);
+        //Запись по ключу — только массив и объект-литерал; скаляр, хост-объект, дата —
+        //«Cannot set offset», как в PHP (раньше TS молча ничего не делал).
+        accessTo.offsetSet(token.nValue.value as string, variable);
 
         context.pushStackVar(variable);
     }
@@ -2296,10 +2369,7 @@ export class Interpreter {
     switchEvaluatedHandler(context: ContextInterpreter, token: ParseNode) {
         let switchValue = context.popStackVar();
         if (switchValue instanceof StackVariableRef) {
-            //На стеке лежит getProxy()-обёртка StackVariableRef, через Proxy метод
-            //getRefValue() не доступен напрямую (см. stackvariableref.ts get-trap).
-            //Геттер refValue — особый случай, его Proxy пробрасывает.
-            switchValue = (switchValue as StackVariableRef).refValue as StackVariable;
+            switchValue = switchValue.getRefValue();
         }
 
         const caseNodes = token.childItems ?? [];

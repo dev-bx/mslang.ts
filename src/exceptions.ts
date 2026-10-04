@@ -141,6 +141,14 @@ export class LexerException extends MSLangException {
 
 }
 
+// Зеркало PHP ControlFlowTransfer — внутренний сигнал (не ошибка языка и наружу не
+// выходит): пока обработчик вычислял операнд пошагово (execStepOver), скриптовый throw
+// увёл исполнение в catch ниже кадра этого операнда. Главный цикл exec ловит сигнал и
+// продолжает уже с блока catch.
+export class ControlFlowTransfer extends Error {
+
+}
+
 // Зеркало PHP ContextException — ошибки контекста выполнения (стек, область
 // видимости, переопределение константы, неизвестная функция/переменная).
 export class ContextException extends MSLangException {
