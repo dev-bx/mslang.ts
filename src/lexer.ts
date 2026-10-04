@@ -1,4 +1,4 @@
-import {LexerException} from "./exceptions.js";
+import {LexerException, MSLangException} from "./exceptions.js";
 
 
 interface CharMapTable {
@@ -93,42 +93,48 @@ export class FullTokenInfo {
     tokenSym: number = 0;
 }
 
-export class LexerTypeArray extends Array<number> {
-    get asNames() {
-        const result: string[] = [],
-            k = Object.keys(LexerType),
-            v = Object.values(LexerType);
+/**
+ * Набор типов токенов-ограничителей (зеркало PHP LexerTypeArray): значения в поле,
+ * проверка — hasValue(), расширение — cloneAdd() без изменения исходного набора.
+ */
+export class LexerTypeArray implements Iterable<number> {
+    protected _values: number[];
 
-        this.forEach(value => {
-            const idx = v.indexOf(value);
+    constructor(values: number[] | null = null) {
+        this._values = values ? [...values] : [];
+    }
 
+    hasValue(value: number): boolean {
+        return this._values.includes(value);
+    }
+
+    static one(value: number): LexerTypeArray {
+        return new LexerTypeArray([value]);
+    }
+
+    cloneAdd(value: number | number[]): LexerTypeArray {
+        return new LexerTypeArray(this._values.concat(value));
+    }
+
+    get asNames(): string[] {
+        const names = Object.keys(LexerType);
+        const values: number[] = Object.values(LexerType);
+
+        return this._values.map(value => {
+            const idx = values.indexOf(value);
             if (idx === -1)
-                throw new LexerException('Unknown LexerType ' + value);
+                throw new MSLangException('Unknown LexerType ' + value);
 
-            result.push(k[idx]);
+            return names[idx];
         });
-
-        return result;
     }
 
-    static one(value: number) {
-        const r = new LexerTypeArray();
-        r.push(value);
-        return r;
+    count(): number {
+        return this._values.length;
     }
 
-    cloneAdd(value: number | number[]) {
-        const r = new LexerTypeArray();
-
-        r.push(...this);
-
-        if (Array.isArray(value)) {
-            r.push(...value);
-        } else {
-            r.push(value);
-        }
-
-        return r;
+    [Symbol.iterator](): Iterator<number> {
+        return this._values[Symbol.iterator]();
     }
 }
 

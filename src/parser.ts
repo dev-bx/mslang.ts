@@ -362,7 +362,7 @@ export class CodeParser {
                 this.lexer.getToken();
 
             getNextToken = true;
-            if (StopLex.indexOf(this.lexer.tokenSym) !== -1)
+            if (StopLex.hasValue(this.lexer.tokenSym))
                 break;
 
             let SubNode = null;
@@ -746,7 +746,7 @@ export class CodeParser {
 
                             const NodePush = new ParseNode(this.lexer.tokenCursor, NodeType.ntArrayPush);
 
-                            this.parseExpression(NodePush, false, new LexerTypeArray(LexerType.ltComma, LexerType.ltBracketClose));
+                            this.parseExpression(NodePush, false, new LexerTypeArray([LexerType.ltComma, LexerType.ltBracketClose]));
 
                             SubNode.childItems.push(NodePush);
 
@@ -827,7 +827,7 @@ export class CodeParser {
                                 throw new ParserCursorException("Object literal: ':' expected", this.lexer.tokenCursor);
 
                             const EntryNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntObjectEntry, key);
-                            this.parseExpression(EntryNode, true, new LexerTypeArray(LexerType.ltComma, LexerType.ltEndCode));
+                            this.parseExpression(EntryNode, true, new LexerTypeArray([LexerType.ltComma, LexerType.ltEndCode]));
 
                             SubNode.childItems.push(EntryNode);
 
@@ -867,7 +867,7 @@ export class CodeParser {
                     SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntIFValue);
                     //Тернарный `?` тоже останавливает правую часть сравнения,
                     //иначе `n > 5 ? a : b` парсилось бы как `n > (5 ? a : b)`.
-                    this.parseExpression(SubNode, true, new LexerTypeArray(...StopLex, LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltNullish, LexerType.ltQuestion));
+                    this.parseExpression(SubNode, true, StopLex.cloneAdd([LexerType.ltCompare, LexerType.ltCompareAnd, LexerType.ltCompareOr, LexerType.ltNullish, LexerType.ltQuestion]));
                     NodeList.push(SubNode);
 
                     getNextToken = false;
@@ -1348,7 +1348,7 @@ export class CodeParser {
                 break;
 
             const SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncParam);
-            this.parseExpression(SubNode,false, new LexerTypeArray(LexerType.ltComma, LexerType.ltRPar));
+            this.parseExpression(SubNode,false, new LexerTypeArray([LexerType.ltComma, LexerType.ltRPar]));
             NodeList.push(SubNode);
 
             if (this.lexer.tokenSym === LexerType.ltRPar)
@@ -1372,7 +1372,7 @@ export class CodeParser {
                 break;
 
             const SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntFuncParam);
-            this.parseExpression(SubNode,false, new LexerTypeArray(LexerType.ltComma, LexerType.ltRPar));
+            this.parseExpression(SubNode,false, new LexerTypeArray([LexerType.ltComma, LexerType.ltRPar]));
             NodeList.push(SubNode);
 
             if (this.lexer.tokenSym === LexerType.ltRPar)
@@ -1433,7 +1433,7 @@ export class CodeParser {
             if (getNextToken)
                 this.lexer.getToken();
 
-            if (endLineType.indexOf(this.lexer.tokenSym) !== -1) {
+            if (endLineType.hasValue(this.lexer.tokenSym)) {
                 this.pendingToken = false;
                 return;
             }
@@ -1701,7 +1701,7 @@ export class CodeParser {
                 parsedOne = true;
             }
 
-            if (inline && endLineType.indexOf(this.lexer.tokenSym) !== -1) {
+            if (inline && endLineType.hasValue(this.lexer.tokenSym)) {
                 this.pendingToken = false;
                 return;
             }

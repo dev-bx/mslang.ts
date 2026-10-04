@@ -3907,3 +3907,18 @@ test('124_IncrementDecrementTargets', () => {
         assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
     }
 });
+
+test('125_LexerTypeArrayShape', () => {
+    // Форма LexerTypeArray одинакова в обоих движках: hasValue, one, cloneAdd без
+    // изменения исходного набора, asNames, MSLangException на неизвестном типе.
+    const base = LexerTypeArray.one(LexerType.ltSemicolon);
+    const wide = base.cloneAdd([LexerType.ltComma, LexerType.ltRPar]);
+
+    assert.ok(base.hasValue(LexerType.ltSemicolon));
+    assert.ok(!base.hasValue(LexerType.ltComma));
+    assert.ok(wide.hasValue(LexerType.ltRPar));
+    assert.strictEqual(base.count(), 1);
+    assert.deepStrictEqual(wide.asNames, ['ltSemicolon', 'ltComma', 'ltRPar']);
+
+    assert.throws(() => new LexerTypeArray([9999]).asNames, MSLangException);
+});
