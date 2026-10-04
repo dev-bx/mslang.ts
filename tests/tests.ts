@@ -6,7 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {
     StackVariable, VariableType, StackVariableBoolean, StackVariableNumber, CodeLexer, CodeParser,
     LexerTypeArray, Interpreter, ContextInterpreter, LexerType, StackVariableArray, StackVariableString,
-    StackVariableObject, ParseNode, MSLangException, Script, ParsedScript, FunctionParameter
+    StackVariableObject, ParseNode, MSLangException, Script, ParsedScript, FunctionParameter, FunctionEntry, StackVariableFunction
 } from "../src";
 
 class FieldsObject extends StackVariable {
@@ -4046,4 +4046,15 @@ test('132_InvokeMethodArgumentMessage', () => {
 
     assert.throws(() => entry?.invokeArguments([math, 5]),
         (e: unknown) => e instanceof MSLangException && e.getRawMessage() === 'Argument must be instance of StackVariable');
+});
+
+test('133_HostFunctionReceivesAllArguments', () => {
+    // Функция хоста получает все переданные аргументы, как в JS (раньше PHP отбрасывал
+    // лишние сверх объявленных, TS передавал).
+    const context = Script.parse('return [count(1), count(1, 2, 3)];').createContext();
+    const entry = new FunctionEntry('count', VariableType.vtNumber, (...args: unknown[]) => new StackVariableNumber(false, args.length - 1));
+    entry.addParameter(new FunctionParameter('a', VariableType.vtNumber, true));
+    context.registerFunction('count', new StackVariableFunction(entry, null));
+
+    assert.deepStrictEqual((context.exec(true) as StackVariableArray).convertToNativeArray(), [1, 3]);
 });
