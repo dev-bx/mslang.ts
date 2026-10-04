@@ -1483,7 +1483,9 @@ export class CodeParser {
                 continue;
             }
 
-            if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement, LexerType.ltThis, LexerType.ltSuper].indexOf(this.lexer.tokenSym)>=0)
+            //Инструкция-выражение. `[` в начале инструкции — литерал массива (`[1, 2].forEach(…);`),
+            //`{` — блок (ветка ltStartCode ниже), как в JS.
+            if ([LexerType.ltIDStr, LexerType.ltShortIncrement, LexerType.ltShortDecrement, LexerType.ltThis, LexerType.ltSuper, LexerType.ltBracketOpen, LexerType.ltNew].indexOf(this.lexer.tokenSym)>=0)
             {
                 let Node = new ParseNode(this.lexer.tokenCursor, NodeType.ntNotSet);
 

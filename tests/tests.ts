@@ -3853,3 +3853,17 @@ test('121_NewChainInBinaryExpression', () => {
         assert.strictEqual(executeReturnCode(script)?.value, expected, script);
     }
 });
+
+test('122_StatementStartsWithBracketOrNew', () => {
+    // Инструкция может начинаться с литерала массива и с `new`; `{` в начале — по-прежнему блок.
+    const cases: [string, unknown][] = [
+        ['let r = []; [1,2,3].forEach(x => { r.push(x * 2); }); return r;', [2, 4, 6]],
+        ['let s = 0; for (let i = 0; i < 2; i++) [10, 20].forEach(v => { s += v; }); return s;', 60],
+        ['class T { constructor() { log.push(1); } } let log = []; new T(); return log;', [1]],
+        ['let a = 1; { a = 2; } return a;', 2],
+    ];
+    for (const [script, expected] of cases) {
+        const result = executeReturnCode(script);
+        assert.deepStrictEqual(result instanceof StackVariableArray ? result.convertToNativeArray() : result?.value, expected, script);
+    }
+});
