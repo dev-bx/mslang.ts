@@ -322,7 +322,7 @@ export class StackVariable {
         invokeArguments.forEach(argument => {
             if (!(argument instanceof StackVariable))
             {
-                throw new InterpreterException('Argument must be instance of '+StackVariable.name, this.getContext()?.currentToken?.cursorPos);
+                throw new InterpreterException('Argument must be instance of StackVariable', this.getContext()?.currentToken?.cursorPos);
             }
 
             if (funcArguments[index])
