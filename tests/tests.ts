@@ -3819,3 +3819,20 @@ test('119_StringEscapeWarnings', () => {
         assert.deepStrictEqual(Script.parseExpression(source).getWarnings(), [], source);
     }
 });
+
+test('120_CallResultChaining', () => {
+    // `(` после результата вызова, элемента или скобок вызывает полученное значение.
+    const cases: [string, number][] = [
+        ['let f = a => b => a + b; return f(40)(2);', 42],
+        ['let f = a => b => c => a + b + c; return f(1)(2)(3);', 6],
+        ['let f = a => b => a * b; return 1 + f(2)(3) * 2;', 13],
+        ['let a = [(x => x + 1)]; return a[0](1);', 2],
+        ['return (x => x * 3)(2);', 6],
+        ['let o = {f: () => (n => n + 100)}; return o.f()(1);', 101],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(executeReturnCode(script)?.value, expected, script);
+    }
+
+    assert.strictEqual('NotCallable', errorOf('let a = [1]; return a[0](1);')?.getErrorCode());
+});

@@ -137,6 +137,9 @@ export const NodeType =
         'ntOptionalChain': 79,
         //`exists(x)` — true, если значение есть (не null); неизвестное голое имя — false.
         'ntExists': 80,
+        //Вызов значения, полученного слева: `f(40)(2)`, `a[0](1)`, `(x => x * 3)(2)`.
+        //Звено цепочки обращений, как ntSelfFuncCall; childItems = аргументы (ntFuncParam).
+        'ntValueCall': 81,
     }
 
 export class ParseNode
@@ -678,6 +681,15 @@ export class CodeParser {
                         break;
                     }
 
+                    //Вызов значения слева: результат вызова `f(40)(2)`, элемент `a[0](1)`,
+                    //выражение в скобках `(x => x * 3)(2)`.
+                    if (prevNode && CodeParser.VALUE_CALL_TARGETS.includes(prevNode.nType)) {
+                        SubNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntValueCall);
+                        this.parseFunctionParams(SubNode);
+                        NodeList.push(SubNode);
+                        break;
+                    }
+
                     //Стрелочная функция со списком параметров в скобках:
                     //`(a, b) => тело`, `() => тело`, `(x) => тело`. Распознаём
                     //заглядыванием вперёд: ищем парную `)` и смотрим, стоит ли
@@ -1108,6 +1120,7 @@ export class CodeParser {
                         || nextNode.nType === NodeType.ntOptionalChain
                         || nextNode.nType === NodeType.ntBracketGetKey
                         || nextNode.nType === NodeType.ntSelfFuncCall
+                        || nextNode.nType === NodeType.ntValueCall
                         || nextNode.nType === NodeType.ntFuncCall
                         || nextNode.nType === NodeType.ntFuncNameSpaceCall
                     ) {
@@ -1139,12 +1152,18 @@ export class CodeParser {
         return this.groupLogical(NodeList);
     }
 
+    /** Узлы, после которых `(` — вызов полученного значения (ntValueCall). */
+    private static readonly VALUE_CALL_TARGETS: number[] = [
+        NodeType.ntFuncCall, NodeType.ntSelfFuncCall, NodeType.ntValueCall,
+        NodeType.ntBracketGetKey, NodeType.ntSubExpression,
+    ];
+
     /** Индекс первого узла текущей цепочки обращений (зеркало PHP CodeParser::chainStart). */
     private chainStart(NodeList: ParseNode[]): number
     {
         let index = NodeList.length;
         while (index > 0 && [
-            NodeType.ntObjProp, NodeType.ntBracketGetKey, NodeType.ntSelfFuncCall, NodeType.ntOptionalChain,
+            NodeType.ntObjProp, NodeType.ntBracketGetKey, NodeType.ntSelfFuncCall, NodeType.ntOptionalChain, NodeType.ntValueCall,
         ].includes(NodeList[index - 1].nType)) {
             index--;
         }

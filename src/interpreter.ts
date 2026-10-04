@@ -142,6 +142,8 @@ export class Interpreter {
         this.registerNodeHandler(NodeType.ntOptionalChain, this.optionalChainHandler.bind(this));
         this.registerNodeHandler(NodeType.ntExists, this.existsHandler.bind(this));
         this.registerNodeHandler(InterpreterNodeType.ntExistsFinish, this.existsFinishHandler.bind(this));
+        this.registerNodeHandler(NodeType.ntValueCall, this.valueCallHandler.bind(this));
+        this.registerNodeHandler(InterpreterNodeType.ntValueCallFinish, this.valueCallFinishHandler.bind(this));
 
         this.registerNodeHandler(InterpreterNodeType.ntIFFinish, this.ifFinishHandler.bind(this));
         this.registerNodeHandler(NodeType.ntSubCode, this.subCodeHandler.bind(this));
@@ -1037,6 +1039,37 @@ export class Interpreter {
 
         //Fallback на хост-функции через FunctionEntry (Math.abs, [1,2,3].push и т.п.).
         context.pushStackVar(context.selfCallFunction(self, funcName, parameters));
+    }
+
+    /**
+     * `f(40)(2)`: вызываемое значение уже лежит на стеке. Аргументы считаем в новом кадре,
+     * финиш снимает их и значение и вызывает функцию.
+     */
+    valueCallHandler(context: ContextInterpreter, token: ParseNode) {
+        context.pushExecutionStack();
+        context._codeItems = [];
+        context._codeItems.push(...token.nodeChildren());
+
+        const node = new InterpreterNode(token.cursorPos);
+        node.nType = InterpreterNodeType.ntValueCallFinish;
+        node.nValue = token;
+        context._codeItems.push(node);
+    }
+
+    valueCallFinishHandler(context: ContextInterpreter, token: ParseNode) {
+        const parameters: StackVariable[] = [];
+        while (context._stackVars.length) {
+            parameters.unshift(context.popStackVar() as StackVariable);
+        }
+
+        context.popExecutionStack();
+
+        const callee = Interpreter.unref(context.popStackVar() as StackVariable);
+        if (!(callee instanceof StackVariableUserFunction)) {
+            throw new InterpreterException('Value of type ' + callee.typeName + ' is not a function', token.cursorPos, ErrorCode.NotCallable);
+        }
+
+        this.invokeUserFunction(context, callee, parameters, token.nValue as ParseNode);
     }
 
     shiftSPHandler(context: ContextInterpreter, token: ParseNode) {

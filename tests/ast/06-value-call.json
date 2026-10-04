@@ -1,0 +1,219 @@
+{
+    "type": "Expression",
+    "version": 1,
+    "expression": {
+        "type": "Binary",
+        "operator": "+",
+        "left": {
+            "type": "Binary",
+            "operator": "+",
+            "left": {
+                "type": "Call",
+                "callee": {
+                    "type": "Call",
+                    "callee": {
+                        "type": "Identifier",
+                        "name": "f",
+                        "loc": {
+                            "line": 1,
+                            "column": 2,
+                            "endLine": 1,
+                            "endColumn": 2
+                        }
+                    },
+                    "arguments": [
+                        {
+                            "type": "Literal",
+                            "value": 40,
+                            "loc": {
+                                "line": 1,
+                                "column": 3,
+                                "endLine": 1,
+                                "endColumn": 4
+                            }
+                        }
+                    ],
+                    "optional": false,
+                    "loc": {
+                        "line": 1,
+                        "column": 2,
+                        "endLine": 1,
+                        "endColumn": 2
+                    }
+                },
+                "arguments": [
+                    {
+                        "type": "Literal",
+                        "value": 2,
+                        "loc": {
+                            "line": 1,
+                            "column": 7,
+                            "endLine": 1,
+                            "endColumn": 7
+                        }
+                    }
+                ],
+                "optional": false,
+                "loc": {
+                    "line": 1,
+                    "column": 2,
+                    "endLine": 1,
+                    "endColumn": 6
+                }
+            },
+            "right": {
+                "type": "Call",
+                "callee": {
+                    "type": "Function",
+                    "name": null,
+                    "arrow": true,
+                    "params": [
+                        {
+                            "type": "Param",
+                            "name": "x",
+                            "rest": false,
+                            "default": null,
+                            "loc": {
+                                "line": 1,
+                                "column": 13,
+                                "endLine": 1,
+                                "endColumn": 13
+                            }
+                        }
+                    ],
+                    "body": [
+                        {
+                            "type": "Return",
+                            "argument": {
+                                "type": "Binary",
+                                "operator": "*",
+                                "left": {
+                                    "type": "Identifier",
+                                    "name": "x",
+                                    "loc": {
+                                        "line": 1,
+                                        "column": 18,
+                                        "endLine": 1,
+                                        "endColumn": 18
+                                    }
+                                },
+                                "right": {
+                                    "type": "Literal",
+                                    "value": 3,
+                                    "loc": {
+                                        "line": 1,
+                                        "column": 22,
+                                        "endLine": 1,
+                                        "endColumn": 22
+                                    }
+                                },
+                                "loc": {
+                                    "line": 1,
+                                    "column": 18,
+                                    "endLine": 1,
+                                    "endColumn": 22
+                                }
+                            },
+                            "loc": {
+                                "line": 1,
+                                "column": 18,
+                                "endLine": 1,
+                                "endColumn": 18
+                            }
+                        }
+                    ],
+                    "loc": {
+                        "line": 1,
+                        "column": 13,
+                        "endLine": 1,
+                        "endColumn": 13
+                    }
+                },
+                "arguments": [
+                    {
+                        "type": "Literal",
+                        "value": 2,
+                        "loc": {
+                            "line": 1,
+                            "column": 25,
+                            "endLine": 1,
+                            "endColumn": 25
+                        }
+                    }
+                ],
+                "optional": false,
+                "loc": {
+                    "line": 1,
+                    "column": 13,
+                    "endLine": 1,
+                    "endColumn": 24
+                }
+            },
+            "loc": {
+                "line": 1,
+                "column": 2,
+                "endLine": 1,
+                "endColumn": 24
+            }
+        },
+        "right": {
+            "type": "Call",
+            "callee": {
+                "type": "Member",
+                "object": {
+                    "type": "Identifier",
+                    "name": "a",
+                    "loc": {
+                        "line": 1,
+                        "column": 30,
+                        "endLine": 1,
+                        "endColumn": 30
+                    }
+                },
+                "property": {
+                    "type": "Literal",
+                    "value": 0,
+                    "loc": {
+                        "line": 1,
+                        "column": 32,
+                        "endLine": 1,
+                        "endColumn": 32
+                    }
+                },
+                "computed": true,
+                "optional": false,
+                "loc": {
+                    "line": 1,
+                    "column": 30,
+                    "endLine": 1,
+                    "endColumn": 31
+                }
+            },
+            "arguments": [
+                {
+                    "type": "Literal",
+                    "value": 1,
+                    "loc": {
+                        "line": 1,
+                        "column": 35,
+                        "endLine": 1,
+                        "endColumn": 35
+                    }
+                }
+            ],
+            "optional": false,
+            "loc": {
+                "line": 1,
+                "column": 30,
+                "endLine": 1,
+                "endColumn": 34
+            }
+        },
+        "loc": {
+            "line": 1,
+            "column": 2,
+            "endLine": 1,
+            "endColumn": 34
+        }
+    }
+}
