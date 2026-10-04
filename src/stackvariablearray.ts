@@ -745,7 +745,8 @@ export class StackVariableArray extends StackVariable {
                 //JS: массив всегда истина, даже пустой.
                 return new StackVariableBoolean(false, true);
             case VariableType.vtNumber:
-                return new StackVariableNumber(false, this.value.size > 0 ? 1 : 0);
+                //Как JS Number([…]): через строковый вид — [] → 0, [7] → 7, [1,2] → NaN.
+                return this.castAs(VariableType.vtString)?.castAs(VariableType.vtNumber) ?? null;
         }
 
         return null;
