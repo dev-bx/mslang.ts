@@ -35,6 +35,17 @@ function toInt64(v: number): bigint {
     return Number.isFinite(v) ? BigInt.asIntN(64, BigInt(Math.trunc(v))) : 0n;
 }
 
+/** Состояние пошаговой сортировки слиянием `arr.sort(cmp)` (зеркало PHP `__cb_sort`). */
+interface SortState {
+    width: number;
+    lo: number;
+    mid: number;
+    hi: number;
+    i: number | null;
+    j: number;
+    out: StackVariable[];
+}
+
 export class Interpreter {
     _nodeHandler: NodeHandlerItems
 
@@ -420,6 +431,7 @@ export class Interpreter {
     static readonly ARRAY_CALLBACK_METHODS: Record<string, string> = {
         'map': 'map', 'filter': 'filter', 'reduce': 'reduce', 'foreach': 'foreach',
         'find': 'find', 'findindex': 'findindex', 'some': 'some', 'every': 'every',
+        'sort': 'sort', //только с компаратором; без него — StackVariableArray.funcInvoke_sort
     };
 
     /**
@@ -447,6 +459,12 @@ export class Interpreter {
         context._codeData['__cb_idx'] = 0;
         context._codeData['__cb_results'] = [];
 
+        if (op === 'sort') {
+            context._codeData['__cb_elems'] = elements.map(v => Interpreter.unref(v));
+            //i === null — очередное слияние ещё не начато.
+            context._codeData['__cb_sort'] = {width: 1, lo: 0, mid: 0, hi: 0, i: null, j: 0, out: []} satisfies SortState;
+        }
+
         if (op === 'reduce') {
             if (parameters.length >= 2) {
                 let acc: unknown = parameters[1];
@@ -469,6 +487,11 @@ export class Interpreter {
 
     arrayCallbackTickHandler(context: ContextInterpreter, token: ParseNode): void {
         const op = context._codeData['__cb_op'] as string;
+        if (op === 'sort') {
+            this.sortTick(context, token);
+            return;
+        }
+
         const elements = context._codeData['__cb_elems'] as StackVariable[];
         const idx = context._codeData['__cb_idx'] as number;
 
@@ -502,6 +525,55 @@ export class Interpreter {
         this.invokeUserFunction(context, fn, args, token);
     }
 
+    /**
+     * `arr.sort(cmp)`: восходящая сортировка слиянием (устойчивая), каждое сравнение — вызов
+     * cmp. Состояние слияния живёт в _codeData кадра; tick двигает его до следующего
+     * сравнения или до конца. Алгоритм один в обоих движках — порядок вызовов cmp виден скрипту.
+     */
+    private sortTick(context: ContextInterpreter, token: ParseNode): void {
+        const state = context._codeData['__cb_sort'] as SortState;
+        let elements = context._codeData['__cb_elems'] as StackVariable[];
+        const n = elements.length;
+
+        while (true) {
+            if (state.i === null) {
+                if (state.lo >= n) {
+                    //Проход по всем парам отрезков закончен — следующий вдвое шире.
+                    elements = context._codeData['__cb_elems'] = state.out;
+                    state.out = [];
+                    state.lo = 0;
+                    state.width *= 2;
+                }
+                if (state.width >= n) {
+                    const array = context._codeData['__cb_self'] as StackVariableArray;
+                    array.value = elements;
+                    context.popExecutionStack();
+                    context.pushStackVar(array);
+                    return;
+                }
+                state.mid = Math.min(state.lo + state.width, n);
+                state.hi = Math.min(state.lo + 2 * state.width, n);
+                state.i = state.lo;
+                state.j = state.mid;
+            }
+
+            if (state.i < state.mid && state.j < state.hi) {
+                const collect = new InterpreterNode(token.cursorPos);
+                collect.nType = InterpreterNodeType.ntArrayCallbackCollect;
+                context._codeItems!.push(collect);
+
+                const fn = context._codeData['__cb_fn'] as StackVariableUserFunction;
+                this.invokeUserFunction(context, fn, this.trimCallbackArgs(fn, [elements[state.i], elements[state.j]]), token);
+                return;
+            }
+
+            //Одна половина кончилась — остаток другой переносим как есть.
+            state.out.push(...elements.slice(state.i, state.mid), ...elements.slice(state.j, state.hi));
+            state.lo = state.hi;
+            state.i = null;
+        }
+    }
+
     arrayCallbackCollectHandler(context: ContextInterpreter, token: ParseNode): void {
         const op = context._codeData['__cb_op'] as string;
         const idx = context._codeData['__cb_idx'] as number;
@@ -510,6 +582,20 @@ export class Interpreter {
         let result: StackVariable = context.popStackVar();
         if (result instanceof StackVariableRef) {
             result = result.refValue as StackVariable;
+        }
+
+        if (op === 'sort') {
+            if (result.type !== VariableType.vtNumber) {
+                throw new InterpreterException('Sort comparator must return a number, got ' + result.typeName, token.cursorPos, ErrorCode.TypeMismatch);
+            }
+            //Больше нуля — правый раньше; иначе (в том числе 0 и NaN) — левый: сортировка устойчива.
+            const state = context._codeData['__cb_sort'] as SortState;
+            state.out.push((result.value as number) > 0 ? elements[state.j++] : elements[(state.i as number)++]);
+
+            const tick = new InterpreterNode(token.cursorPos);
+            tick.nType = InterpreterNodeType.ntArrayCallbackTick;
+            context._codeItems!.push(tick);
+            return;
         }
 
         //Условие нужно только колбэкам-предикатам; map/reduce/forEach отдают что угодно.
@@ -993,7 +1079,7 @@ export class Interpreter {
         //funcInvoke-диспетчера. См. startArrayCallback.
         if (selfResolved instanceof StackVariableArray) {
             const op = Interpreter.ARRAY_CALLBACK_METHODS[funcName.toLowerCase()];
-            if (op !== undefined) {
+            if (op !== undefined && (op !== 'sort' || parameters.length > 0)) {
                 this.startArrayCallback(context, selfResolved, op, parameters as StackVariable[], token);
                 return;
             }

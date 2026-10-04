@@ -3867,3 +3867,22 @@ test('122_StatementStartsWithBracketOrNew', () => {
         assert.deepStrictEqual(result instanceof StackVariableArray ? result.convertToNativeArray() : result?.value, expected, script);
     }
 });
+
+test('123_ArraySortComparator', () => {
+    // sort(cmp): устойчивая сортировка слиянием, порядок вызовов cmp одинаков в обоих
+    // движках. Без компаратора — прежняя сортировка по строковому виду.
+    const cases: [string, unknown[]][] = [
+        ['return [3,1,2].sort((a, b) => b - a);', [3, 2, 1]],
+        ['return [10,9,1].sort((a, b) => a - b);', [1, 9, 10]],
+        ['return [10,9,1].sort();', [1, 10, 9]],
+        ['return [].sort((a, b) => a - b);', []],
+        ['let a = [5,3,8,1]; a.sort((x, y) => x - y); return a;', [1, 3, 5, 8]],
+        ['return [{k:1,n:"a"},{k:0,n:"b"},{k:1,n:"c"},{k:0,n:"d"}].sort((a, b) => a.k - b.k).map(o => o.n);', ['b', 'd', 'a', 'c']],
+        ['let calls = []; [3,1,2,5,4].sort((a, b) => { calls.push([a, b]); return a - b; }); return calls;',
+            [[3, 1], [2, 5], [1, 2], [3, 2], [3, 5], [1, 4], [2, 4], [3, 4], [5, 4]]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+    assert.strictEqual('TypeMismatch', errorOf('return [1,2].sort((a, b) => "x");')?.getErrorCode());
+});
