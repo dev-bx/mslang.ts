@@ -148,7 +148,9 @@ export class StackVariableArray extends StackVariable {
 
     /** Count */
 
-    funcInvoke_countReturn = () => VariableType.vtNumber;
+    funcInvoke_countReturn() {
+        return VariableType.vtNumber;
+    }
 
     funcInvoke_count() {
         return this.value.size;
@@ -156,7 +158,9 @@ export class StackVariableArray extends StackVariable {
 
     /** Contains */
 
-    funcInvoke_containsReturn = () => VariableType.vtBoolean;
+    funcInvoke_containsReturn() {
+        return VariableType.vtBoolean;
+    }
 
     funcInvoke_containsArgs() {
         return [
@@ -200,7 +204,9 @@ export class StackVariableArray extends StackVariable {
 
     /** IndexOf */
 
-    funcInvokeIndexOfReturn = () => VariableType.vtInteger;
+    funcInvokeIndexOfReturn() {
+        return VariableType.vtInteger;
+    }
 
     funcInvokeIndexOfArgs() {
         return [
@@ -235,7 +241,9 @@ export class StackVariableArray extends StackVariable {
 
     /** push */
 
-    funcInvoke_pushReturn = () => VariableType.vtNumber;
+    funcInvoke_pushReturn() {
+        return VariableType.vtNumber;
+    }
 
     funcInvoke_push(...args: unknown[]) {
         Object.values(args).forEach(rawValue => {
@@ -284,7 +292,9 @@ export class StackVariableArray extends StackVariable {
 
     /** join */
 
-    funcInvoke_joinReturn = () => VariableType.vtString;
+    funcInvoke_joinReturn() {
+        return VariableType.vtString;
+    }
 
     funcInvoke_joinArgs() {
         return [
@@ -298,7 +308,9 @@ export class StackVariableArray extends StackVariable {
 
     /** concat */
 
-    funcInvoke_concatReturn = () => VariableType.vtArray;
+    funcInvoke_concatReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_concat() {
         //Содержимое собираем без учёта бюджета, а итоговый массив создаём целиком — так
@@ -326,7 +338,9 @@ export class StackVariableArray extends StackVariable {
 
     /** keys */
 
-    funcInvoke_keysReturn = () => VariableType.vtArray;
+    funcInvoke_keysReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_keys() {
         //Зеркало PHP array_keys: целочисленный ключ — число, прочие — строка
@@ -339,7 +353,9 @@ export class StackVariableArray extends StackVariable {
 
     /** values */
 
-    funcInvoke_valuesReturn = () => VariableType.vtArray;
+    funcInvoke_valuesReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_values() {
         return new StackVariableArray(false, Array.from(this.value.values()), this.getContext());
@@ -347,7 +363,9 @@ export class StackVariableArray extends StackVariable {
 
     /** reverse */
 
-    funcInvoke_reverseReturn = () => VariableType.vtArray;
+    funcInvoke_reverseReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_reverse() {
         return new StackVariableArray(false, Array.from(this.value.values()).reverse(), this.getContext());
@@ -355,7 +373,9 @@ export class StackVariableArray extends StackVariable {
 
     /** flip */
 
-    funcInvoke_flipReturn = () => VariableType.vtArray;
+    funcInvoke_flipReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_flip() {
         //Как concat: собираем без учёта, итог создаём целиком (бюджет — как в PHP).
@@ -408,7 +428,9 @@ export class StackVariableArray extends StackVariable {
 
     /** unshift */
 
-    funcInvoke_unshiftReturn = () => VariableType.vtNumber;
+    funcInvoke_unshiftReturn() {
+        return VariableType.vtNumber;
+    }
 
     funcInvoke_unshift() {
         const oldValue = this.value;
@@ -432,7 +454,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** fill */
-    funcInvoke_fillReturn = () => VariableType.vtArray;
+    funcInvoke_fillReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_fill(...args: unknown[]): unknown {
         const rawValue = args[0];
@@ -459,7 +483,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** includes */
-    funcInvoke_includesReturn = () => VariableType.vtBoolean;
+    funcInvoke_includesReturn() {
+        return VariableType.vtBoolean;
+    }
 
     funcInvoke_includes(...args: unknown[]): boolean {
         const needle = args[0];
@@ -478,7 +504,9 @@ export class StackVariableArray extends StackVariable {
      * вхождение (порядок сохраняется). Сравнение — как у `==` (Interpreter.valuesEqual).
      * Исходный массив не меняется.
      */
-    funcInvoke_uniqueReturn = () => VariableType.vtArray;
+    funcInvoke_uniqueReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_unique(): StackVariable {
         const result: StackVariable[] = [];
@@ -499,7 +527,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** slice — новый массив-срез (как JS). Отрицательные индексы от конца, end не включается. */
-    funcInvoke_sliceReturn = () => VariableType.vtArray;
+    funcInvoke_sliceReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_slice(...args: unknown[]): StackVariable {
         const values = Array.from(this.value.values());
@@ -517,7 +547,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** splice — удаляет/вставляет НА МЕСТЕ, возвращает удалённые (как JS). Изменяет массив. */
-    funcInvoke_spliceReturn = () => VariableType.vtArray;
+    funcInvoke_spliceReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_splice(...args: unknown[]): StackVariable {
         const values = Array.from(this.value.values());
@@ -555,7 +587,9 @@ export class StackVariableArray extends StackVariable {
      * sort — сортировка по СТРОКОВОМУ виду (компаратор JS по умолчанию: `[10,9,1].sort()`
      * → `[1,10,9]`). Изменяет массив и возвращает его. undefined уходят в конец.
      */
-    funcInvoke_sortReturn = () => VariableType.vtArray;
+    funcInvoke_sortReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_sort(): StackVariable {
         const defined: StackVariable[] = [];
@@ -586,7 +620,9 @@ export class StackVariableArray extends StackVariable {
     }
 
     /** flat — разворачивает вложенные массивы до глубины depth (новый массив). */
-    funcInvoke_flatReturn = () => VariableType.vtArray;
+    funcInvoke_flatReturn() {
+        return VariableType.vtArray;
+    }
 
     funcInvoke_flat(...args: unknown[]): StackVariable {
         let levels: number;

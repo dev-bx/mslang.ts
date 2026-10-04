@@ -45,11 +45,15 @@ export class StackVariableNumber extends StackVariable {
     }
 
     /** toFixed — нативный Number.prototype.toFixed это и есть эталон V8; PHP повторяет его вручную. */
-    funcInvokeToFixedReturn = () => VariableType.vtString;
+    funcInvokeToFixedReturn() {
+        return VariableType.vtString;
+    }
 
-    funcInvokeToFixedArgs = () => [
-        new FunctionParameter('digits', VariableType.vtNumber, false, false, 0),
-    ];
+    funcInvokeToFixedArgs() {
+        return [
+            new FunctionParameter('digits', VariableType.vtNumber, false, false, 0),
+        ];
+    }
 
     funcInvokeToFixed(digits: number = 0): string {
         //ToInteger как в PHP (int-параметр диспетчер усекает) — до проверки диапазона.

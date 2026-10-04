@@ -40,7 +40,9 @@ export class StackVariableDateTime extends StackVariable {
         return dt;
     }
 
-    properties = {
+    // Один общий набор свойств на все даты (как NUMBER_PROPERTIES): раньше литерал создавался
+    // в каждом экземпляре. Геттеры получают экземпляр через apply в getProperty.
+    private static readonly PROPERTIES = Object.freeze({
         'Today': {
             get(this: StackVariableDateTime) {
                 //Полночь сегодня в зоне конфига: сдвигаем, обрезаем до суток, возвращаем сдвиг.
@@ -92,7 +94,9 @@ export class StackVariableDateTime extends StackVariable {
                 return new StackVariableNumber(true, (d.getUTCHours() * 60 * 60) + (d.getUTCMinutes() * 60) + d.getUTCSeconds());
             },
         }
-    }
+    });
+
+    properties = StackVariableDateTime.PROPERTIES;
 
     /** AddDays */
 
@@ -271,5 +275,4 @@ export class StackVariableDateTime extends StackVariable {
             + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
         return new StackVariableString(false, body + offStr, this.getContext());
     }
-
 }

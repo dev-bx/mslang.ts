@@ -3922,3 +3922,16 @@ test('125_LexerTypeArrayShape', () => {
 
     assert.throws(() => new LexerTypeArray([9999]).asNames, MSLangException);
 });
+
+test('126_SharedBuiltinProperties', () => {
+    // Свойства и методы встроенных типов одинаковы у каждого экземпляра (TS держит их
+    // общими на всех — проверяем, что разные экземпляры не путаются).
+    const cases: [string, unknown[]][] = [
+        ['let a = "ab"; let b = "😀x"; return [a.length, b.length, "".length];', [2, 2, 0]],
+        ['let a = [1]; let b = [1, 2, 3]; return [a.Count(), b.Count(), b.indexOf(3)];', [1, 3, 2]],
+        ['return [(1.25).toFixed(1), (2).toFixed(2), "a-b".split("-").Count()];', ['1.3', '2.00', 2]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+});
