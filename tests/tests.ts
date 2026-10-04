@@ -3935,3 +3935,18 @@ test('126_SharedBuiltinProperties', () => {
         assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
     }
 });
+
+test('127_ReferenceDelegation', () => {
+    // Переменная и свойство на стеке — ссылки: методы, свойства, switch, JSON и запись
+    // через них работают как на самом значении (TS — явные делегаты, без Proxy).
+    const cases: [string, unknown[]][] = [
+        ['let a = [1]; a.push(2); return [a.Count(), a.join("-")];', [2, '1-2']],
+        ['let s = "abc"; return [s.length, s.ToUpper()];', [3, 'ABC']],
+        ['let o = {n: 1, t: "x"}; o.n++; return [o.n, o.t.length];', [2, 1]],
+        ['let v = "b"; let r = ""; switch (v) { case "b": r = "B"; break; } return [r, JSON.stringify(v)];', ['B', '"b"']],
+        ['class P { constructor() { let p = []; p.push(0); this.p = p; } } let a = new P(); let b = new P(); b.p.push(1); return [a.p.Count(), b.p.Count()];', [1, 2]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+});

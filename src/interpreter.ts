@@ -1213,12 +1213,6 @@ export class Interpreter {
         // Зеркало PHP objPropHandler: если у объекта есть это свойство,
         // отдаём его обёрткой StackVariableRef через get/set — тогда `obj.prop++`
         // запишется обратно через setProperty.
-        // ЯЗЫКОВОЕ ОТЛИЧИЕ от PHP (P2-7): PHP передаёт сюда $context в Ref, но в
-        // TS это нельзя — funcEntryCache захватывает Proxy(StackVariableRef) с его
-        // scope, и после выхода из короткоживущего scope ломается чужой вызов
-        // (баг исправлен в 5c6d5ad, страж — Bug_FuncEntryCache_ProxyOnDeadScope).
-        // Поэтому Ref здесь без context, а отсутствующее свойство отдаём обычным
-        // значением null, а не записываемым Ref.
         if (getVar instanceof StackVariable) {
             const refProp = new StackVariableRef({
                 get: () => variable.getProperty(propname) as object,
@@ -1227,8 +1221,8 @@ export class Interpreter {
                         throw new MSLangException('set property value must be instance of StackVariable');
                     variable.setProperty(propname, value);
                 },
-            });
-            context.pushStackVar(refProp.getProxy());
+            }, context);
+            context.pushStackVar(refProp);
             return;
         }
 
@@ -2375,10 +2369,7 @@ export class Interpreter {
     switchEvaluatedHandler(context: ContextInterpreter, token: ParseNode) {
         let switchValue = context.popStackVar();
         if (switchValue instanceof StackVariableRef) {
-            //На стеке лежит getProxy()-обёртка StackVariableRef, через Proxy метод
-            //getRefValue() не доступен напрямую (см. stackvariableref.ts get-trap).
-            //Геттер refValue — особый случай, его Proxy пробрасывает.
-            switchValue = (switchValue as StackVariableRef).refValue as StackVariable;
+            switchValue = switchValue.getRefValue();
         }
 
         const caseNodes = token.childItems ?? [];

@@ -776,7 +776,7 @@ export class ContextInterpreter {
             }
         }));
 
-        return refValue.getProxy();
+        return refValue;
     }
 
     /**
@@ -957,7 +957,7 @@ export class ContextInterpreter {
             throw new ContextException('Invalid number of arguments for function "' + name + '"');
         }
 
-        const callFuncArgs = [self];
+        const callFuncArgs = [self instanceof StackVariableRef ? self.getRefValue() as StackVariable : self];
 
         const funcParameters = funcEntry.getParameters();
         // См. комментарий в callFunction: Math.max нужен для вариативных builtin'ов TS.

@@ -114,10 +114,8 @@ export class JsonFunctions extends StackVariable {
     private stringifyValue(input: StackVariable): string | null {
         let value: StackVariable = input;
         if (value instanceof StackVariableRef) {
-            //Ref в TS — прозрачный Proxy: .value/.type форвардятся, но getRefValue()
-            //через Proxy уходит в обёрнутое значение. Разворачиваем через .refValue
-            //(его Proxy обрабатывает особо) — нужно для instanceof-проверок ниже.
-            value = value.refValue as StackVariable;
+            //Разворачиваем ссылку — нужно для instanceof-проверок ниже.
+            value = value.getRefValue();
         }
 
         switch (value.type) {
