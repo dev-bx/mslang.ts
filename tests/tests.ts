@@ -3950,3 +3950,21 @@ test('127_ReferenceDelegation', () => {
         assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
     }
 });
+
+test('128_BlockScopeVisibility', () => {
+    // Видимость переменных в блоках, циклах и замыканиях (страж схемы кадров в TS:
+    // кадр хранит только свои записи, родительские ищутся по стеку).
+    const cases: [string, unknown[]][] = [
+        ['let x = 1; let f = () => x; { x = 2; } return [f(), x];', [2, 2]],
+        ['let x = 1; { let x = 5; x = 6; } return [x];', [1]],
+        ['let s = 0; for (let i = 0; i < 3; i++) { let t = i * 2; s = s + t; } return [s];', [6]],
+        ['function f() { if (true) { var v = 3; } return v; } return [f()];', [3]],
+        ['let c = 0; function inc() { c = c + 1; } for (let i = 0; i < 3; i++) { if (i > 0) { inc(); } } return [c];', [2]],
+        ['function mk() { let n = 0; return () => { { n = n + 1; } return n; }; } let g = mk(); g(); return [g()];', [2]],
+        ['let a = 1; function f() { let a = 10; { a = a + 1; } return a; } return [f(), a];', [11, 1]],
+        ['const k = 5; let r = 0; { r = k + 1; } return [r == 6, k == 5];', [true, true]],
+    ];
+    for (const [script, expected] of cases) {
+        assert.deepStrictEqual((executeReturnCode(script) as StackVariableArray).convertToNativeArray(), expected, script);
+    }
+});
