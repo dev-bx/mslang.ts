@@ -3748,3 +3748,21 @@ test('110_ThrowInsideOperand', () => {
     assert.strictEqual(5, executeReturnCode(prefix + 'let t = 1; try { t = t < f() ? 1 : 2; } catch (e) { t = 5; } return t;')?.value);
     assert.deepStrictEqual([9], (executeReturnCode(prefix + 'let r = []; try { r.push(2 * f()); } catch (e) { r.push(9); } return r;') as StackVariableArray).convertToNativeArray());
 });
+
+test('116_ElseIfAndSingleStatementBodies', () => {
+    // Тело из одной инструкции `if (…) {…}` без else заглядывает вперёд за else — этот
+    // токен больше не пропускается: инструкция после `else if (…) {…}` не теряется.
+    const cases: [string, number][] = [
+        ['let x = 5; if (x > 3) { x = 1; } else if (x == 5) { x = 2; } return x;', 1],
+        ['let x = 1; if (x > 3) { return 1; } else if (x == 5) { return 2; } return 3;', 3],
+        ['let x = 5; if (x > 9) { x = 1; } else if (x == 5) { x = 2; } else { x = 3; } return x;', 2],
+        ['let x = 0; if (x > 9) x = 1; else if (x == 0) x = 2; return x;', 2],
+        ['let r = 0; for (let i = 0; i < 3; i++) if (i == 1) { r = r + 10; } return r;', 10],
+        ['let r = 0; let i = 0; while (i < 3) if (i++ == 1) { r = 5; } return r;', 5],
+        ['let r = 0; for (const v of [1, 2]) if (v == 2) { r = v; } return r;', 2],
+        ['let a = 1; if (a == 1) if (a == 2) { a = 9; } return a;', 1],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(expected, executeReturnCode(script)?.value, script);
+    }
+});

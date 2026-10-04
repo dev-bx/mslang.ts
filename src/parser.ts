@@ -1293,11 +1293,8 @@ export class CodeParser {
 
         const bodyNode = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
         bodyNode.childItems = [];
-        if (this.lexer.tokenSym === LexerType.ltStartCode) {
-            this.parseCode(bodyNode.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-        } else {
-            this.parseCode(bodyNode.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
-        }
+        //Признак «следующий токен уже прочитан» вызывающий parseCode берёт из pendingToken.
+        this.parseStatementBody(bodyNode.childItems);
 
         const forOf = new ParseNode(forCursor, NodeType.ntForOf, varName);
         forOf.nValue2 = kind;
@@ -1407,14 +1404,18 @@ export class CodeParser {
             //лексер ровно там, где он стоит (обычно на `;`), внешний parseCode
             //сам решит, что дальше.
             if (singleStatement && parsedOne) {
+                //Инструкция могла оставить заглядывание вперёд (зеркало PHP pendingToken).
+                this.pendingToken = !getNextToken;
                 return;
             }
 
             if (getNextToken)
                 this.lexer.getToken();
 
-            if (endLineType.indexOf(this.lexer.tokenSym) !== -1)
+            if (endLineType.indexOf(this.lexer.tokenSym) !== -1) {
+                this.pendingToken = false;
                 return;
+            }
 
             getNextToken = true;
 
@@ -1528,6 +1529,7 @@ export class CodeParser {
 
                         if (isForOf) {
                             this.parseForOf(NodeList, forCursor, kind ?? 'let', varName as string);
+                            getNextToken = !this.pendingToken;
                             break;
                         }
 
@@ -1567,12 +1569,7 @@ export class CodeParser {
                         Node2 = new ParseNode(this.lexer.tokenCursor, NodeType.ntSubCode);
                         Node2.childItems = [];
 
-                        if (this.lexer.tokenSym === LexerType.ltStartCode)
-                        {
-                            this.parseCode(Node2.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-                        } else {
-                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
-                        }
+                        getNextToken = !this.parseStatementBody(Node2.childItems);
 
                         Node.childItems.push(Node2);
 
@@ -1599,12 +1596,7 @@ export class CodeParser {
 
                         this.lexer.getToken();
 
-                        if (this.lexer.tokenSym === LexerType.ltStartCode)
-                        {
-                            this.parseCode(Node2.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-                        } else {
-                            this.parseCode(Node2.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
-                        }
+                        getNextToken = !this.parseStatementBody(Node2.childItems);
 
                         break;
                     case LexerType.ltBreak:
@@ -1642,14 +1634,11 @@ export class CodeParser {
 
                         this.lexer.getToken();
 
-                        if (this.lexer.tokenSym === LexerType.ltStartCode)
-                        {
-                            this.parseCode(Node.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-                        } else {
-                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
+                        //Заглядываем за тело: нет ли else. Если тело само уже заглянуло
+                        //вперёд (вложенный if без else), следующий токен уже прочитан.
+                        if (!this.parseStatementBody(Node.childItems)) {
+                            this.lexer.getToken();
                         }
-
-                        this.lexer.getToken();
                         if (this.lexer.tokenSym !== LexerType.ltELSE)
                         {
                             getNextToken = false;
@@ -1666,12 +1655,7 @@ export class CodeParser {
 
                         this.lexer.getToken();
 
-                        if (this.lexer.tokenSym === LexerType.ltStartCode)
-                        {
-                            this.parseCode(Node.childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
-                        } else {
-                            this.parseCode(Node.childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
-                        }
+                        getNextToken = !this.parseStatementBody(Node.childItems);
                         break;
                     case LexerType.ltStartCode:
 
@@ -1694,9 +1678,35 @@ export class CodeParser {
                 parsedOne = true;
             }
 
-            if (inline && endLineType.indexOf(this.lexer.tokenSym) !== -1)
+            if (inline && endLineType.indexOf(this.lexer.tokenSym) !== -1) {
+                this.pendingToken = false;
                 return;
+            }
         }
+    }
+
+    /**
+     * Текущий токен (после разбора тела из одной инструкции) уже следующий и ещё не
+     * обработан — его нельзя пропускать новым getToken (зеркало PHP).
+     */
+    protected pendingToken = false;
+
+    /**
+     * Тело if / else / for / while / for-of: блок `{ … }` или одна инструкция (зеркало PHP
+     * CodeParser::parseStatementBody). Возвращает true, если после тела лексер уже стоит на
+     * следующем, ещё не разобранном токене (телом был `if (…) {…}` без else).
+     */
+    protected parseStatementBody(childItems: (ParseNode | ParseNode[])[]): boolean
+    {
+        if (this.lexer.tokenSym === LexerType.ltStartCode) {
+            this.parseCode(childItems, true, false, LexerTypeArray.one(LexerType.ltEndCode));
+            this.pendingToken = false;
+        } else {
+            this.pendingToken = false;
+            this.parseCode(childItems, false, true, LexerTypeArray.one(LexerType.ltSemicolon), true);
+        }
+
+        return this.pendingToken;
     }
 
     /**
