@@ -3116,7 +3116,7 @@ test('088_Truthiness', () => {
     }
 
     // Текст ошибки называет место и тип.
-    assert.strictEqual('Expected boolean in condition, got number', errorOf('if (1) { return 1; }')?.getRawMessage());
+    assert.strictEqual('Expected boolean in if, got number', errorOf('if (1) { return 1; }')?.getRawMessage());
     assert.strictEqual('Expected boolean in &&, got string', errorOf('return "a" && true;')?.getRawMessage());
     assert.strictEqual('Expected boolean in filter callback, got number', errorOf('return [1].filter(x => 1);')?.getRawMessage());
 
@@ -3618,4 +3618,65 @@ test('104_Ast', () => {
     const root = Script.parseExpression('1').toAst();
     assert.deepStrictEqual(['Expression', 1], [root.type, root.version]);
     assert.strictEqual('Program', Script.parseProgram('return 1;').toAst().type);
+});
+
+test('111_ConditionAsExpression', () => {
+    // Условие if/while — обычное выражение: те же приоритеты, что вне условия. Раньше
+    // скобки слева от сравнения считались вложенным условием и требовали boolean.
+    const cases: [string, unknown][] = [
+        ['let n = 1; if ((n + 1) == 2) return "T"; return "F";', 'T'],
+        ['let s = "a"; if ((s) == "a") return "T"; return "F";', 'T'],
+        ['let n = null; let i = 0; while ((n ?? 0) + i < 3) { i++; } return i;', 3],
+        ['let x = null; if (x == null ?? false) return "T"; return "F";', 'T'],
+        ['let x = 1; if (x == 1 ? true : false) return "T"; return "F";', 'T'],
+        ['let x = null; if ((x) ?? true) return "T"; return "F";', 'T'],
+        ['if ((1) + 1 > 0) return "T"; return "F";', 'T'],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(expected, executeReturnCode(script)?.value, script);
+    }
+    assert.strictEqual('Expected boolean in if, got number', errorOf('if (1) return 1;')?.getRawMessage());
+    assert.strictEqual('Expected boolean in loop condition, got number', errorOf('let i = 0; while (i) { i++; }')?.getRawMessage());
+});
+
+test('112_ScriptParseNameAtEnd', () => {
+    // Имя в самом конце текста — граница имени, а не ошибка лексера: формулы `a`,
+    // `price > 100`, `x.y` разбираются.
+    for (const source of ['a', 'price > 100', 'a + b', 'true', 'x.y', '[1, 2].length', 'a?.b']) {
+        assert.strictEqual('expression', Script.parse(source).getKind(), source);
+    }
+    const context = Script.parseExpression('price > 100').createContext();
+    context.setVariable('price', new StackVariableNumber(false, 150));
+    assert.strictEqual(true, context.exec(true)?.value);
+});
+
+test('113_OptionalChainIsReadOnly', () => {
+    // `?.` только читает: любая запись через цепочку с `?.` — ошибка разбора.
+    for (const script of ['a?.b = 1;', 'a?.[0] = 1;', 'a?.b++;', '++a?.b;', 'a?.b.c = 5;', 'a?.b[0] = 5;']) {
+        assert.strictEqual('ParseError', errorOf('let a = {b: {c: 1}}; ' + script)?.getErrorCode(), script);
+    }
+    assert.strictEqual(5, executeReturnCode('let a = {b: {c: 1}}; a.b.c = 5; return a?.b.c;')?.value);
+});
+
+test('114_DotNumberExistsParensOwnNames', () => {
+    // `.5` в позиции операнда — число (было «Stack is empty»).
+    assert.strictEqual(0.5, executeReturnCode('let x = true; return x ?.5 : 1;')?.value);
+    assert.strictEqual(1.25, executeReturnCode('return 1 + .25;')?.value);
+    // Скобки вокруг имени в exists ничего не меняют.
+    assert.strictEqual(false, executeReturnCode('return exists((nope));')?.value);
+    // Служебные имена хост-языка (toString, constructor) — не переменные скрипта
+    // (в TS таблица переменных — объект с прототипом Object).
+    assert.strictEqual(false, executeReturnCode('return exists(toString);')?.value);
+    assert.strictEqual('UnknownName', errorOf('return constructor;')?.getErrorCode());
+    const context = createCodeContext('return toString;');
+    context.registerFunction('toString', new StackVariableNumber(false, 7));
+    assert.strictEqual(7, context.exec(true)?.value);
+});
+
+test('115_IncludesUniqueEquality', () => {
+    // includes/unique сравнивают как `==` (valuesEqual): 1 и 1.0 равны, ссылки — по ссылке.
+    assert.strictEqual(true, executeReturnCode('return [1].includes(0.5 * 2);')?.value);
+    assert.deepStrictEqual([3], (executeReturnCode('return [1.5 * 2, 3].unique();') as StackVariableArray).convertToNativeArray());
+    assert.strictEqual(false, executeReturnCode('return [[1]].includes([1]);')?.value);
+    assert.strictEqual(false, executeReturnCode('return [(0/0)].includes(0/0);')?.value);
 });

@@ -1390,7 +1390,12 @@ export class Interpreter {
      * вычисляется, и результат — «значение не null».
      */
     existsHandler(context: ContextInterpreter, token: ParseNode) {
-        const children = token.nodeChildren();
+        let children = token.nodeChildren();
+
+        //Скобки вокруг имени ничего не меняют: exists((nope)) — то же, что exists(nope).
+        while (children.length === 1 && children[0].nType === NodeType.ntSubExpression) {
+            children = children[0].nodeChildren();
+        }
 
         if (children.length === 1 && children[0].nType === NodeType.ntContextVariable
             && !context.getVariable(String(children[0].nValue))) {
@@ -2502,7 +2507,7 @@ export class Interpreter {
                 if (name === '') continue;
                 //Уже объявлена (let/const до или сам var повторно) — пропускаем,
                 //runtime varDeclHandler сам перезапишет значение при выполнении.
-                if (!(name in context._variables)) {
+                if (!Object.prototype.hasOwnProperty.call(context._variables, name)) {
                     context._variables[name] = new StackVariableNull(false);
                 }
                 continue;

@@ -48,6 +48,14 @@ interface ExecutionStackItem {
     letNames?: Record<string, boolean>;
 }
 
+// Таблицы переменных — обычные объекты с прототипом Object, поэтому имя ищем только среди
+// собственных ключей: иначе `toString`, `constructor`, `hasOwnProperty` «существовали» бы
+// в каждом скрипте (exists(toString) → true, registerFunction("toString") → DuplicateName),
+// чего нет в PHP-эталоне.
+function hasOwn(table: object, name: string): boolean {
+    return Object.prototype.hasOwnProperty.call(table, name);
+}
+
 export class ContextInterpreter {
     _variables: Record<string, StackVariable>;
     _functions: Record<string, FunctionEntry>;
@@ -395,7 +403,7 @@ export class ContextInterpreter {
                 //Если внутри scope переменную не трогали (например, она была обновлена
                 //прямо в snapshot через closure-walk в setVariable) — пропускаем
                 //копирование, иначе попадём в установку value на undefined.
-                if (tmp[k] === undefined)
+                if (!hasOwn(tmp, k))
                     return;
 
                 if (this._variables[k].type !== tmp[k].type) {
@@ -531,10 +539,10 @@ export class ContextInterpreter {
      */
     getGlobalVariable(name: string): StackVariable | undefined {
         if (this._executionStack.length === 0) {
-            return this._variables[name];
+            return hasOwn(this._variables, name) ? this._variables[name] : undefined;
         }
         const rootVars = this._executionStack[0].variables;
-        return rootVars[name];
+        return hasOwn(rootVars, name) ? rootVars[name] : undefined;
     }
 
     pushStackVar(data: unknown) {
@@ -707,7 +715,7 @@ export class ContextInterpreter {
     }
 
     getVariable(name: string): StackVariable|undefined {
-        if (this._variables[name] !== undefined) {
+        if (hasOwn(this._variables, name)) {
             return this._variables[name];
         }
 
@@ -716,13 +724,13 @@ export class ContextInterpreter {
         //и top-level пользовательские функции.
         for (let i = this._executionStack.length - 1; i >= 0; i--) {
             const vars = this._executionStack[i].variables;
-            if (vars && vars[name] !== undefined) {
+            if (vars && hasOwn(vars, name)) {
                 return vars[name];
             }
         }
 
         //Замыкание: переменные, «застывшие» в области, где функция была определена.
-        if (this._currentCapturedScope !== null && this._currentCapturedScope[name] !== undefined) {
+        if (this._currentCapturedScope !== null && hasOwn(this._currentCapturedScope, name)) {
             return this._currentCapturedScope[name];
         }
 
@@ -758,7 +766,7 @@ export class ContextInterpreter {
      * replace = true — явная замена, в том числе встроенного значения и константы.
      */
     registerFunction(name: string, value: StackVariable, replace: boolean = false): void {
-        if (!replace && this._variables[name] !== undefined) {
+        if (!replace && hasOwn(this._variables, name)) {
             throw new ContextException('Name "' + name + '" is already registered', ErrorCode.DuplicateName);
         }
 
@@ -780,11 +788,11 @@ export class ContextInterpreter {
             }
         }
 
-        if (isInsideFunction && this._variables[name] === undefined) {
+        if (isInsideFunction && !hasOwn(this._variables, name)) {
             //Идём по execution stack: если переменная есть наверху — обновляем там.
             for (let i = this._executionStack.length - 1; i >= 0; i--) {
                 const vars = this._executionStack[i].variables;
-                if (vars && vars[name] !== undefined) {
+                if (vars && hasOwn(vars, name)) {
                     if (vars[name].isConst)
                         throw new ContextException('Cannot override constant ' + name);
                     vars[name] = value;
@@ -793,7 +801,7 @@ export class ContextInterpreter {
             }
 
             //Захваченная область замыкания.
-            if (this._currentCapturedScope !== null && this._currentCapturedScope[name] !== undefined) {
+            if (this._currentCapturedScope !== null && hasOwn(this._currentCapturedScope, name)) {
                 const existing = this._currentCapturedScope[name];
                 if (existing.isConst)
                     throw new ContextException('Cannot override constant ' + name);
@@ -812,7 +820,7 @@ export class ContextInterpreter {
             }
         }
 
-        if (!!this._variables[name] && this._variables[name].isConst)
+        if (hasOwn(this._variables, name) && this._variables[name].isConst)
             throw new ContextException('Cannot override constant ' + name);
 
         this._variables[name] = value;

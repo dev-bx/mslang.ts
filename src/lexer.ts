@@ -184,7 +184,9 @@ export class Lexer {
             if (this._lastChar === '\n') {
                 this._cursorLine++;
                 this._cursorCol = 1;
-            } else {
+            } else if (!this.isSecondSurrogateHalf()) {
+                //Столбец — в символах (код-поинтах), как PHP mb_substr: вторая половина
+                //суррогатной пары (эмодзи) — тот же символ, столбец не растёт.
                 this._cursorCol++;
             }
 
@@ -192,6 +194,16 @@ export class Lexer {
         }
 
         return this._lastChar;
+    }
+
+    private isSecondSurrogateHalf(): boolean {
+        const code = this._text.charCodeAt(this._textPos);
+        if (code < 0xDC00 || code > 0xDFFF || this._textPos === 0) {
+            return false;
+        }
+        const previous = this._text.charCodeAt(this._textPos - 1);
+
+        return previous >= 0xD800 && previous <= 0xDBFF;
     }
 
     whoNextCh(offset = 0) {
@@ -816,7 +828,8 @@ export class CodeLexer extends Lexer {
                 break;
             }
 
-            if (nextCh !== null && allowStopChars.indexOf(nextCh) !== -1) {
+            //Конец текста — тоже граница имени: формула `price > 100` или просто `a`.
+            if (nextCh === null || allowStopChars.indexOf(nextCh) !== -1) {
                 break;
             }
 
