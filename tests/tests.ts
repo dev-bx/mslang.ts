@@ -3987,3 +3987,28 @@ test('129_ArrayToStringAsJs', () => {
         assert.strictEqual(executeReturnCode(script)?.value, expected, script);
     }
 });
+
+test('130_BuiltinArgumentTypes', () => {
+    // Аргумент не того типа, что объявлен у параметра встроенной функции, — TypeMismatch
+    // с именем функции и номером аргумента. Раньше PHP приводил "5" к числу и падал
+    // сырым TypeError, TS приводил всё по правилам JS. null — только вместо необязательного.
+    const errors: [string, string][] = [
+        ['return Math.abs("5");', 'Argument 1 of "abs" must be number, string given'],
+        ['return Math.abs("0x1A");', 'Argument 1 of "abs" must be number, string given'],
+        ['let f = x => x; return Math.abs(f);', 'Argument 1 of "abs" must be number, function given'],
+        ['return Math.abs(null);', 'Argument 1 of "abs" must be number, null given'],
+        ['return Math.pow(2, "3");', 'Argument 2 of "pow" must be number, string given'],
+        ['return "abc".repeat("2");', 'Argument 1 of "repeat" must be number, string given'],
+        ['return "a-b".split(1);', 'Argument 1 of "split" must be string, number given'],
+        ['return [1,2,3].slice("1");', 'Argument 1 of "slice" must be number, string given'],
+    ];
+    for (const [script, message] of errors) {
+        const error = errorOf(script);
+        assert.strictEqual(error?.getErrorCode(), 'TypeMismatch', script);
+        assert.strictEqual(error?.getRawMessage(), message, script);
+    }
+
+    assert.strictEqual(executeReturnCode('return "abc".slice(1, null);')?.value, 'bc');
+    assert.deepStrictEqual((executeReturnCode('return [1,2,3].slice(1);') as StackVariableArray).convertToNativeArray(), [2, 3]);
+    assert.strictEqual(executeReturnCode('return "abc".repeat(4 / 2);')?.value, 'abcabc');
+});
