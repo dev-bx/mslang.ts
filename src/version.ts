@@ -3,7 +3,7 @@
 // и подтягивается из package.json через scripts/sync-version.mjs — на случай, если
 // их забыли свести вручную. Версия языка общая с PHP-эталоном (сверяет mirror_Version).
 export const Version = {
-    VERSION: '4.0.0',
+    VERSION: '5.0.0',
     REVISION: '2026-10-04',
 
     getFullVersion(): string {
