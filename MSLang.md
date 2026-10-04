@@ -452,6 +452,12 @@ exists(rule) && rule.mode == "x" // проверка наличия — явно
 присваивание — только числа; `+` ещё склеивает две строки. Остальное — `TypeMismatch`
 («Operator + is not defined for string and number»). `x op= y` — ровно `x = x op y`.
 
+**Аргументы встроенных функций и функций хоста** — того типа, что объявлен у параметра (число,
+строка, boolean, массив), иначе `TypeMismatch` с именем функции и номером аргумента:
+`Math.abs("5")` → «Argument 1 of "abs" must be number, string given». `null` допустим только
+вместо необязательного аргумента (`"abc".slice(1, null)`). Параметры без объявленного типа
+(`Math.max`, `Number.isInteger`, `indexOf`…) принимают любое значение.
+
 Явные приведения:
 
 ```mslang
