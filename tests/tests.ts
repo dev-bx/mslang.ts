@@ -4012,3 +4012,26 @@ test('130_BuiltinArgumentTypes', () => {
     assert.deepStrictEqual((executeReturnCode('return [1,2,3].slice(1);') as StackVariableArray).convertToNativeArray(), [2, 3]);
     assert.strictEqual(executeReturnCode('return "abc".repeat(4 / 2);')?.value, 'abcabc');
 });
+
+test('131_JsOperatorPrecedence', () => {
+    // Приоритеты как в JS: `* / %` > `+ -` > сдвиги > сравнения > `&` > `^` > `|`.
+    // Раньше `& | ^ << >> >>>` стояли наравне с `*`: `1 | 2 << 3` давало 24.
+    const cases: [string, unknown][] = [
+        ['return 1 | 2 << 3;', 17],
+        ['return 1 + 2 << 3;', 24],
+        ['return 6 | 3 & 1;', 7],
+        ['return 5 ^ 3 & 1;', 4],
+        ['return 1 | 6 ^ 3;', 5],
+        ['return 8 >> 1 + 1;', 2],
+        ['return 1 + 8 >>> 1;', 4],
+        ['return 2 * 3 + 4 * 5;', 26],
+        ['let a = [1,2]; return a[0] | a[1] << 1;', 5],
+        ['return 1 << 2 == 4;', true],
+        ['return (6 & 3) == 2;', true],
+    ];
+    for (const [script, expected] of cases) {
+        assert.strictEqual(executeReturnCode(script)?.value, expected, script);
+    }
+    // `&` слабее `==`: `6 & 3 == 2` — это `6 & (3 == 2)`, число & boolean.
+    assert.strictEqual('TypeMismatch', errorOf('return 6 & 3 == 2;')?.getErrorCode());
+});
